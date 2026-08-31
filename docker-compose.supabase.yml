@@ -1,0 +1,80 @@
+# ============================================================
+# Vocero CRM — FORK agenciaev: app + Caddy, SIN Postgres local.
+#
+# Variante del docker-compose.yml de upstream para desplegar contra la base
+# Postgres de Supabase del proyecto agenciaev, aislada en el esquema `vocero`.
+# Se deja como archivo APARTE (no se modifica el compose de upstream) para que
+# el diff contra upstream siga siendo diminuto y rebasear sea trivial.
+#
+# Diferencias contra docker-compose.yml:
+#   - Eliminado el servicio `postgres` y su volumen `vocero_pg`.
+#   - Eliminado el `depends_on: postgres` del servicio `app`.
+#   - DATABASE_URL ya no se arma con POSTGRES_PASSWORD: viene entero del .env
+#     (session pooler de Supabase, puerto 5432 — ver .env.agenciaev.example).
+#   - Añadidos MEDIA_DIR + volumen `vocero_media` (upstream NO los declara y
+#     los adjuntos de WhatsApp se perderían al recrear el contenedor).
+#
+# Uso:  cp .env.agenciaev.example .env  →  rellenar  →
+#       docker compose -f docker-compose.supabase.yml up -d --build
+# ============================================================
+name: vocero-agenciaev
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_BASE_URL: ${APP_BASE_URL}
+      # Cadena completa al session pooler de Supabase (puerto 5432).
+      DATABASE_URL: ${DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
+      OPENROUTER_API_TOKEN: ${OPENROUTER_API_TOKEN:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_JUDGE_MODEL: ${OPENROUTER_JUDGE_MODEL:-}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-}
+      AGENT_COALESCE_MS: ${AGENT_COALESCE_MS:-6000}
+      CHANNELS: ${CHANNELS:-}
+      AGENDA: ${AGENDA:-}
+      ATRIBUCION: ${ATRIBUCION:-}
+      BOT_API_KEY: ${BOT_API_KEY:-}
+      # 008: adjuntos de WhatsApp en disco. El Dockerfile ya prepara /data/media
+      # con dueño `vocero`; el volumen nombrado hereda ese dueño al montarse.
+      MEDIA_DIR: ${MEDIA_DIR:-/data/media}
+    volumes:
+      # CRÍTICO: sin este volumen los adjuntos (imágenes, audios, documentos)
+      # se pierden al recrear el contenedor. Meta expira sus URLs (~30 días),
+      # así que no se pueden volver a descargar.
+      - vocero_media:/data/media
+    # Sin `depends_on`: la BD es externa (Supabase). El reintento de arranque
+    # lo cubre scripts/migrate.mjs (15 intentos) + el HEALTHCHECK del
+    # Dockerfile (/api/health, start-period 40s) que cubre las migraciones.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - vocero_caddy_data:/data
+      - vocero_caddy_config:/config
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vocero_media:
+  vocero_caddy_data:
+  vocero_caddy_config:

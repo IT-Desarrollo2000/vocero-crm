@@ -21,7 +21,15 @@ const migrationsFolder =
 
 const maxAttempts = 15;
 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-  const sql = postgres(url, { max: 1, onnotice: () => {} });
+  // FORK agenciaev: mismo search_path que el cliente de la app (src/lib/db).
+  // La BD es compartida con agenciaev y Vocero vive aislado en el esquema
+  // `vocero`; sin esto las migraciones crearían/alterarían tablas en `public`.
+  // `public` se omite A PROPÓSITO para no tocar por accidente el otro proyecto.
+  const sql = postgres(url, {
+    max: 1,
+    onnotice: () => {},
+    connection: { search_path: "vocero, extensions" },
+  });
   try {
     await migrate(drizzle(sql), { migrationsFolder });
     console.log("[migrate] migraciones aplicadas");
