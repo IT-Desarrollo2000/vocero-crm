@@ -147,6 +147,55 @@ preferimos no cargar.
 3. `ALTER ROLE vocero_app SET search_path = vocero, extensions;` (defensa en
    profundidad; el driver igual lo manda por conexión).
 
+### 3.4 ⚠️ BLOQUEANTE ABIERTO: las migraciones traen `"public"` cableado
+
+**El parche de `search_path` NO alcanza por sí solo.** El SQL generado por
+`drizzle-kit` en `drizzle/` califica el esquema **a mano** en las claves
+foráneas:
+
+```sql
+CREATE TABLE "account" ( ... );                      -- sin calificar → cae en `vocero` ✅
+ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk"
+  FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ...;  -- ❌ apunta a `public`
+```
+
+Alcance medido en este commit: **49 ocurrencias** de `REFERENCES "public"."…"`
+en **8 de las 11** migraciones (`0000`, `0002`, `0004`, `0008`, `0009`, `0010`).
+Las tablas referenciadas son: `ad_attribution`, `agent_test_run`, `contact`,
+`conversation`, `lead`, `media_asset`, `organization`, `pipeline_stage`, `user`.
+
+Qué pasa al correr `migrate` contra Supabase con `search_path = vocero`:
+las tablas se **crean** bien en `vocero`, y después la primera `ALTER TABLE …
+ADD CONSTRAINT` **falla** con `relation "public.user" does not exist`. La
+migración `0000` queda a medias y el contenedor no arranca.
+
+Lo bueno: **falla ruidosamente, no en silencio.** Se verificó que ninguno de
+esos 9 nombres existe en el `public` de agenciaev, así que no hay riesgo de que
+se cree una FK cruzada apuntando al otro proyecto. Si algún día agenciaev
+creara una tabla con uno de esos nombres, el riesgo pasaría a ser real y
+silencioso.
+
+Opciones para resolverlo (**decisión de equipo pendiente, nada implementado**):
+
+1. **Reescribir el SQL al vuelo en `scripts/migrate.mjs`** — copiar `drizzle/` a
+   una carpeta temporal sustituyendo `"public".` → `"vocero".` antes de llamar a
+   `migrate()`. Ventaja: queda contenido en un archivo que ya parcheamos, y
+   cubre automáticamente las migraciones futuras de upstream. Es la opción
+   recomendada.
+2. **Parchear los 11 archivos de `drizzle/`** con un `sed`. Simple, pero infla
+   el diff (49 líneas en 8 archivos) y hay que repetirlo en cada migración nueva
+   que publique upstream. Rompe la regla del diff mínimo.
+3. **Proponer el arreglo a upstream** (que `drizzle.config.ts` no cablee el
+   esquema, o que el schema use `pgSchema`). Es lo correcto a largo plazo pero
+   no desbloquea el deploy de hoy.
+
+Detalle adicional: `migrate()` se llama sin `migrationsSchema`, así que
+`drizzle-orm` usa su default y crea la tabla de control en un esquema
+**`drizzle`** aparte (`drizzle.__drizzle_migrations`), no dentro de `vocero`.
+El rol `vocero_app` necesita permiso para crearlo, o hay que pasarle
+`migrationsSchema: "vocero"` a `migrate()` para mantener todo junto. Conviene
+resolverlo en la misma pasada que la opción 1.
+
 ---
 
 ## 4. Herramientas que se conectan por fuera de la app
