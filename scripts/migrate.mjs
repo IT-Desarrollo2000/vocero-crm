@@ -18,8 +18,41 @@ if (!url) {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const migrationsFolder =
-  process.env.MIGRATIONS_DIR ?? path.join(here, "drizzle");
+
+/**
+ * FORK agenciaev — resuelve la carpeta de migraciones en los DOS escenarios en
+ * que corre este script:
+ *
+ *  - En la imagen Docker: esbuild lo bundlea a la RAÍZ (`/app/migrate.mjs`),
+ *    al lado de `/app/drizzle`, así que `here/drizzle` existe. Es la única
+ *    ruta que contempla upstream.
+ *  - Desde el repo (`node scripts/migrate.mjs`): `here` es `scripts/`, así que
+ *    `here/drizzle` NO existe y hay que subir un nivel: `here/../drizzle`.
+ *    Upstream falla acá con `ENOENT ... lstat 'scripts/drizzle/meta'`.
+ *
+ * `MIGRATIONS_DIR` mantiene la precedencia por encima de las dos.
+ */
+function resolverMigrationsFolder() {
+  if (process.env.MIGRATIONS_DIR) return process.env.MIGRATIONS_DIR;
+
+  const candidatas = [
+    path.join(here, "drizzle"), // bundle en la raíz (imagen Docker)
+    path.join(here, "..", "drizzle"), // ejecución desde el repo (scripts/)
+  ];
+  // Se valida por `meta/` porque es lo que `readMigrationFiles()` necesita:
+  // una carpeta `drizzle/` sin journal no sirve para nada.
+  const encontrada = candidatas.find((c) => fs.existsSync(path.join(c, "meta")));
+  if (encontrada) return encontrada;
+
+  console.error(
+    "[migrate] no encontré la carpeta de migraciones. Busqué en:\n" +
+      candidatas.map((c) => "  - " + c).join("\n") +
+      "\n  Pasá la ruta explícita con MIGRATIONS_DIR=./drizzle"
+  );
+  process.exit(1);
+}
+
+const migrationsFolder = resolverMigrationsFolder();
 
 /**
  * FORK agenciaev — desqualifica el esquema de las claves foráneas.

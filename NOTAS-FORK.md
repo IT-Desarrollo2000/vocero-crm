@@ -61,9 +61,10 @@ proyectos. Sin `public`, ese caso falla ruidosamente con
 `extensions` sí va, porque es donde Supabase instala `pgcrypto`, `uuid-ossp`,
 etc.
 
-`scripts/migrate.mjs` lleva **además** una transformación del SQL de las
-migraciones, porque el `search_path` por sí solo no basta: las FK que genera
-drizzle-kit traen `public` cableado. Ver **§3.4**.
+`scripts/migrate.mjs` lleva **además** dos cosas: una transformación del SQL de
+las migraciones —porque el `search_path` por sí solo no basta, las FK que
+genera drizzle-kit traen `public` cableado (**§3.4**)— y una resolución más
+robusta de la carpeta `drizzle/` (**§3.5**).
 
 > Nota: el `search_path` se fija **por conexión desde el driver**, no en el rol
 > de Postgres ni en la `DATABASE_URL`. Cualquier herramienta que se conecte por
@@ -105,15 +106,32 @@ entra al repo**.
 
 ## 3. Base de datos: reglas duras
 
-### 3.1 NUNCA correr `drizzle-kit push`
+### 3.1 Dos comandos PROHIBIDOS: `drizzle-kit push` y `pnpm db:migrate`
 
-**Solo `drizzle-kit migrate`.**
+Las migraciones se aplican **siempre por `scripts/migrate.mjs`**, nunca por
+`drizzle-kit` directo.
 
 ```bash
-pnpm db:generate   # genera el SQL de migración a partir del schema  ✅
-pnpm db:migrate    # aplica migraciones pendientes                    ✅
-pnpm exec drizzle-kit push                                          # ❌ JAMÁS
+pnpm db:generate                                    # genera el SQL nuevo   ✅
+MIGRATIONS_DIR=./drizzle node --env-file=.env scripts/migrate.mjs   # aplica ✅
+node --env-file=.env scripts/migrate.mjs            # ídem (autodetecta)    ✅
+
+pnpm db:migrate                                     # ❌ JAMÁS  (ver abajo)
+pnpm exec drizzle-kit push                          # ❌ JAMÁS  (ver abajo)
 ```
+
+#### Por qué no `pnpm db:migrate`
+
+`drizzle-kit migrate` entra por `drizzle.config.ts` y lee los `.sql` de
+`drizzle/` **tal como están en disco**: se salta por completo la transformación
+de FK del fork (§3.4). Resultado: revienta con
+`relation "public.user" does not exist` y deja la migración a medias — que es
+exactamente el problema que el fork resuelve.
+
+Es la misma trampa que `push`, solo que más silenciosa porque el comando
+*parece* el correcto y está en el `package.json` de upstream.
+
+#### Por qué no `drizzle-kit push`
 
 `push` **introspecta** el esquema real y lo fuerza a coincidir con
 `src/lib/db/schema.ts`, borrando todo lo que ese archivo no declare. Dentro del
@@ -123,25 +141,62 @@ eliminaría sin avisar y rompería la integración entre los dos sistemas. Adem�
 sus DROP se ejecutan sin migración que los deje registrados, así que no hay
 rastro de qué se perdió.
 
-`migrate` solo aplica los archivos SQL de `drizzle/` y lleva registro en su
-tabla de migraciones. Es el único camino.
-
 Upstream **no expone** un script `db:push` en `package.json` — no lo agregues.
+
+#### Cómo se aplican entonces
+
+- **En producción**: sola. El `CMD` del Dockerfile es
+  `node migrate.mjs && node server.js`, así que corre en cada arranque del
+  contenedor con la transformación incluida.
+- **En local**: `node --env-file=.env scripts/migrate.mjs`. El script resuelve
+  `drizzle/` tanto si lo corren desde `scripts/` como desde la raíz (el bundle
+  de Docker vive en la raíz), y `MIGRATIONS_DIR` sigue teniendo precedencia si
+  querés forzar la ruta.
+
+> `pnpm db:generate` **sí** es seguro: solo escribe SQL nuevo en `drizzle/`, no
+> toca la base. Después de generarlo, revisá que las FK nuevas tengan la forma
+> `REFERENCES "public"."…"` que la transformación cubre (§3.4).
 
 ### 3.2 Conexión: session pooler, puerto 5432
 
 `DATABASE_URL` debe apuntar al **session pooler** de Supabase:
 
 ```
-postgresql://vocero_app:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+postgresql://vocero_app.<PROJECT_REF>:PASSWORD@aws-1-us-east-1.pooler.supabase.com:5432/postgres
 ```
 
-**No usar el transaction pooler (6543).** Ese modo no conserva la sesión entre
-queries y rompe los *prepared statements* que usan `postgres.js` (el driver de
-Vocero) y Better Auth: errores intermitentes
-`prepared statement "sN" does not exist` y fallos de login. Usar 6543 obligaría
-a agregar `prepare: false` al driver — un parche más contra upstream que
-preferimos no cargar.
+Tres detalles, los tres verificados conectándose de verdad. Cada uno falla de
+una forma distinta y ninguno es adivinable:
+
+| Detalle | Si te equivocás | Error |
+|---|---|---|
+| Usuario con **project-ref pegado** (`vocero_app.<ref>`) | `vocero_app` a secas | `ENOIDENTIFIER no tenant identifier provided (external_id or sni_host)` |
+| Host **`aws-1-`** (para este proyecto), no `aws-0-` | host equivocado | `XX000 tenant/user vocero_app.<ref> not found` |
+| Puerto **5432** (session), no 6543 (transaction) | 6543 | `prepared statement "sN" does not exist` intermitente + fallos de login |
+
+Sobre el **usuario**: el ref no es cosmético — Supavisor saca de ahí a qué
+proyecto (tenant) entrar.
+
+Sobre el **host**: ⚠️ `aws-0-` y `aws-1-` **resuelven los dos en DNS**, porque
+es un endpoint compartido. Un `ping` o `nslookup` no delata el error: sólo se
+ve al autenticar. El número y la región **varían por proyecto**, así que hay
+que sacarlos siempre de
+**Dashboard → Settings → Database → Connection string → "Session pooler"** y
+copiar el host tal cual.
+
+Sobre el **puerto**: el modo transaction no conserva la sesión entre queries y
+rompe los *prepared statements* que usan `postgres.js` (el driver de Vocero) y
+Better Auth. Usar 6543 obligaría a agregar `prepare: false` al driver — un
+parche más contra upstream que preferimos no cargar.
+
+**El pooler no es opcional:** la conexión directa
+(`db.<PROJECT_REF>.supabase.co`) resuelve **sólo a IPv6**, así que desde una red
+sin IPv6 simplemente no es alcanzable.
+
+**El `search_path` sobrevive al pooler.** Verificado: `current_setting('search_path')`
+a través de Supavisor devuelve `vocero, extensions`. Lo sostiene el
+`ALTER ROLE` de la migración de agenciaev (§3.3), además de lo que manda el
+driver por conexión.
 
 ### 3.3 Preparativos en Supabase (una sola vez, fuera de este repo)
 
@@ -229,6 +284,12 @@ Significaría que upstream introdujo una forma de calificación que la
 transformación no cubre, y es mucho mejor que el arranque falle a que se creen
 tablas a medias en el esquema equivocado.
 
+#### Validado contra la Supabase real
+
+Las 11 migraciones aplicaron limpias: **49 FK desqualificadas**, las **29 tablas
+quedaron en el esquema `vocero`** con sus 49 FK apuntando a `vocero`, y **cero
+tablas filtradas a `public`**. El mecanismo está verificado de punta a punta.
+
 #### Sobre los hashes
 
 Drizzle hashea el **contenido** de cada migración para `__drizzle_migrations`.
@@ -250,6 +311,32 @@ provoca re-aplicaciones ni desajustes.
 
 La opción de fondo —proponer el arreglo a upstream— sigue siendo deseable a
 largo plazo, pero no bloquea el deploy.
+
+### 3.5 Resolución de la carpeta `drizzle/` en `migrate.mjs`
+
+Upstream resuelve las migraciones como `path.join(here, "drizzle")`, donde
+`here` es el directorio del propio script. Eso funciona **solo** en la imagen
+Docker, porque esbuild bundlea `migrate.mjs` a la **raíz** (`/app/migrate.mjs`),
+al lado de `/app/drizzle`.
+
+Ejecutándolo desde el repo (`node scripts/migrate.mjs`), `here` es `scripts/` y
+busca `scripts/drizzle`, que no existe:
+
+```
+Error: ENOENT ... lstat 'vocero-crmscriptsdrizzlemeta'
+```
+
+El fork prueba **las dos rutas** antes de rendirse:
+
+1. `MIGRATIONS_DIR` si está definida (precedencia absoluta, como en upstream).
+2. `here/drizzle` — bundle en la raíz (Docker).
+3. `here/../drizzle` — ejecución desde el repo.
+
+Se valida por la existencia de `meta/` (no de la carpeta a secas), porque es lo
+que `readMigrationFiles()` necesita: un `drizzle/` sin journal no sirve. Si no
+encuentra ninguna, aborta con `exit(1)` listando **dónde buscó**.
+
+Así el mismo script sirve en los dos escenarios sin variables de entorno extra.
 
 ---
 
@@ -288,7 +375,7 @@ Conflictos esperables y cómo resolverlos:
 | Archivo | Riesgo | Qué hacer |
 |---|---|---|
 | `src/lib/db/index.ts` | bajo | Reaplicar la línea `connection: { search_path: ... }` dentro del objeto de opciones. |
-| `scripts/migrate.mjs` | **medio** | Reaplicar el `connection: { search_path: ... }` **y** la transformación de FK de §3.4 (función `prepararMigracionesAisladas` + su llamada antes del bucle de reintentos + `migrationsFolder: migrationsFolderAislado`). Es el archivo con más código nuestro. |
+| `scripts/migrate.mjs` | **medio** | Reaplicar las tres cosas: el `connection: { search_path: ... }`, la transformación de FK de §3.4 (`prepararMigracionesAisladas` + su llamada antes del bucle de reintentos + `migrationsFolder: migrationsFolderAislado`) y la resolución de rutas de §3.5 (`resolverMigrationsFolder`). Es el archivo con más código nuestro. |
 | `.gitignore` | muy bajo | Conservar `!.env.agenciaev.example`. |
 | `docker-compose.supabase.yml` | ninguno | Archivo nuestro. **Revisar a mano** si upstream cambió su `docker-compose.yml`: hay que replicar los cambios relevantes (variables nuevas del servicio `app`). |
 | `.env.agenciaev.example` | ninguno | Archivo nuestro. Revisar si upstream agregó variables a `.env.example` y reflejarlas. |
@@ -309,6 +396,8 @@ Después de cada rebase, checklist mínimo:
    ```
 
 5. `pnpm typecheck && pnpm test`.
+6. Aplicar migraciones **solo** con `node --env-file=.env scripts/migrate.mjs`,
+   nunca con `pnpm db:migrate` (§3.1).
 
 ---
 
