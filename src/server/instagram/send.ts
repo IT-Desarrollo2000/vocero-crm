@@ -115,7 +115,7 @@ async function sendViaMeta(input: {
     }
   );
 
-  const id = (res as { message_id?: string }).message_id ?? `ig_${Date.now()}`;
+  const id = (res as { message_id?: string }).message_id ?? String(Date.now());
   return { platformMessageId: String(id) };
 }
 

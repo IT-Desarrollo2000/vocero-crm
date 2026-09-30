@@ -977,6 +977,7 @@ async function main() {
 
   await agendaChecks();
   await atribucionChecks();
+  await canalesChecks();
 
   console.log(`\n===== ${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -1787,4 +1788,287 @@ async function atribucionChecks() {
     act7.length >= 3,
     `${act7.length} filas`
   );
+}
+
+/* ============================================================
+ * 014/017 — Canales Instagram y Messenger (tests/e2e/us-canales.md)
+ *
+ * Con cada canal apagado: su superficie no existe (404). Encendido: se
+ * conecta validando el token, un DM entra firmado por el webhook real y crea
+ * UN contacto, la re-entrega no duplica, la respuesta llega al transporte
+ * del canal con el destinatario correcto, fuera de las 24 h sale etiquetada
+ * como agente humano, pasados 7 días se rechaza, y los fallos del proveedor
+ * degradan con un error claro en vez de un 500.
+ * ============================================================ */
+
+async function canalesChecks() {
+  const on = new Set(
+    (process.env.CHANNELS ?? "")
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const SUF = String(Date.now()).slice(-6);
+  const VT = process.env.META_WEBHOOK_VERIFY_TOKEN;
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const CANALES = [
+    {
+      channel: "instagram",
+      label: "Instagram",
+      settings: "/api/settings/instagram",
+      webhook: "ig",
+      page: "/settings/instagram",
+      accountId: `1784${SUF}`,
+      connect: (accountId, token) => ({ source: "meta", igUserId: accountId, token }),
+    },
+    {
+      channel: "messenger",
+      label: "Messenger",
+      settings: "/api/settings/messenger",
+      webhook: "fb",
+      page: "/settings/messenger",
+      accountId: `1099${SUF}`,
+      connect: (accountId, token) => ({ pageId: accountId, token }),
+    },
+  ];
+
+  for (const c of CANALES) {
+    console.log(`\n== ${c.label}: la bandera del canal ==`);
+
+    if (!on.has(c.channel)) {
+      const get = await api(c.settings);
+      ok(`${c.settings} → 404 con el canal apagado`, get.res.status === 404, `status=${get.res.status}`);
+      const hook = await fetch(`${BASE}/api/webhooks/${c.webhook}/${VT}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      ok(`webhook /${c.webhook} → 404 con el canal apagado`, hook.status === 404, `status=${hook.status}`);
+      const page = await fetch(`${BASE}${c.page}`, { headers: { cookie } });
+      ok(`la pantalla ${c.page} no existe`, page.status === 404, `status=${page.status}`);
+      continue;
+    }
+
+    const outbox = async () => (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    const inbound = (body) =>
+      api("/api/dev/wa-mock/channel-inbound", {
+        method: "POST",
+        body: JSON.stringify({ channel: c.channel, accountId: c.accountId, ...body }),
+      });
+    const send = (convId, text) =>
+      api(`/api/conversations/${convId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+    const reconnect = (token) =>
+      api(c.settings, { method: "PUT", body: JSON.stringify(c.connect(c.accountId, token)) });
+
+    /* ---------- conectar ---------- */
+    console.log(`\n== ${c.label}: conectar ==`);
+    await api(c.settings, { method: "DELETE" });
+
+    const bad = await reconnect("tok-e2e-invalid");
+    ok(`token inválido → 422 y no se guarda`, bad.res.status === 422, `status=${bad.res.status}`);
+    const ajeno = await reconnect("tok-e2e-id999");
+    ok(
+      `token de otra cuenta → 422 id_mismatch`,
+      ajeno.res.status === 422 && ajeno.json?.error?.code === "id_mismatch",
+      JSON.stringify(ajeno.json)
+    );
+    const tras = (await api(c.settings)).json;
+    ok(`tras los rechazos no hay conexión guardada`, tras?.connection === null, JSON.stringify(tras?.connection));
+
+    const good = await reconnect("tok-e2e-canal");
+    ok(`conexión guardada`, good.res.ok, JSON.stringify(good.json));
+    const estado = (await api(c.settings)).json;
+    ok(
+      `el token nunca sale entero (solo sus últimos 4)`,
+      estado?.connection?.tokenLast4 === "anal" && !JSON.stringify(estado).includes("tok-e2e-canal"),
+      JSON.stringify(estado?.connection)
+    );
+    ok(
+      `la pantalla expone la URL del webhook /${c.webhook}`,
+      typeof estado?.webhook?.url === "string" && estado.webhook.url.includes(`/api/webhooks/${c.webhook}/`),
+      JSON.stringify(estado?.webhook)
+    );
+    const pantalla = await fetch(`${BASE}${c.page}`, { headers: { cookie } });
+    ok(`la pantalla ${c.page} existe`, pantalla.status === 200, `status=${pantalla.status}`);
+
+    /* ---------- recibir ---------- */
+    console.log(`\n== ${c.label}: recibir ==`);
+    const pre = c.channel === "instagram" ? "ig" : "psid";
+    const sender = `${pre}${SUF}1`;
+    await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
+
+    const firma = await fetch(`${BASE}/api/webhooks/${c.webhook}/${VT}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=deadbeef" },
+      body: JSON.stringify({ object: c.channel === "instagram" ? "instagram" : "page", entry: [] }),
+    });
+    ok(`webhook con firma falsa → 401`, firma.status === 401, `status=${firma.status}`);
+    const segMalo = await fetch(`${BASE}/api/webhooks/${c.webhook}/no-es-el-token`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    ok(`webhook con segmento equivocado → 404`, segMalo.status === 404, `status=${segMalo.status}`);
+    const hs = await fetch(
+      `${BASE}/api/webhooks/${c.webhook}/${VT}?hub.mode=subscribe&hub.verify_token=${VT}&hub.challenge=reto123`
+    );
+    ok(`handshake de suscripción devuelve el challenge`, hs.status === 200 && (await hs.text()) === "reto123");
+
+    const mid1 = `mid.e2e.${c.channel}.${SUF}.1`;
+    const in1 = await inbound({ senderId: sender, text: `hola, ¿tienen disponibilidad? ${SUF}`, mid: mid1 });
+    ok(`DM entregado al webhook firmado`, in1.res.ok, JSON.stringify(in1.json));
+    // Re-entrega del mismo mid + un eco + una lectura: nada de eso duplica.
+    await inbound({ senderId: sender, text: `hola, ¿tienen disponibilidad? ${SUF}`, mid: mid1 });
+    await inbound({
+      senderId: sender,
+      text: "eco de la cuenta",
+      mid: `mid.e2e.${c.channel}.${SUF}.echo`,
+      echo: true,
+      extraEvents: [{ sender: { id: sender }, recipient: { id: c.accountId }, read: { watermark: Date.now() } }],
+    });
+    await sleep(1500);
+
+    const cv = ((await api("/api/conversations")).json?.conversations ?? []).find(
+      (x) => x.channel === c.channel && x.preview?.includes(`disponibilidad? ${SUF}`)
+    );
+    ok(`el DM crea una conversación con canal ${c.channel}`, !!cv);
+    ok(`el contacto lleva el nombre de respaldo del canal`, cv?.contact.name === `Contacto de ${c.label}`, cv?.contact.name);
+    ok(`el contacto no tiene teléfono`, cv?.contact.phone === null);
+    const msgs = (await api(`/api/conversations/${cv?.id}/messages`)).json?.messages ?? [];
+    const entrantes = msgs.filter((m) => m.direction === "in");
+    ok(`re-entrega y eco no duplican: un solo entrante`, entrantes.length === 1, JSON.stringify(entrantes.map((m) => m.text)));
+    ok(`dentro de 24 h se responde libre`, cv?.replyMode === "free", cv?.replyMode);
+    ok(`el canal no ofrece plantillas ni adjuntos`, cv?.templates === false && cv?.outboundMedia === false);
+
+    // Un segundo mensaje del mismo remitente cae en la MISMA conversación.
+    await inbound({ senderId: sender, text: "¿y precios?", mid: `mid.e2e.${c.channel}.${SUF}.2` });
+    await sleep(1200);
+    const mismas = ((await api("/api/conversations")).json?.conversations ?? []).filter(
+      (x) => x.contact.id === cv?.contact.id
+    );
+    ok(`mismo remitente → mismo contacto y misma conversación`, mismas.length === 1, `${mismas.length}`);
+
+    /* ---------- responder ---------- */
+    console.log(`\n== ${c.label}: responder ==`);
+    const texto = `Claro, te comparto horarios ${SUF}`;
+    const r1 = await send(cv?.id, texto);
+    ok(`respuesta del operador aceptada`, r1.res.ok, JSON.stringify(r1.json));
+    const ob = (await outbox()).find((o) => o.body?.message?.text === texto);
+    ok(`llega al transporte del canal con el destinatario correcto`, ob?.to === sender, JSON.stringify(ob));
+    ok(`sale por la cuenta conectada`, ob?.phoneNumberId === c.accountId, ob?.phoneNumberId);
+    ok(`dentro de ventana no lleva etiqueta`, !!ob && !ob.body.tag, JSON.stringify(ob?.body));
+    if (c.channel === "messenger") {
+      ok(`messaging_type RESPONSE`, ob?.body?.messaging_type === "RESPONSE", ob?.body?.messaging_type);
+    }
+    const hilo = (await api(`/api/conversations/${cv?.id}/messages`)).json?.messages ?? [];
+    const salida = hilo.find((m) => m.text === texto);
+    ok(`el mensaje queda 'sent' (el canal no manda acuses)`, salida?.status === "sent", salida?.status);
+
+    const largo = c.channel === "instagram" ? "é".repeat(600) : "a".repeat(2001);
+    const r2 = await send(cv?.id, largo);
+    ok(`texto que excede el límite → 422 claro`, r2.res.status === 422, `status=${r2.res.status} ${r2.json?.error?.message}`);
+
+    const ubic = await api(`/api/conversations/${cv?.id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ type: "location", location: { latitude: 21.0, longitude: -101.2 } }),
+    });
+    ok(
+      `ubicación en ${c.label} → 422 unsupported_channel (no 500)`,
+      ubic.res.status === 422 && ubic.json?.error?.code === "unsupported_channel",
+      `status=${ubic.res.status} ${JSON.stringify(ubic.json)}`
+    );
+    const form = new FormData();
+    form.set("file", new Blob([Buffer.from("hola")], { type: "image/jpeg" }), "x.jpg");
+    const mediaRes = await fetch(`${BASE}/api/conversations/${cv?.id}/messages/media`, {
+      method: "POST",
+      headers: { cookie, origin: BASE },
+      body: form,
+    });
+    ok(`adjunto en ${c.label} → 422 claro (no 500)`, mediaRes.status === 422, `status=${mediaRes.status}`);
+    const tplRes = await api(`/api/contacts/${cv?.contact.id}/start-conversation`, {
+      method: "POST",
+      body: JSON.stringify({ templateId: "tpl-cualquiera" }),
+    });
+    ok(`plantilla para un contacto de ${c.label} → 422`, tplRes.res.status === 422, `status=${tplRes.res.status}`);
+
+    /* ---------- fuera de ventana ---------- */
+    console.log(`\n== ${c.label}: fuera de las 24 h ==`);
+    await inbound({
+      senderId: `${pre}${SUF}2`,
+      text: `escribí hace 3 días ${SUF}`,
+      mid: `mid.e2e.${c.channel}.${SUF}.3d`,
+      timestamp: Date.now() - 3 * DAY,
+    });
+    await inbound({
+      senderId: `${pre}${SUF}3`,
+      text: `escribí hace 8 días ${SUF}`,
+      mid: `mid.e2e.${c.channel}.${SUF}.8d`,
+      timestamp: Date.now() - 8 * DAY,
+    });
+    await sleep(1500);
+    const lista = (await api("/api/conversations")).json?.conversations ?? [];
+    const c3 = lista.find((x) => x.channel === c.channel && x.preview?.includes(`hace 3 días ${SUF}`));
+    const c8 = lista.find((x) => x.channel === c.channel && x.preview?.includes(`hace 8 días ${SUF}`));
+    ok(`a los 3 días el modo es agente humano`, c3?.replyMode === "human_agent", c3?.replyMode);
+    ok(`a los 8 días el canal está cerrado`, c8?.replyMode === "closed", c8?.replyMode);
+
+    const t3 = `Retomo tu consulta ${SUF}`;
+    const r3 = await send(c3?.id, t3);
+    ok(`respuesta humana a los 3 días aceptada`, r3.res.ok, JSON.stringify(r3.json));
+    const ob3 = (await outbox()).find((o) => o.body?.message?.text === t3);
+    ok(
+      `sale con la etiqueta HUMAN_AGENT`,
+      ob3?.body?.tag === "HUMAN_AGENT" && ob3?.body?.messaging_type === "MESSAGE_TAG",
+      JSON.stringify(ob3?.body)
+    );
+    const antes8 = (await outbox()).length;
+    const r8 = await send(c8?.id, "hola?");
+    ok(
+      `a los 8 días → 409 window_closed con motivo claro`,
+      r8.res.status === 409 && r8.json?.error?.code === "window_closed" && /7 días/.test(r8.json?.error?.message ?? ""),
+      `status=${r8.res.status} ${JSON.stringify(r8.json)}`
+    );
+    ok(`y no se intentó el envío`, (await outbox()).length === antes8);
+
+    /* ---------- fallos del proveedor ---------- */
+    console.log(`\n== ${c.label}: fallos del proveedor ==`);
+    await reconnect("tok-e2e-nohumanagent");
+    const rNh = await send(c3?.id, "sin permiso");
+    ok(
+      `sin la función Human Agent → 409 que lo dice (no un error genérico)`,
+      rNh.res.status === 409 && /Human Agent/.test(rNh.json?.error?.message ?? ""),
+      `status=${rNh.res.status} ${JSON.stringify(rNh.json)}`
+    );
+
+    await reconnect("tok-e2e-down");
+    const rDown = await send(cv?.id, "¿sigues ahí?");
+    ok(`plataforma caída → 503 meta_unavailable`, rDown.res.status === 503, `status=${rDown.res.status} ${JSON.stringify(rDown.json)}`);
+    const trasCaida = (await api(c.settings)).json?.connection;
+    ok(`una caída NO marca el token como muerto`, trasCaida?.status === "connected", trasCaida?.status);
+
+    // El token muere DESPUÉS de guardarse: el PUT lo valida contra Meta, así
+    // que se reemplaza por la puerta de pruebas y se observa el envío.
+    const kill = await api("/api/dev/wa-mock/channel-token", {
+      method: "POST",
+      body: JSON.stringify({ channel: c.channel, token: "tok-e2e-muerto-invalid" }),
+    });
+    ok(`(setup) token reemplazado por uno revocado`, kill.res.ok, JSON.stringify(kill.json));
+    const rDead = await send(cv?.id, "hola de nuevo");
+    ok(
+      `token revocado → 409 reconnect_required`,
+      rDead.res.status === 409 && rDead.json?.error?.code === "reconnect_required",
+      JSON.stringify(rDead.json)
+    );
+    const trasMuerte = (await api(c.settings)).json?.connection;
+    ok(`y la conexión queda pidiendo reconectar`, trasMuerte?.status === "reconnect_required", trasMuerte?.status);
+    const rTras = await send(cv?.id, "otro intento");
+    ok(`los envíos siguientes se pausan sin llamar a Meta`, rTras.json?.error?.code === "reconnect_required", JSON.stringify(rTras.json));
+
+    // Deja el canal sano para quien corra después.
+    await reconnect("tok-e2e-canal");
+  }
 }

@@ -73,7 +73,13 @@ export async function POST(req: Request, { params }: Params) {
     // esta capa, quien conozca la URL secreta puede inyectar DMs falsos: el
     // agente los contestaria enviando un DM REAL desde la cuenta del cliente
     // al destinatario que el atacante elija.
-    if (!isValidSignature(rawBody, req.headers.get("x-hub-signature-256"), env.META_APP_SECRET)) {
+    if (!isValidSignature(
+        rawBody,
+        req.headers.get("x-hub-signature-256"),
+        // 017: la app de Instagram (inicio de sesion de Instagram) firma con
+        // su propio secreto, distinto del de la app de Facebook.
+        env.IG_APP_SECRET || env.META_APP_SECRET
+      )) {
       return new Response(null, { status: 401 });
     }
   } else {

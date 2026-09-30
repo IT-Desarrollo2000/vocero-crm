@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# FORK agenciaev: la plantilla del fork solo lleva placeholders, no secretos.
+!.env.agenciaev.example
 *.pem
 *.key
 

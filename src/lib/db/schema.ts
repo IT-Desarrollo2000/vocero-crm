@@ -120,12 +120,13 @@ export const contact = pgTable(
      * 014: canal por el que vive este contacto. Aditivo y con default: toda
      * fila existente sigue significando exactamente lo mismo.
      */
-    channel: text("channel", { enum: ["whatsapp", "instagram"] })
+    channel: text("channel", { enum: ["whatsapp", "instagram", "messenger"] })
       .notNull()
       .default("whatsapp"),
     /**
      * Llave de resolucion. WhatsApp: telefono normalizado (521 a 52) o
-     * `bsuid:<id>`. Instagram (014): `ig:<IGSID>`. Estable de por vida.
+     * `bsuid:<id>`. Instagram (014): `ig:<IGSID>`. Messenger (017):
+     * `fb:<PSID>`. Estable de por vida.
      * El nombre `wa_identity` se conserva porque es contrato publicado:
      * `/api/bot/context?waIdentity=...` lo recibe y lo devuelve, y hay
      * cerebros externos que dependen de el.
@@ -330,7 +331,7 @@ export const conversation = pgTable(
      * 014: canal de la conversacion. Denormalizado del contacto a proposito:
      * el ruteo de salida y el filtro de la bandeja lo leen en cada mensaje.
      */
-    channel: text("channel", { enum: ["whatsapp", "instagram"] })
+    channel: text("channel", { enum: ["whatsapp", "instagram", "messenger"] })
       .notNull()
       .default("whatsapp"),
     /**
@@ -528,6 +529,36 @@ export const instagramCredentials = pgTable(
     uniqueIndex("instagram_credentials_org_uq").on(t.organizationId),
     uniqueIndex("instagram_credentials_ig_user_uq").on(t.igUserId),
     index("instagram_credentials_account_ref_idx").on(t.accountRef),
+  ]
+);
+
+/**
+ * 017 - Credenciales del canal de Messenger: una Pagina de Facebook por
+ * organizacion. Misma forma y mismo cifrado que las de Instagram. El token es
+ * el de la Pagina (idealmente de un usuario del sistema, que no caduca).
+ */
+export const messengerCredentials = pgTable(
+  "messenger_credentials",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    /** Id de la Pagina: `entry[].id` del webhook, por el enruta la ingesta. */
+    pageId: text("page_id").notNull(),
+    pageName: text("page_name"),
+    tokenCipher: text("token_cipher").notNull(),
+    tokenIv: text("token_iv").notNull(),
+    tokenTag: text("token_tag").notNull(),
+    status: text("status", { enum: ["connected", "reconnect_required"] })
+      .notNull()
+      .default("connected"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("messenger_credentials_org_uq").on(t.organizationId),
+    uniqueIndex("messenger_credentials_page_uq").on(t.pageId),
   ]
 );
 

@@ -13,6 +13,10 @@ const TABS: Tab[] = [
   { href: "/settings/team", label: "Equipo" },
 ];
 
+/** 017 — Los canales extra solo aparecen si están en CHANNELS. */
+const INSTAGRAM_TAB: Tab = { href: "/settings/instagram", label: "Instagram" };
+const MESSENGER_TAB: Tab = { href: "/settings/messenger", label: "Messenger" };
+
 /** 015 — "Agenda" solo existe si esta instancia encendió la bandera. */
 const AGENDA_TAB: Tab = { href: "/settings/calendar", label: "Agenda" };
 
@@ -22,15 +26,24 @@ const ADS_TAB: Tab = { href: "/settings/ads", label: "Anuncios" };
 export function SettingsNav({
   agenda = false,
   atribucion = false,
+  instagram = false,
+  messenger = false,
 }: {
   agenda?: boolean;
   atribucion?: boolean;
+  instagram?: boolean;
+  messenger?: boolean;
 }) {
   const pathname = usePathname();
   // Qué pestañas existen lo decide el servidor y baja por prop: este es un
   // componente de cliente y no puede leer variables de entorno.
+  // Los canales van justo después de WhatsApp: son la misma clase de ajuste.
+  const [whatsappTab, ...restTabs] = TABS;
   const tabs = [
-    ...TABS,
+    ...(whatsappTab ? [whatsappTab] : []),
+    ...(instagram ? [INSTAGRAM_TAB] : []),
+    ...(messenger ? [MESSENGER_TAB] : []),
+    ...restTabs,
     ...(agenda ? [AGENDA_TAB] : []),
     ...(atribucion ? [ADS_TAB] : []),
   ];

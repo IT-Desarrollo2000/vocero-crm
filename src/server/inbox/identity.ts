@@ -1,5 +1,5 @@
 import { and, eq, or } from "drizzle-orm";
-import type { Channel } from "@/lib/channels";
+import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { normalizeMx } from "@/lib/meta/client";
@@ -18,6 +18,8 @@ import type { WebhookMessage, WebhookValue } from "@/server/inbox/webhook";
 export const BSUID_PREFIX = "bsuid:";
 /** 014: identidad de Instagram, analoga al BSUID de WhatsApp. */
 export const IG_PREFIX = "ig:";
+/** 017: identidad de Messenger (PSID, único por Página). */
+export const FB_PREFIX = "fb:";
 
 // El tipo vive en lib/ porque la interfaz tambien lo necesita; se reexporta
 // aqui para no tocar a quien ya lo importaba de este modulo.
@@ -87,42 +89,43 @@ export async function getOrCreateContactByIdentity(
 
   const channel: Channel = resolved.channel ?? "whatsapp";
 
-  // 014: Instagram no comparte espacio de identidades con WhatsApp. La
-  // reconciliacion telefono<->BSUID es exclusiva de WhatsApp, asi que en
-  // Instagram la busqueda es directa por identidad.
-  if (channel === "instagram") {
+  // 014/017: Instagram y Messenger no comparten espacio de identidades con
+  // WhatsApp. La reconciliacion telefono<->BSUID es exclusiva de WhatsApp, asi
+  // que en los demas canales la busqueda es directa por identidad.
+  if (channel !== "whatsapp") {
     const found = await db
       .select()
       .from(schema.contact)
       .where(
         and(
           eq(schema.contact.organizationId, organizationId),
-          eq(schema.contact.channel, "instagram"),
+          eq(schema.contact.channel, channel),
           eq(schema.contact.waIdentity, resolved.identity)
         )
       )
       .limit(1);
-    const existingIg = found[0];
-    if (existingIg) {
-      if (existingIg.archivedAt) {
+    const existingOther = found[0];
+    if (existingOther) {
+      if (existingOther.archivedAt) {
         await db
           .update(schema.contact)
           .set({ archivedAt: null, updatedAt: new Date() })
-          .where(eq(schema.contact.id, existingIg.id));
-        existingIg.archivedAt = null;
+          .where(eq(schema.contact.id, existingOther.id));
+        existingOther.archivedAt = null;
       }
-      return { contact: existingIg, isNew: false };
+      return { contact: existingOther, isNew: false };
     }
-    const createdIg = await db
+    const createdOther = await db
       .insert(schema.contact)
       .values({
         id: newId("contact"),
         organizationId,
-        channel: "instagram",
+        channel,
         waIdentity: resolved.identity,
         phone: null,
         waUserId: null,
-        name: resolved.profileName?.trim() || "Contacto de Instagram",
+        name:
+          resolved.profileName?.trim() || `Contacto de ${CHANNEL_LABEL[channel]}`,
       })
       .onConflictDoNothing({
         target: [
@@ -132,21 +135,21 @@ export async function getOrCreateContactByIdentity(
         ],
       })
       .returning();
-    if (createdIg[0]) return { contact: createdIg[0], isNew: true };
-    const racedIg = await db
+    if (createdOther[0]) return { contact: createdOther[0], isNew: true };
+    const racedOther = await db
       .select()
       .from(schema.contact)
       .where(
         and(
           eq(schema.contact.organizationId, organizationId),
-          eq(schema.contact.channel, "instagram"),
+          eq(schema.contact.channel, channel),
           eq(schema.contact.waIdentity, resolved.identity)
         )
       )
       .limit(1);
-    const contactIg = racedIg[0];
-    if (!contactIg) throw new Error("contacto no encontrado tras upsert");
-    return { contact: contactIg, isNew: false };
+    const contactOther = racedOther[0];
+    if (!contactOther) throw new Error("contacto no encontrado tras upsert");
+    return { contact: contactOther, isNew: false };
   }
 
   const matchers = [eq(schema.contact.waIdentity, resolved.identity)];

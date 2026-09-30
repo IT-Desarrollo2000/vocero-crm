@@ -16,6 +16,12 @@ function createClient() {
   return postgres(env.DATABASE_URL, {
     max: 10,
     onnotice: () => {},
+    // FORK agenciaev: la BD es compartida con el proyecto agenciaev, así que
+    // Vocero vive aislado en el esquema `vocero`. Sus tablas se declaran sin
+    // calificar, por lo que el aislamiento depende de este search_path.
+    // `public` se omite A PROPÓSITO: si estuviera, una tabla que falte en
+    // `vocero` se resolvería en silencio contra la del otro proyecto.
+    connection: { search_path: "vocero, extensions" },
   });
 }
 

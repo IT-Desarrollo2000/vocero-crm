@@ -52,6 +52,15 @@ function invalidTokenResponse(): Response {
   );
 }
 
+/**
+ * 017 — Id "dueño" del token, para probar que el CRM rechaza un token de otra
+ * cuenta: un token que termina en `-id<dígitos>` pertenece a ese id. Sin
+ * sufijo, el token es de la cuenta que se le pregunte.
+ */
+function ownerIdFromToken(token: string): string | null {
+  return /-id(\d+)$/.exec(token)?.[1] ?? null;
+}
+
 /** Quita el segmento de versión (v25.0/...) si viene en la ruta. */
 function normalizePath(path: string[]): string[] {
   return path[0] && /^v\d+/.test(path[0]) ? path.slice(1) : path;
@@ -87,6 +96,18 @@ export async function GET(req: Request, ctx: Params) {
       mime_type: path[0]!.includes("pdf") ? "application/pdf" : "image/jpeg",
       file_size: 13,
       url: `${origin}/api/dev/wa-mock/media-file/${path[0]}`,
+    });
+  }
+
+  // 017 — GET me → verificación del token. Instagram pide `id,username`
+  // (graph.instagram.com, que el self-test apunta aquí) y Messenger `id,name`
+  // (con un token de Página, `me` es la Página).
+  if (path.length === 1 && path[0] === "me") {
+    const owner = ownerIdFromToken(token);
+    return Response.json({
+      ...(owner ? { id: owner } : {}),
+      username: "vocero_prueba",
+      name: "Página de prueba Vocero",
     });
   }
 
@@ -196,9 +217,41 @@ export async function POST(req: Request, ctx: Params) {
     return Response.json({ success: true });
   }
 
-  // POST {phoneNumberId}/messages → registra en el outbox
+  // POST {id}/messages → registra en el outbox. Mismo endpoint para WhatsApp
+  // ({phoneNumberId}, `to`), Instagram ({igUserId}) y Messenger ({pageId}),
+  // estos dos con `recipient.id`.
   if (path.length === 2 && path[1] === "messages") {
     const state = getWaMockState();
+    const recipient = body.recipient as { id?: string } | undefined;
+    // 017: Instagram/Messenger. Tokens especiales para los caminos infelices:
+    // `-down` = la plataforma caída (5xx); `-nohumanagent` = la app sin la
+    // función Human Agent aprobada, que Meta rechaza con un error de permiso.
+    if (recipient?.id) {
+      if (token.endsWith("-down")) {
+        return Response.json(
+          { error: { message: "Service temporarily unavailable", type: "OAuthException", code: 2, fbtrace_id: "mock" } },
+          { status: 503 }
+        );
+      }
+      if (token.endsWith("-nohumanagent") && body.tag === "HUMAN_AGENT") {
+        return Response.json(
+          { error: { message: "(#10) This message is sent outside of allowed window.", type: "OAuthException", code: 10, error_subcode: 2018278, fbtrace_id: "mock" } },
+          { status: 400 }
+        );
+      }
+      const n = nextN();
+      const messageId = `m_mock_${Date.now().toString(36)}_${n}`;
+      state.outbox.push({
+        n,
+        waMessageId: messageId,
+        phoneNumberId: path[0]!,
+        to: recipient.id,
+        type: "text",
+        body,
+        at: new Date().toISOString(),
+      });
+      return Response.json({ recipient_id: recipient.id, message_id: messageId });
+    }
     // Meta responde 132000 si los parámetros no cuadran con las {{n}} de la
     // plantilla aprobada. El mock lo replica para que un desfase no pase.
     if (body.type === "template") {

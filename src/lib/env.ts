@@ -20,6 +20,12 @@ const envSchema = z.object({
     }),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(8),
   META_APP_SECRET: z.string().optional(),
+  // 017: secretos de firma de los webhooks de Instagram y Messenger cuando la
+  // app que los entrega NO es la misma que la de WhatsApp. Instagram con
+  // inicio de sesion de Instagram tiene su PROPIO "Instagram App Secret".
+  // Sin ellos se usa META_APP_SECRET.
+  IG_APP_SECRET: z.string().optional(),
+  FB_APP_SECRET: z.string().optional(),
   META_GRAPH_API_VERSION: z.string().default("v25.0"),
   META_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
   OPENROUTER_API_TOKEN: z.string().optional(),

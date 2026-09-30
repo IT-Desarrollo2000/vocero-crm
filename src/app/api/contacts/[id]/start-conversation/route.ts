@@ -34,6 +34,16 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const contact = await getContactById(session.organizationId, id);
   if (!contact) return apiError(404, "not_found", "Contacto no encontrado");
+  // 017: solo WhatsApp se abre con plantilla. En Instagram y Messenger la
+  // persona tiene que escribir primero; y sin este corte se crearía una
+  // conversación de WhatsApp para un contacto que no tiene número.
+  if (contact.channel !== "whatsapp") {
+    return apiError(
+      422,
+      "unsupported_channel",
+      "En este canal no se puede iniciar la conversación: la persona tiene que escribir primero"
+    );
+  }
   if (!contact.phone && !contact.waIdentity) {
     return apiError(422, "no_identity", "Este contacto no tiene a dónde escribir");
   }

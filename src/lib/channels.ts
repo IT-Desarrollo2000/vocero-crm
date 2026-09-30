@@ -9,20 +9,38 @@
  * mintiendo.
  */
 
-export type Channel = "whatsapp" | "instagram";
+export type Channel = "whatsapp" | "instagram" | "messenger";
 
 /**
  * Orden en que los canales se presentan al operador. WhatsApp primero: es el
  * canal que toda instancia tiene encendido.
  */
-export const CHANNEL_ORDER: readonly Channel[] = ["whatsapp", "instagram"];
+export const CHANNEL_ORDER: readonly Channel[] = [
+  "whatsapp",
+  "instagram",
+  "messenger",
+];
 
 /** Nombre visible del canal, para la interfaz y para los errores del operador. */
 export const CHANNEL_LABEL: Record<Channel, string> = {
   whatsapp: "WhatsApp",
   instagram: "Instagram",
+  messenger: "Messenger",
 };
 
 export function isChannel(value: string): value is Channel {
   return (CHANNEL_ORDER as readonly string[]).includes(value);
 }
+
+/**
+ * 017 — Cómo se puede responder HOY una conversación. Lo calcula el servidor
+ * con las capacidades del canal y baja en el DTO: el compositor no debe
+ * deducir reglas de ventana ni de plantillas por su cuenta.
+ *
+ * - `free`: dentro de la ventana, texto libre.
+ * - `human_agent`: ventana cerrada pero el canal permite al operador responder
+ *   con la etiqueta de agente humano (Instagram, Messenger: hasta 7 días).
+ * - `template`: solo una plantilla aprobada reabre la conversación (WhatsApp).
+ * - `closed`: el canal no ofrece forma de retomarla.
+ */
+export type ReplyMode = "free" | "human_agent" | "template" | "closed";

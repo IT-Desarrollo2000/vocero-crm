@@ -6,6 +6,8 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,14 +18,141 @@ if (!url) {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const migrationsFolder =
-  process.env.MIGRATIONS_DIR ?? path.join(here, "drizzle");
+
+/**
+ * FORK agenciaev — resuelve la carpeta de migraciones en los DOS escenarios en
+ * que corre este script:
+ *
+ *  - En la imagen Docker: esbuild lo bundlea a la RAÍZ (`/app/migrate.mjs`),
+ *    al lado de `/app/drizzle`, así que `here/drizzle` existe. Es la única
+ *    ruta que contempla upstream.
+ *  - Desde el repo (`node scripts/migrate.mjs`): `here` es `scripts/`, así que
+ *    `here/drizzle` NO existe y hay que subir un nivel: `here/../drizzle`.
+ *    Upstream falla acá con `ENOENT ... lstat 'scripts/drizzle/meta'`.
+ *
+ * `MIGRATIONS_DIR` mantiene la precedencia por encima de las dos.
+ */
+function resolverMigrationsFolder() {
+  if (process.env.MIGRATIONS_DIR) return process.env.MIGRATIONS_DIR;
+
+  const candidatas = [
+    path.join(here, "drizzle"), // bundle en la raíz (imagen Docker)
+    path.join(here, "..", "drizzle"), // ejecución desde el repo (scripts/)
+  ];
+  // Se valida por `meta/` porque es lo que `readMigrationFiles()` necesita:
+  // una carpeta `drizzle/` sin journal no sirve para nada.
+  const encontrada = candidatas.find((c) => fs.existsSync(path.join(c, "meta")));
+  if (encontrada) return encontrada;
+
+  console.error(
+    "[migrate] no encontré la carpeta de migraciones. Busqué en:\n" +
+      candidatas.map((c) => "  - " + c).join("\n") +
+      "\n  Pasá la ruta explícita con MIGRATIONS_DIR=./drizzle"
+  );
+  process.exit(1);
+}
+
+const migrationsFolder = resolverMigrationsFolder();
+
+/**
+ * FORK agenciaev — desqualifica el esquema de las claves foráneas.
+ *
+ * Vocero vive aislado en el esquema `vocero` de una BD compartida con el
+ * proyecto agenciaev (ver NOTAS-FORK.md). Los `CREATE TABLE` que genera
+ * drizzle-kit vienen sin calificar y caen bien por `search_path`, pero las FK
+ * traen el esquema cableado:
+ *
+ *   ALTER TABLE "account" ADD CONSTRAINT ...
+ *     FOREIGN KEY ("user_id") REFERENCES "public"."user"("id");
+ *
+ * Contra Supabase eso falla con `relation "public.user" does not exist` y deja
+ * la migración a medias. Reescribimos `REFERENCES "public"."` → `REFERENCES "`
+ * para que resuelvan por `search_path`, igual que los `CREATE TABLE`.
+ * Se desqualifica (en vez de reescribir a `"vocero"."`) para que funcione con
+ * cualquier nombre de esquema.
+ *
+ * `readMigrationFiles()` lee los .sql del disco, así que hay que transformar
+ * ANTES de llamar a `migrate()`: se escriben copias en un directorio temporal.
+ * Va en `os.tmpdir()` y no dentro de /app porque el contenedor puede montar el
+ * filesystem de la app en solo lectura.
+ *
+ * Nota: drizzle hashea el CONTENIDO de cada migración para
+ * `__drizzle_migrations`. La transformación es determinista, así que el hash es
+ * estable entre arranques y no provoca re-aplicaciones.
+ */
+function prepararMigracionesAisladas(origen) {
+  const destino = path.join(os.tmpdir(), "vocero-migraciones-agenciaev");
+  // Idempotente: esto corre en CADA arranque del contenedor.
+  fs.rmSync(destino, { recursive: true, force: true });
+  fs.mkdirSync(destino, { recursive: true });
+
+  // `readMigrationFiles()` arranca por meta/_journal.json: sin él no encuentra
+  // ninguna migración y no aplicaría nada.
+  fs.cpSync(path.join(origen, "meta"), path.join(destino, "meta"), {
+    recursive: true,
+  });
+
+  // Red de seguridad: si tras transformar queda algún `"public".`, upstream
+  // introdujo una forma de calificación que no anticipamos. Abortamos ruidoso:
+  // es mucho mejor no arrancar que crear tablas a medias en otro esquema.
+  const RESIDUO = /"public"\s*\./;
+  // Misma idea para la variante sin comillas. Se acota a `REFERENCES` para no
+  // saltar por un simple comentario que mencione "public.".
+  const RESIDUO_SIN_COMILLAS = /\bREFERENCES\s+public\s*\./i;
+
+  const archivos = fs
+    .readdirSync(origen)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+
+  for (const archivo of archivos) {
+    const original = fs.readFileSync(path.join(origen, archivo), "utf8");
+    let reemplazos = 0;
+    const transformado = original.replace(
+      /REFERENCES "public"\."/g,
+      () => (reemplazos++, 'REFERENCES "')
+    );
+
+    const lineas = transformado.split(/\r?\n/);
+    const i = lineas.findIndex(
+      (l) => RESIDUO.test(l) || RESIDUO_SIN_COMILLAS.test(l)
+    );
+    if (i !== -1) {
+      console.error(
+        `[migrate] ABORTADO: quedó una referencia a \`public\` sin desqualificar.\n` +
+          `  archivo: ${archivo}\n` +
+          `  línea ${i + 1}: ${lineas[i].trim()}\n` +
+          `  Upstream introdujo una forma de calificar el esquema que la\n` +
+          `  transformación del fork no cubre. Ver NOTAS-FORK.md §3.4.`
+      );
+      process.exit(1);
+    }
+
+    fs.writeFileSync(path.join(destino, archivo), transformado);
+    // Cero reemplazos NO es error: hay migraciones sin FKs.
+    console.log(`[migrate] ${archivo}: ${reemplazos} FK desqualificadas`);
+  }
+
+  return destino;
+}
+
+// Determinista y sin dependencia de la BD: se hace UNA vez, fuera del bucle de
+// reintentos de abajo.
+const migrationsFolderAislado = prepararMigracionesAisladas(migrationsFolder);
 
 const maxAttempts = 15;
 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-  const sql = postgres(url, { max: 1, onnotice: () => {} });
+  // FORK agenciaev: mismo search_path que el cliente de la app (src/lib/db).
+  // La BD es compartida con agenciaev y Vocero vive aislado en el esquema
+  // `vocero`; sin esto las migraciones crearían/alterarían tablas en `public`.
+  // `public` se omite A PROPÓSITO para no tocar por accidente el otro proyecto.
+  const sql = postgres(url, {
+    max: 1,
+    onnotice: () => {},
+    connection: { search_path: "vocero, extensions" },
+  });
   try {
-    await migrate(drizzle(sql), { migrationsFolder });
+    await migrate(drizzle(sql), { migrationsFolder: migrationsFolderAislado });
     console.log("[migrate] migraciones aplicadas");
     await sql.end();
     process.exit(0);

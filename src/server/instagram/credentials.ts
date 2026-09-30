@@ -130,3 +130,12 @@ export async function markInstagramReconnectRequired(
 export function tokenLast4(token: string): string {
   return token.slice(-4);
 }
+
+/** 017: desconecta la cuenta (deja de recibir y de enviar por Instagram). */
+export async function deleteInstagramCredentials(
+  organizationId: string
+): Promise<void> {
+  await getDb()
+    .delete(schema.instagramCredentials)
+    .where(eq(schema.instagramCredentials.organizationId, organizationId));
+}
