@@ -31,6 +31,9 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN}
       META_APP_SECRET: ${META_APP_SECRET:-}
+      # 017: firma de los webhooks de Instagram/Messenger si vienen de otra app.
+      IG_APP_SECRET: ${IG_APP_SECRET:-}
+      FB_APP_SECRET: ${FB_APP_SECRET:-}
       META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
       OPENROUTER_API_TOKEN: ${OPENROUTER_API_TOKEN:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api}

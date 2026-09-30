@@ -197,7 +197,26 @@ export function Composer({
     onSent();
   }
 
-  if (!conversation.windowOpen) {
+  // 017: con el canal cerrado no hay nada que escribir. Pasa en Instagram y
+  // Messenger después de 7 días sin mensajes del cliente.
+  if (conversation.replyMode === "closed") {
+    return (
+      <div className="border-t bg-background px-[18px] py-3.5">
+        <div className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
+          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+          <div>
+            <p className="font-medium">No se puede retomar esta conversación.</p>
+            <p className="opacity-80">
+              Pasaron más de 7 días desde el último mensaje del cliente. Este
+              canal no permite escribirle hasta que vuelva a escribir.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (conversation.replyMode === "template") {
     return (
       <div className="border-t bg-background px-[18px] py-3.5">
         <div className="mb-3 flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
@@ -220,7 +239,7 @@ export function Composer({
 
   return (
     <div className="border-t bg-background px-[18px] pb-3.5 pt-3">
-      {templates.length > 0 && !file && panel === null && (
+      {conversation.templates && templates.length > 0 && !file && panel === null && (
         <div className="mb-2.5 flex flex-wrap gap-1.5">
           {templates.slice(0, 4).map((t) => (
             <button
@@ -349,38 +368,41 @@ export function Composer({
           className="hidden"
           onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
         />
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            onClick={() => fileRef.current?.click()}
-            aria-label="Adjuntar archivo"
-            title="Adjuntar imagen, video, audio o documento"
-            className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
-          >
-            <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          </button>
-          <button
-            onClick={() => setPanel(panel === "location" ? null : "location")}
-            aria-label="Enviar ubicación"
-            title="Enviar ubicación"
-            className={cn(
-              "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-              panel === "location" && "bg-secondary text-brand"
-            )}
-          >
-            <MapPin className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          </button>
-          <button
-            onClick={() => setPanel(panel === "contact" ? null : "contact")}
-            aria-label="Compartir contacto"
-            title="Compartir contacto"
-            className={cn(
-              "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-              panel === "contact" && "bg-secondary text-brand"
-            )}
-          >
-            <UserRound className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          </button>
-        </div>
+        {/* 017: adjuntos, ubicación y contactos solo donde el canal los acepta. */}
+        {conversation.outboundMedia && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              onClick={() => fileRef.current?.click()}
+              aria-label="Adjuntar archivo"
+              title="Adjuntar imagen, video, audio o documento"
+              className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
+            >
+              <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            </button>
+            <button
+              onClick={() => setPanel(panel === "location" ? null : "location")}
+              aria-label="Enviar ubicación"
+              title="Enviar ubicación"
+              className={cn(
+                "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
+                panel === "location" && "bg-secondary text-brand"
+              )}
+            >
+              <MapPin className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            </button>
+            <button
+              onClick={() => setPanel(panel === "contact" ? null : "contact")}
+              aria-label="Compartir contacto"
+              title="Compartir contacto"
+              className={cn(
+                "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
+                panel === "contact" && "bg-secondary text-brand"
+              )}
+            >
+              <UserRound className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            </button>
+          </div>
+        )}
         <textarea
           ref={taRef}
           placeholder={file ? "Pie del adjunto (opcional)…" : "Escribe una respuesta…"}
@@ -413,7 +435,9 @@ export function Composer({
       <div className="mt-1.5 flex items-center justify-between">
         {error ? <p className="text-xs text-destructive">{error}</p> : <span />}
         <p className="text-[11px] text-text-3">
-          Ventana abierta · quedan {formatRemaining(conversation.windowRemainingMs)}
+          {conversation.replyMode === "human_agent"
+            ? "Fuera de las 24 h · tu respuesta sale como agente humano (hasta 7 días)"
+            : `Ventana abierta · quedan ${formatRemaining(conversation.windowRemainingMs)}`}
         </p>
       </div>
     </div>

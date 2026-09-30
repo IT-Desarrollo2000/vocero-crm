@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import type { Channel } from "@/lib/channels";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { normalizeMx } from "@/lib/meta/client";
@@ -166,7 +167,7 @@ export async function getOrCreateContact(
 export async function getOrCreateConversation(
   organizationId: string,
   contactId: string,
-  opts?: { channel?: "whatsapp" | "instagram"; threadRef?: string | null }
+  opts?: { channel?: Channel; threadRef?: string | null }
 ) {
   const db = getDb();
   const inserted = await db

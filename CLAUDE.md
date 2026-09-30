@@ -33,6 +33,7 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |
 | Cómo se identifica a un contacto | `src/server/inbox/identity.ts` (teléfono normalizado o `bsuid:<id>`) |
 | Conectar TU propio bot en vez del agente | `src/app/api/bot/*` + `src/server/bot/auth.ts` (X-API-Key) |
+| Los canales Instagram y Messenger | `src/server/instagram/` · `src/server/messenger/` · reglas por canal en `src/server/channels/capabilities.ts` — detrás de `CHANNELS` · guía: [docs/canales-instagram-messenger.md](docs/canales-instagram-messenger.md) |
 | La agenda (horarios, huecos, citas) | `src/server/agenda/` — detrás de la bandera `AGENDA` (`flag.ts`) |
 | Cómo se entrega la reunión (Zoom, Meet…) | `src/server/agenda/connectors/` + catálogo en `src/lib/agenda-connectors.ts` · guía: [docs/agenda-conectores.md](docs/agenda-conectores.md) |
 | La atribución de anuncios y el reporte a Meta | `src/server/attribution/` — detrás de la bandera `ATRIBUCION` (`flag.ts`) + `src/lib/meta/capi.ts` · guía: [docs/atribucion-capi.md](docs/atribucion-capi.md) |

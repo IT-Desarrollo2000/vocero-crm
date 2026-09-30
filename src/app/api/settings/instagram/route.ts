@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
+import { getEnv } from "@/lib/env";
 import {
+  deleteInstagramCredentials,
   getInstagramCredentialsByOrg,
   saveInstagramCredentials,
   tokenLast4,
@@ -12,11 +14,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** 017: datos del webhook de Instagram para pegar en la app de Meta. */
+function webhookInfo() {
+  const env = getEnv();
+  const url = `${env.APP_BASE_URL.replace(/\/$/, "")}/api/webhooks/ig/${env.META_WEBHOOK_VERIFY_TOKEN}`;
+  return {
+    url,
+    verifyToken: env.META_WEBHOOK_VERIFY_TOKEN,
+    isHttps: url.startsWith("https://"),
+    signatureLayer: Boolean(env.IG_APP_SECRET || env.META_APP_SECRET),
+  };
+}
+
 /** 014 — Estado de la conexión de Instagram (el token nunca sale entero). */
 export const GET = withAuth(async (session) => {
   if (!isChannelEnabled("instagram")) return channelDisabledResponse();
   const creds = await getInstagramCredentialsByOrg(session.organizationId);
-  if (!creds) return Response.json({ connection: null });
+  if (!creds) return Response.json({ connection: null, webhook: webhookInfo() });
   return Response.json({
     connection: {
       source: creds.source,
@@ -26,6 +40,7 @@ export const GET = withAuth(async (session) => {
       status: creds.status,
       tokenLast4: tokenLast4(creds.token),
     },
+    webhook: webhookInfo(),
   });
 });
 
@@ -130,3 +145,10 @@ async function verify(data: z.infer<typeof putSchema>): Promise<Check> {
 
   return { ok: true, username: null };
 }
+
+/** 017 — Desconecta la cuenta de Instagram. */
+export const DELETE = withAuth(async (session) => {
+  if (!isChannelEnabled("instagram")) return channelDisabledResponse();
+  await deleteInstagramCredentials(session.organizationId);
+  return Response.json({ ok: true });
+});

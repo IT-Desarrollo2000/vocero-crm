@@ -335,6 +335,15 @@ export async function sendTemplate(input: {
       "Conversación de prueba del Laboratorio: el envío real está prohibido"
     );
   }
+  // 017: las plantillas son de WhatsApp. En otro canal no hay a quién
+  // mandárselas (el contacto no tiene número), y el envío reventaría con un
+  // 500 al buscar un destinatario que no existe.
+  if (row.conversation.channel !== "whatsapp") {
+    throw new TemplateError(
+      "invalid",
+      "Las plantillas solo existen en WhatsApp: en este canal responde con texto"
+    );
+  }
 
   const creds = await getCredentialsByOrg(input.organizationId);
   if (!creds) throw new TemplateError("not_connected", "Sin número conectado");
