@@ -15,6 +15,7 @@ const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
   meta_error: 422,
   meta_unavailable: 503,
   upload_failed: 502,
+  unsupported_channel: 422,
 };
 
 /**

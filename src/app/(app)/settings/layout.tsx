@@ -1,6 +1,7 @@
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { atribucionEnabled } from "@/server/attribution/flag";
+import { isChannelEnabled } from "@/server/channels/enabled";
 
 // La bandera se lee en cada petición: si esto se resolviera al construir, la
 // imagen quedaría con la agenda apagada para siempre y encenderla en la
@@ -17,7 +18,12 @@ export default function SettingsLayout({
       </header>
       {/* En móvil las pestañas van arriba (en fila), no como columna lateral. */}
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-        <SettingsNav agenda={agendaEnabled()} atribucion={atribucionEnabled()} />
+        <SettingsNav
+          agenda={agendaEnabled()}
+          atribucion={atribucionEnabled()}
+          instagram={isChannelEnabled("instagram")}
+          messenger={isChannelEnabled("messenger")}
+        />
         <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
     </div>

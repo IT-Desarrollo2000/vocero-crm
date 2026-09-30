@@ -42,7 +42,7 @@ jobs:
             channels: ""
             agenda: ""
           - name: completo
-            channels: "whatsapp,instagram"
+            channels: "whatsapp,instagram,messenger"
             agenda: "on"
 
     env:

@@ -1,6 +1,6 @@
 /** DTOs que viajan por la API interna (lado cliente). */
 
-import type { Channel } from "@/lib/channels";
+import type { Channel, ReplyMode } from "@/lib/channels";
 
 export type ConversationDto = {
   id: string;
@@ -16,6 +16,16 @@ export type ConversationDto = {
   unreadCount: number;
   windowOpen: boolean;
   windowRemainingMs: number;
+  /**
+   * 017: cómo puede responder hoy el operador, según las reglas del canal.
+   * El compositor decide con esto, no con `windowOpen` (que solo habla de
+   * las 24 h y hacía que una conversación de Instagram pidiera plantillas).
+   */
+  replyMode: ReplyMode;
+  /** 017: ¿el canal acepta adjuntos, ubicación y contactos salientes? */
+  outboundMedia: boolean;
+  /** 017: ¿existen plantillas en este canal? Solo WhatsApp. */
+  templates: boolean;
   preview: string | null;
 };
 
