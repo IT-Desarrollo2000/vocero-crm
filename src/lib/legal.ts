@@ -6,9 +6,9 @@ export const LEGAL = {
   /** Nombre comercial del producto. */
   productName: "FUTURA CRM",
   /** Marca con la que el negocio atiende al público. */
-  businessName: "Futura México",
+  businessName: "FUTURA City Cars",
   /** Razón social del responsable del tratamiento. */
-  legalName: "DELFIN9, S.A. de C.V.",
+  legalName: "DELFIN9, S.A.P.I. de C.V.",
   /** Correo de contacto para privacidad y solicitudes ARCO. */
   privacyEmail: "contacto@delfin9.com",
   /** Domicilio del responsable. */
