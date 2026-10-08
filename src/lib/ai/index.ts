@@ -129,10 +129,14 @@ async function callProvider(
 
 /**
  * Extracción robusta de JSON de una respuesta de modelo:
+ * 0) se descarta el razonamiento `<think>…</think>` que algunos modelos
+ *    (p. ej. MiniMax) devuelven dentro de `content` — puede traer llaves o
+ *    bloques de código que confundirían a los pasos siguientes,
  * 1) bloque ```json ... ``` (o ``` ... ```), 2) el texto completo,
  * 3) del primer `{` al último `}`.
  */
-export function extractJson(raw: string): unknown | null {
+export function extractJson(input: string): unknown | null {
+  const raw = stripReasoning(input);
   const candidates: string[] = [];
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence?.[1]) candidates.push(fence[1].trim());
@@ -150,6 +154,16 @@ export function extractJson(raw: string): unknown | null {
     }
   }
   return null;
+}
+
+function stripReasoning(raw: string): string {
+  const withoutBlocks = raw.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  // Algunos modelos omiten la etiqueta de apertura: todo lo previo al último
+  // cierre también es razonamiento.
+  const close = withoutBlocks.toLowerCase().lastIndexOf("</think>");
+  return close === -1
+    ? withoutBlocks
+    : withoutBlocks.slice(close + "</think>".length);
 }
 
 function truncate(s: string, n = 300): string {

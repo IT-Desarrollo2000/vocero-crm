@@ -17,6 +17,17 @@ describe("extractJson (extracción robusta)", () => {
     expect(extractJson(raw)).toEqual({ action: "handoff", reason: "cliente" });
   });
 
+  it("descarta el razonamiento <think> aunque traiga llaves (MiniMax)", () => {
+    const raw =
+      '<think>\nEl cliente escribió {pregunta con llaves}; respondo con {"action":"none"}? No, mejor reply.\n</think>\n\n{"action":"reply","text":"hola"}';
+    expect(extractJson(raw)).toEqual({ action: "reply", text: "hola" });
+  });
+
+  it("descarta el razonamiento cuando falta la etiqueta de apertura", () => {
+    const raw = 'pienso en {algo}\n</think>\n{"action":"none"}';
+    expect(extractJson(raw)).toEqual({ action: "none" });
+  });
+
   it("sin JSON → null", () => {
     expect(extractJson("no tengo nada que decir")).toBeNull();
   });
