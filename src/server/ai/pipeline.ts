@@ -159,10 +159,17 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     },
     ...history
       .filter((m) => m.text)
-      .map((m) => ({
-        role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
-        content: m.text!,
-      })),
+      .map((m) =>
+        m.direction === "in"
+          ? { role: "user" as const, content: m.text! }
+          : // Los turnos previos van en el MISMO formato JSON que se le exige:
+            // con texto plano, modelos como MiniMax imitan su historial y
+            // dejan de responder JSON desde el segundo turno.
+            {
+              role: "assistant" as const,
+              content: JSON.stringify({ action: "reply", text: m.text! }),
+            }
+      ),
   ];
 
   const result = await chatJson(agentActionSchema(agenda), messages);

@@ -128,4 +128,31 @@ describe("sandbox del Laboratorio en el pipeline del agente", () => {
       "respuesta simulada"
     );
   });
+
+  it("los turnos previos del agente viajan en el formato JSON que se le exige", async () => {
+    const { chatJson } = await import("@/lib/ai");
+    vi.mocked(chatJson).mockClear();
+    selectQueue.push(
+      [{ id: "cv_lab", organizationId: "org_1", contactId: "ct_lab", isTest: true, aiEnabled: true, handoffAt: null, handoffReason: null, lastInboundAt: new Date() }],
+      [{ id: "agp_1", organizationId: "org_1", enabled: false, name: "Asistente", tone: null, instructions: null, escalationRules: null, greeting: null }],
+      // historial en orden DESC (el pipeline lo invierte)
+      [
+        { id: "msg_3", direction: "in", text: "¿y el desarmador?", createdAt: new Date() },
+        { id: "msg_2", direction: "out", text: "No tengo ese precio", createdAt: new Date() },
+        { id: "msg_1", direction: "in", text: "¿precio del martillo?", createdAt: new Date() },
+      ],
+      [],
+      []
+    );
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_lab");
+
+    const messages = vi.mocked(chatJson).mock.calls[0]![1];
+    expect(messages.slice(1)).toEqual([
+      { role: "user", content: "¿precio del martillo?" },
+      { role: "assistant", content: '{"action":"reply","text":"No tengo ese precio"}' },
+      { role: "user", content: "¿y el desarmador?" },
+    ]);
+  });
 });
