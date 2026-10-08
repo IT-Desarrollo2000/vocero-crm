@@ -13,7 +13,7 @@ export default function TerminosPage() {
     <LegalPage title="Términos del servicio">
       <p>
         Estos términos regulan el uso de {LEGAL.productName}, operado por{" "}
-        <strong>{LEGAL.legalName}</strong> para{" "}
+        <strong>{LEGAL.legalName}</strong>, titular de la marca{" "}
         <strong>{LEGAL.businessName}</strong>. Al comunicarte con el negocio
         por los canales conectados o al usar la plataforma, aceptas estas
         condiciones.

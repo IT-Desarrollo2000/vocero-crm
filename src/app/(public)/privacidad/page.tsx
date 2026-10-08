@@ -13,7 +13,7 @@ export default function PrivacidadPage() {
     <LegalPage title="Política de privacidad">
       <p>
         {LEGAL.productName} es un sistema de atención a clientes (CRM) operado
-        por <strong>{LEGAL.legalName}</strong>, para el negocio{" "}
+        por <strong>{LEGAL.legalName}</strong>, titular de la marca{" "}
         <strong>{LEGAL.businessName}</strong>, con domicilio en {LEGAL.address}{" "}
         (en adelante, “el Responsable”). Esta política explica cómo se tratan
         los datos personales de las personas que se comunican con el negocio
