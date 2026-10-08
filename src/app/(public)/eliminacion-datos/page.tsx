@@ -2,16 +2,40 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/legal-page";
 import { LEGAL } from "@/lib/legal";
+import { CONFIRMATION_CODE_RE } from "@/server/meta/data-deletion";
 
 export const metadata: Metadata = {
   title: `Eliminación de datos — ${LEGAL.productName}`,
   description: `Cómo solicitar la eliminación de tus datos personales en ${LEGAL.productName} (WhatsApp, Instagram y Facebook Messenger).`,
 };
 
-export default function EliminacionDatosPage() {
+export default async function EliminacionDatosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ codigo?: string | string[] }>;
+}) {
+  const { codigo } = await searchParams;
+  // Solo se muestra un código con el formato que emite el callback de Meta.
+  const code =
+    typeof codigo === "string" && CONFIRMATION_CODE_RE.test(codigo)
+      ? codigo
+      : null;
   const subject = encodeURIComponent("Eliminación de datos");
   return (
     <LegalPage title="Eliminación de datos">
+      {code && (
+        <p>
+          <strong>Recibimos tu solicitud.</strong> Código de confirmación:{" "}
+          <strong>{code}</strong>. La atenderemos en un máximo de{" "}
+          {LEGAL.deletionDays} días naturales; para darle seguimiento escribe a{" "}
+          <a
+            href={`mailto:${LEGAL.privacyEmail}?subject=${encodeURIComponent(`Eliminación de datos ${code}`)}`}
+          >
+            {LEGAL.privacyEmail}
+          </a>{" "}
+          con ese código.
+        </p>
+      )}
       <p>
         Puedes pedir en cualquier momento que eliminemos los datos personales
         asociados a tu cuenta de WhatsApp, Instagram o Facebook Messenger que
