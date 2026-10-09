@@ -13,7 +13,7 @@ Todas autenticadas por sesión Better Auth y scoped a la organización del usuar
 | `POST /api/conversations/:id/messages` | enviar texto `{ text }` — 409 si ventana cerrada |
 | `POST /api/conversations/:id/messages/template` | enviar plantilla `{ templateId, variable }` |
 | `PATCH /api/conversations/:id` | `{ aiEnabled? , reactivate? }` (quita handoff) |
-| `GET/POST /api/contacts`, `PATCH /api/contacts/:id` | lista/búsqueda `?q=`, notas, archivar |
+| `GET/POST /api/contacts`, `PATCH /api/contacts/:id` | lista/búsqueda `?q=`, paginada `?limit=` (def. 50, máx 200) `&offset=` → `{ contacts, total, nextOffset }`; notas, archivar |
 | `GET/POST/PATCH/DELETE /api/pipeline/stages(/:id)` | etapas (DELETE exige `moveTo`) |
 | `PATCH /api/pipeline/leads/:id` | `{ stageId, position }` (drag & drop) |
 | `GET/PUT /api/agent/profile` | comportamiento + toggle global |
