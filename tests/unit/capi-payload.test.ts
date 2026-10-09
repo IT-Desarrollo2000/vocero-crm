@@ -94,6 +94,15 @@ describe("buildEventPayload", () => {
       currency: "MXN",
     });
   });
+
+  it("lleva event_id cuando lo hay (Meta deduplica los reintentos por él)", () => {
+    const con = buildEventPayload({ ...EVENT, eventId: "cve_1" }) as {
+      data: Record<string, unknown>[];
+    };
+    expect(con.data[0]!.event_id).toBe("cve_1");
+    const sin = buildEventPayload(EVENT) as { data: Record<string, unknown>[] };
+    expect("event_id" in sin.data[0]!).toBe(false);
+  });
 });
 
 describe("catálogo cerrado", () => {

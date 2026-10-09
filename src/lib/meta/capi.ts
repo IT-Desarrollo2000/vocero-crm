@@ -18,6 +18,12 @@ const PARTNER_AGENT = "vocero-crm";
 
 export type BusinessMessagingEvent = {
   eventName: string;
+  /**
+   * Identificador propio del evento (`event_id`). Vocero manda el id de la fila
+   * de `conversion_event`, que NO cambia al reintentar: si un intento anterior
+   * sí llegó aunque aquí se viera fallar, Meta deduplica por este id.
+   */
+  eventId?: string;
   /** Epoch en SEGUNDOS del momento de la conversión. */
   eventTime: number;
   ctwaClid: string;
@@ -133,6 +139,7 @@ export function buildEventPayload(
   const data: Record<string, unknown> = {
     event_name: event.eventName,
     event_time: event.eventTime,
+    ...(event.eventId ? { event_id: event.eventId } : {}),
     action_source: "business_messaging",
     messaging_channel: "whatsapp",
     // Hacia Meta NO viaja teléfono, nombre ni texto del contacto: solo el

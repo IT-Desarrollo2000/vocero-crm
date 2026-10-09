@@ -6,6 +6,7 @@ import { scoped } from "@/lib/db/tenant";
 import { publish } from "@/server/events/bus";
 import { moveLeadToStage } from "@/server/leads/stage-history";
 import { getBranding } from "@/server/branding";
+import { reportAmountChange } from "@/server/attribution/conversions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,8 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   // se arrastra la tarjeta no debe costar dos viajes ni dejar un estado a
   // medias si el segundo falla.
   const extra: Record<string, unknown> = {};
+  const amountSet =
+    typeof body.data.amountCents === "number" && body.data.amountCents > 0;
   if (body.data.amountCents !== undefined) {
     extra.amountCents = body.data.amountCents;
     // Sin monto no hay moneda que guardar: dejarla apuntando a un importe
@@ -93,6 +96,11 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       )
       .returning();
     if (!updated[0]) return apiError(404, "not_found", "Lead no encontrado");
+    // 016 — Si el lead ya estaba ganado y su venta esperaba el monto, sale
+    // ahora. Best-effort: el monto ya quedó guardado pase lo que pase.
+    if (amountSet) {
+      await reportAmountChange({ organizationId: session.organizationId, leadId: id });
+    }
     return Response.json({ lead: updated[0] });
   }
 
@@ -122,6 +130,12 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       "loss_reason_required",
       "Falta el motivo de la pérdida"
     );
+  }
+
+  // 016 — Mismo enganche cuando el monto viaja junto con un movimiento que no
+  // cambia de etapa (p. ej. reordenar dentro de la columna ganada).
+  if (amountSet) {
+    await reportAmountChange({ organizationId: session.organizationId, leadId: id });
   }
 
   const db = getDb();

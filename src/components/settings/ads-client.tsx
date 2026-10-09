@@ -36,6 +36,8 @@ type ActivityRow = {
   at: string;
   fbTraceId: string | null;
   error: string | null;
+  /** El servidor decide qué se puede reintentar; aquí solo se pinta. */
+  retryable: boolean;
 };
 
 const STATUS_LABEL: Record<ActivityRow["status"], string> = {
@@ -71,6 +73,12 @@ export function AdsClient() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Filas con un reintento en curso (cada una con su propio "ocupado"). */
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+  /** Error del último reintento, por fila. */
+  const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
+  const [retryingAll, setRetryingAll] = useState(false);
+  const [retryAllNote, setRetryAllNote] = useState<string | null>(null);
 
   const loadActivity = useCallback(async () => {
     const res = await fetch("/api/settings/capi/events").catch(() => null);
@@ -139,6 +147,58 @@ export function AdsClient() {
     setToken("");
     setQualifiedStageId("");
     setSaved(false);
+  }
+
+  async function retry(id: string) {
+    setRetrying((prev) => new Set(prev).add(id));
+    setRetryErrors(({ [id]: _omit, ...rest }) => rest);
+    const res = await fetch(`/api/settings/capi/events/${id}/retry`, {
+      method: "POST",
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as
+      | { event?: ActivityRow | null; error?: { message?: string } }
+      | null;
+    setRetrying((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (!res?.ok) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        [id]: body?.error?.message ?? "No se pudo reintentar",
+      }));
+      // Un 409 suele significar que la fila cambió por otro lado: se recarga
+      // para mostrar su estado real.
+      if (res?.status === 409) await loadActivity();
+      return;
+    }
+    const event = body?.event;
+    if (event) {
+      setActivity((prev) =>
+        prev ? prev.map((r) => (r.id === id ? event : r)) : prev
+      );
+    } else {
+      await loadActivity();
+    }
+  }
+
+  async function retryAll() {
+    setRetryingAll(true);
+    setRetryAllNote(null);
+    const res = await fetch("/api/settings/capi/events/retry", {
+      method: "POST",
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as
+      | { attempted: number; sent: number; failed: number; skipped: number }
+      | null;
+    setRetryingAll(false);
+    setRetryAllNote(
+      res?.ok && body
+        ? `Reintentadas: ${body.attempted} · enviadas: ${body.sent} · fallidas: ${body.failed} · omitidas: ${body.skipped}`
+        : "No se pudieron reintentar"
+    );
+    await loadActivity();
   }
 
   return (
@@ -246,9 +306,25 @@ export function AdsClient() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button variant="outline" onClick={() => void loadActivity()}>
-            Actualizar
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => void loadActivity()}>
+              Actualizar
+            </Button>
+            {activity?.some((r) => r.retryable) ? (
+              <Button
+                variant="outline"
+                onClick={() => void retryAll()}
+                disabled={retryingAll || retrying.size > 0}
+              >
+                {retryingAll ? "Reintentando…" : "Reintentar pendientes"}
+              </Button>
+            ) : null}
+          </div>
+          {retryAllNote ? (
+            <p className="text-xs text-muted-foreground" role="status">
+              {retryAllNote}
+            </p>
+          ) : null}
           {activity === null ? (
             <p className="text-sm text-muted-foreground">Cargando…</p>
           ) : activity.length === 0 ? (
@@ -290,6 +366,28 @@ export function AdsClient() {
                       </td>
                       <td className="py-2 text-xs text-muted-foreground">
                         {row.error ?? row.fbTraceId ?? "—"}
+                        {row.retryable ? (
+                          <div className="mt-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void retry(row.id)}
+                              disabled={retrying.has(row.id) || retryingAll}
+                            >
+                              {retrying.has(row.id)
+                                ? "Reintentando…"
+                                : "Reintentar"}
+                            </Button>
+                          </div>
+                        ) : null}
+                        {retryErrors[row.id] ? (
+                          <span
+                            className="mt-1 block text-danger-text"
+                            role="alert"
+                          >
+                            {retryErrors[row.id]}
+                          </span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

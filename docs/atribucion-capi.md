@@ -40,9 +40,15 @@ la práctica, el dataset de mensajería **es el de tu propia cuenta de WhatsApp*
 | Cuándo | Evento de Meta | Datos |
 |---|---|---|
 | El lead entra a tu etapa "calificado" | `QualifiedLead` | `lead_stage: "qualified"` |
-| El lead entra a tu etapa ganada | `Purchase` | `lead_stage: "won"` + `value`/`currency` si el trato tiene monto |
+| El lead entra a tu etapa ganada **con monto** | `Purchase` | `lead_stage: "won"` + `value`/`currency` |
 
-Ambos salen con el `ctwa_clid` del clic y el id de tu cuenta de WhatsApp.
+Meta exige `value` en una compra, así que si ganas un trato **sin monto** la
+venta no sale: queda *Omitida* con el motivo "sin monto". En cuanto capturas el
+monto de ese lead (ya ganado), esa misma venta se envía sola con su valor. Una
+venta que ya salió no se vuelve a mandar.
+
+Ambos salen con el `ctwa_clid` del clic, el id de tu cuenta de WhatsApp y un
+`event_id` (el id de la fila en Vocero, el mismo en cada reintento).
 **Nunca** viaja el teléfono, el nombre ni el texto del contacto.
 
 Los dos eventos se disparan desde la única puerta que mueve leads de etapa, así
@@ -59,7 +65,16 @@ estado:
 - **Fallido** — Meta lo rechazó, o el token venció, o se cayó la red. El motivo
   está escrito tal cual lo dijo Meta.
 - **Omitido** — no había nada que reportar: la conversación no vino de un
-  anuncio, o falta configurar el dataset.
+  anuncio, falta configurar el dataset, o la venta no tiene monto.
+
+**Reintentar.** Las filas *Fallido* y las *Omitido* por "no configurada" o "sin
+monto" muestran un botón **Reintentar** (y hay un "Reintentar pendientes" para
+las 50 más recientes). El reintento reusa la misma fila y el mismo `event_id`
+—si un intento anterior sí llegó, Meta lo deduplica— y reconstruye los datos
+con lo de hoy (p. ej. el monto capturado después). "Sin ctwa_clid" es
+definitivo y no se ofrece reintentar. Endpoints:
+`POST /api/settings/capi/events/:id/retry` (409 si la fila no es reintentable)
+y `POST /api/settings/capi/events/retry`.
 
 Esa tabla es la fuente de verdad, no el Administrador de eventos: sus reportes
 tardan y sus APIs de estadísticas **están ciegas a los eventos de mensajería**
