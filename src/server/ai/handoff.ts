@@ -10,3 +10,15 @@ export const HANDOFF_BACKUP_REGEX =
 export function matchesHandoffIntent(text: string): boolean {
   return HANDOFF_BACKUP_REGEX.test(text);
 }
+
+/** Tope de la nota libre de handoff: es contexto para el humano, no un transcript. */
+export const HANDOFF_NOTE_MAX = 500;
+
+/**
+ * Normaliza la explicación libre de quien escala (el agente o el cerebro
+ * externo): recortada a `HANDOFF_NOTE_MAX`; vacía o ausente → null.
+ */
+export function toHandoffNote(raw: string | null | undefined): string | null {
+  const v = raw?.trim() ?? "";
+  return v ? v.slice(0, HANDOFF_NOTE_MAX) : null;
+}

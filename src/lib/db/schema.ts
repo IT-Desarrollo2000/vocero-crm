@@ -354,6 +354,12 @@ export const conversation = pgTable(
         "manual_reply",
       ],
     }),
+    /**
+     * Explicación libre de quien escaló (el agente o el cerebro externo): el
+     * `handoffReason` es un catálogo cerrado y no cuenta el porqué concreto.
+     * Se limpia junto con handoffAt/handoffReason.
+     */
+    handoffNote: text("handoff_note"),
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
     unreadCount: integer("unread_count").notNull().default(0),

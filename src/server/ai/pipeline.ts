@@ -14,7 +14,7 @@ import {
   resolveStage,
   type AgentActionType,
 } from "@/server/ai/actions";
-import { matchesHandoffIntent } from "@/server/ai/handoff";
+import { matchesHandoffIntent, toHandoffNote } from "@/server/ai/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
@@ -95,6 +95,9 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   if (!isAiConfigured()) return;
 
   const db = getDb();
+  // Lectura de arranque por id: el organizationId SALE de esta fila (el
+  // turno solo recibe conversationId), así que todavía no hay tenant con qué
+  // scopear. Todo lo que sigue va por scoped().
   const convRows = await db
     .select()
     .from(schema.conversation)
@@ -121,7 +124,13 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   const history = await db
     .select()
     .from(schema.message)
-    .where(eq(schema.message.conversationId, conversationId))
+    .where(
+      scoped(
+        schema.message.organizationId,
+        organizationId,
+        eq(schema.message.conversationId, conversationId)
+      )
+    )
     .orderBy(desc(schema.message.createdAt))
     .limit(20);
   history.reverse();
@@ -250,7 +259,9 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
       if (action.farewell) {
         await deliverReply(conversation, action.farewell);
       }
-      await applyHandoff(conversationId, organizationId, "modelo");
+      // El catálogo dice "modelo"; el porqué concreto que explicó el modelo
+      // viaja como nota para que el humano no herede el caso a ciegas.
+      await applyHandoff(conversationId, organizationId, "modelo", action.reason);
       return;
     }
   }
@@ -306,22 +317,40 @@ async function persistTestOutbound(
     .where(eq(schema.conversation.id, conversation.id));
 }
 
+/** El catálogo de motivos sale del enum de la columna: una sola fuente. */
+export type ConversationHandoffReason = NonNullable<
+  (typeof schema.conversation.$inferSelect)["handoffReason"]
+>;
+
 export async function applyHandoff(
   conversationId: string,
   organizationId: string,
-  reason: "cliente" | "modelo" | "error" | "ventana"
+  reason: ConversationHandoffReason,
+  note?: string | null
 ): Promise<void> {
   const db = getDb();
+  const handoffNote = toHandoffNote(note);
   const updated = await db
     .update(schema.conversation)
-    .set({ handoffAt: new Date(), handoffReason: reason, updatedAt: new Date() })
-    .where(eq(schema.conversation.id, conversationId))
+    .set({
+      handoffAt: new Date(),
+      handoffReason: reason,
+      handoffNote,
+      updatedAt: new Date(),
+    })
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversationId)
+      )
+    )
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {
     type: "conversation.updated",
     data: {
-      conversation: { id: conversationId, handoffReason: reason },
+      conversation: { id: conversationId, handoffReason: reason, handoffNote },
     },
   });
 }
@@ -370,7 +399,13 @@ async function appendLeadNote(
   const rows = await db
     .select({ id: schema.contact.id, notes: schema.contact.notes })
     .from(schema.contact)
-    .where(eq(schema.contact.id, contactId))
+    .where(
+      scoped(
+        schema.contact.organizationId,
+        organizationId,
+        eq(schema.contact.id, contactId)
+      )
+    )
     .limit(1);
   const contact = rows[0];
   if (!contact) return;
@@ -381,5 +416,11 @@ async function appendLeadNote(
       notes: contact.notes ? `${contact.notes}\n${stamped}` : stamped,
       updatedAt: new Date(),
     })
-    .where(eq(schema.contact.id, contact.id));
+    .where(
+      scoped(
+        schema.contact.organizationId,
+        organizationId,
+        eq(schema.contact.id, contact.id)
+      )
+    );
 }

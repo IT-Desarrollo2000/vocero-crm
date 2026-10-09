@@ -4,7 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { publish } from "@/server/events/bus";
-import { toHandoffReason } from "@/server/bot/handoff";
+import { handoffNoteFrom, toHandoffReason } from "@/server/bot/handoff";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,12 @@ const bodySchema = z.object({
    * (ver `server/bot/handoff`). Un motivo raro no puede costar el handoff.
    */
   reason: z.string().optional(),
+  /**
+   * Explicación libre para el humano que recibe la conversación. Opcional:
+   * los clientes que no la mandan siguen funcionando igual. Se recorta, no se
+   * rechaza — una nota larga tampoco puede costar el handoff.
+   */
+  note: z.string().optional(),
 });
 
 /**
@@ -61,6 +67,7 @@ export async function POST(req: Request) {
         aiEnabled: false,
         handoffAt: new Date(),
         handoffReason: toHandoffReason(body.data.reason),
+        handoffNote: handoffNoteFrom(body.data.reason, body.data.note),
         updatedAt: new Date(),
       })
       .where(eq(schema.conversation.id, conv.id));

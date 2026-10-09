@@ -14,14 +14,7 @@ import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
-
-const HANDOFF_LABELS: Record<string, string> = {
-  cliente: "El cliente pidió un humano",
-  modelo: "El agente decidió escalar",
-  error: "Error del proveedor de IA",
-  ventana: "Ventana de 24h cerrada",
-  manual_reply: "Respondiste desde el teléfono — IA en pausa",
-};
+import { handoffLabel } from "@/lib/handoff-labels";
 
 export function ContactPanel({
   conversation,
@@ -189,9 +182,15 @@ export function ContactPanel({
                 <UserRound className="h-4 w-4" strokeWidth={1.7} /> Atención humana
               </p>
               <p className="mt-1 text-xs text-warning-text opacity-80">
-                {HANDOFF_LABELS[conversation.handoffReason ?? ""] ??
-                  "La IA está en pausa en esta conversación."}
+                {handoffLabel(conversation.handoffReason)}
               </p>
+              {conversation.handoffNote && (
+                // Texto del modelo o del bot: va como texto (React lo
+                // escapa), jamás como HTML.
+                <p className="mt-1 whitespace-pre-wrap break-words text-[11px] italic text-text-3">
+                  «{conversation.handoffNote}»
+                </p>
+              )}
               <Button
                 size="sm"
                 variant="outline"

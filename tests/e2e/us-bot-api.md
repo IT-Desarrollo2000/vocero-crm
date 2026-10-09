@@ -118,6 +118,11 @@ CRM no impone un cuestionario.
     cae a `modelo` y la IA se pausa igual. Un 422 aquí dejaría al bot
     vendiéndole a alguien que acaba de pedir un humano.
 34. Conversación inexistente → **404**.
+34b. `note` (opcional, texto libre) viaja como `handoffNote` del DTO y se ve
+    en el panel del contacto bajo el motivo, entre «». Se recorta a 500, no se
+    rechaza. Sin `note`, un `reason` fuera del catálogo se conserva como nota.
+    Reactivar la IA o `POST /api/bot/reset` la limpian. Automatizado en
+    `scripts/e2e-handoff-nota.mjs`.
 
 ## Camino infeliz
 

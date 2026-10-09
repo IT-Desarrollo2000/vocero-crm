@@ -112,6 +112,7 @@ export function serializeConversation(
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,
     handoffReason: c.handoffReason,
+    handoffNote: c.handoffNote,
     lastInboundAt: c.lastInboundAt?.toISOString() ?? null,
     lastMessageAt: c.lastMessageAt?.toISOString() ?? null,
     unreadCount: c.unreadCount,
@@ -135,6 +136,7 @@ export async function updateConversation(
   if (patch.reactivate) {
     set.handoffAt = null;
     set.handoffReason = null;
+    set.handoffNote = null;
     set.aiEnabled = patch.aiEnabled ?? true;
   }
   if (patch.markRead) set.unreadCount = 0;

@@ -348,6 +348,8 @@ async function ingestManualEcho(
       aiEnabled: false,
       handoffAt: new Date(),
       handoffReason: "manual_reply",
+      // Sin nota: la pausa la provocó el dueño, no hay porqué que explicar.
+      handoffNote: null,
       updatedAt: new Date(),
     })
     .where(

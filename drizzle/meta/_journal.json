@@ -85,6 +85,13 @@
       "when": 1790790855004,
       "tag": "0011_canal_messenger",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791583937729,
+      "tag": "0012_handoff_nota",
+      "breakpoints": true
     }
   ]
 }

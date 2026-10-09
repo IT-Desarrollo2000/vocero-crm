@@ -11,6 +11,8 @@ export type ConversationDto = {
   aiEnabled: boolean;
   handoffAt: string | null;
   handoffReason: string | null;
+  /** Explicación libre de quien escaló (agente o cerebro externo), o null. */
+  handoffNote: string | null;
   lastInboundAt: string | null;
   lastMessageAt: string | null;
   unreadCount: number;

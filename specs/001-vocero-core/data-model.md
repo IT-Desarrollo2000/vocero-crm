@@ -67,6 +67,7 @@ etapa destino.
 | ai_enabled | boolean NOT NULL default true | toggle por conversación |
 | handoff_at | timestamptz NULL | badge "atención humana"; IA silenciada si NOT NULL |
 | handoff_reason | text NULL | `cliente` \| `modelo` \| `error` \| `ventana` |
+| handoff_note | text NULL | explicación libre de quien escaló (≤500); se limpia con el handoff (0012) |
 | last_inbound_at | timestamptz NULL | base del cálculo ventana 24h |
 | last_message_at | timestamptz NULL | orden de bandeja + catch-up SSE |
 | unread_count | integer NOT NULL default 0 | |
