@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { resolveChannelProfileName } from "@/server/channels/profile";
 import { IG_PREFIX } from "@/server/inbox/identity";
+import { fetchInstagramProfileName } from "@/server/instagram/send";
 import { ingestInboundMessage } from "@/server/inbox/ingest";
 import {
   getInstagramCredentialsByAccountRef,
@@ -186,16 +188,23 @@ export async function processMetaInstagramPayload(
       if (!igsid || !mid) continue;
       if (typeof m.message?.text !== "string") continue; // solo texto (014)
 
+      const identity = `${IG_PREFIX}${igsid}`;
+      // Meta no manda nombre ni usuario en el webhook: se piden solo si aún
+      // no los tenemos.
+      const profileName = await resolveChannelProfileName({
+        organizationId: creds.organizationId,
+        channel: "instagram",
+        identity,
+        fetchName: () => fetchInstagramProfileName({ credentials: creds, igsid }),
+      });
       await ingestInboundMessage({
         organizationId: creds.organizationId,
         identity: {
-          identity: `${IG_PREFIX}${igsid}`,
+          identity,
           channel: "instagram",
           phone: null,
           waUserId: null,
-          // Meta no manda nombre ni usuario en el webhook: queda el respaldo
-          // hasta que alguien edite el contacto.
-          profileName: null,
+          profileName,
         },
         waMessageId: `ig_${mid}`,
         type: "text",

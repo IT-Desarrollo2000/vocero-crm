@@ -1936,7 +1936,24 @@ async function canalesChecks() {
       (x) => x.channel === c.channel && x.preview?.includes(`disponibilidad? ${SUF}`)
     );
     ok(`el DM crea una conversación con canal ${c.channel}`, !!cv);
-    ok(`el contacto lleva el nombre de respaldo del canal`, cv?.contact.name === `Contacto de ${c.label}`, cv?.contact.name);
+    ok(`el contacto toma el nombre del perfil del canal`, cv?.contact.name === `Cliente ${c.label}`, cv?.contact.name);
+
+    // Si Meta niega el perfil (función no aprobada), el DM entra igual con el
+    // nombre de respaldo.
+    const sinPerfil = await inbound({
+      senderId: `${pre}${SUF}sinperfil`,
+      text: `sin perfil ${SUF}`,
+      mid: `mid.e2e.${c.channel}.${SUF}.sinperfil`,
+    });
+    await sleep(1500);
+    const cvSin = ((await api("/api/conversations")).json?.conversations ?? []).find(
+      (x) => x.channel === c.channel && x.preview?.includes(`sin perfil ${SUF}`)
+    );
+    ok(
+      `sin perfil disponible → entra con el nombre de respaldo del canal`,
+      sinPerfil.res.ok && cvSin?.contact.name === `Contacto de ${c.label}`,
+      cvSin?.contact.name
+    );
     ok(`el contacto no tiene teléfono`, cv?.contact.phone === null);
     const msgs = (await api(`/api/conversations/${cv?.id}/messages`)).json?.messages ?? [];
     const entrantes = msgs.filter((m) => m.direction === "in");

@@ -1,3 +1,5 @@
+import { graphRequest } from "@/lib/meta/client";
+import { resolveChannelProfileName } from "@/server/channels/profile";
 import { FB_PREFIX } from "@/server/inbox/identity";
 import { ingestInboundMessage } from "@/server/inbox/ingest";
 import { getMessengerCredentialsByPageId } from "@/server/messenger/credentials";
@@ -87,16 +89,29 @@ export async function processMessengerPayload(payload: unknown): Promise<void> {
     }
 
     for (const m of inbound) {
+      const identity = `${FB_PREFIX}${m.psid}`;
+      // El webhook no trae el nombre: se pide al User Profile API (requiere
+      // Business Asset User Profile Access) solo si aún no lo tenemos.
+      const profileName = await resolveChannelProfileName({
+        organizationId: creds.organizationId,
+        channel: "messenger",
+        identity,
+        fetchName: async () => {
+          const p = await graphRequest<{ first_name?: string; last_name?: string }>(
+            `${m.psid}?fields=first_name,last_name`,
+            { token: creds.token }
+          );
+          return [p.first_name, p.last_name].filter(Boolean).join(" ") || null;
+        },
+      });
       await ingestInboundMessage({
         organizationId: creds.organizationId,
         identity: {
-          identity: `${FB_PREFIX}${m.psid}`,
+          identity,
           channel: "messenger",
           phone: null,
           waUserId: null,
-          // El webhook no trae el nombre; pedirlo exige otro permiso y otra
-          // llamada. Queda el respaldo hasta que alguien edite el contacto.
-          profileName: null,
+          profileName,
         },
         // Prefijado para que no colisione con un id de otro canal en el
         // índice único de mensajes.

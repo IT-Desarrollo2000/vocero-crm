@@ -120,6 +120,21 @@ async function sendViaMeta(input: {
 }
 
 /**
+ * Nombre de quien escribe por Instagram (Meta directo). El webhook no lo trae;
+ * graph.instagram.com lo da con instagram_business_manage_messages.
+ */
+export async function fetchInstagramProfileName(input: {
+  credentials: InstagramCredentials;
+  igsid: string;
+}): Promise<string | null> {
+  const res = (await fetchJson(
+    `${IG_GRAPH_BASE}/${IG_GRAPH_VERSION}/${input.igsid}?fields=name,username`,
+    { headers: { Authorization: `Bearer ${input.credentials.token}` } }
+  )) as { name?: string; username?: string };
+  return res.name?.trim() || (res.username ? `@${res.username}` : null);
+}
+
+/**
  * Traduce los fallos de ambas plataformas al MetaApiError que el resto del
  * CRM ya sabe interpretar (incluido `isAuthError`, que distingue token muerto
  * de hipo transitorio y costó un incidente aprender).

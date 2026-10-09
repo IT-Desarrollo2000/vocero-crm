@@ -126,6 +126,20 @@ export async function GET(req: Request, ctx: Params) {
     });
   }
 
+  // Perfil de quien escribe por Messenger ({PSID}) o Instagram ({IGSID}).
+  // Un id con "sinperfil" imita el fallo de Meta (función no aprobada).
+  if (path.length === 1 && /^(psid|ig)/.test(path[0]!)) {
+    if (path[0]!.includes("sinperfil")) {
+      return Response.json(
+        { error: { message: "Missing permission", type: "OAuthException", code: 10 } },
+        { status: 403 }
+      );
+    }
+    return path[0]!.startsWith("psid")
+      ? Response.json({ id: path[0], first_name: "Cliente", last_name: "Messenger" })
+      : Response.json({ id: path[0], name: "Cliente Instagram", username: "cliente_ig" });
+  }
+
   // GET {phoneNumberId}?fields=... → validación del wizard
   if (path.length === 1) {
     return Response.json({
