@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import { deleteTestRun } from "@/server/lab/delete";
 import { PERSONA_LABELS } from "@/server/lab/personas";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,13 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const cases = await db
     .select()
     .from(schema.agentTestCase)
-    .where(eq(schema.agentTestCase.runId, id))
+    .where(
+      scoped(
+        schema.agentTestCase.organizationId,
+        session.organizationId,
+        eq(schema.agentTestCase.runId, id)
+      )
+    )
     .orderBy(asc(schema.agentTestCase.createdAt));
 
   return Response.json({
@@ -48,6 +55,23 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       veredicto: c.veredicto,
       hallazgos: c.hallazgos ?? [],
       transcript: c.transcript ?? [],
+      conversationId: c.conversationId,
     })),
   });
+});
+
+export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
+  const { id } = await ctx.params;
+  const result = await deleteTestRun(session.organizationId, id);
+  if (!result.ok) {
+    if (result.reason === "run_in_progress") {
+      return apiError(
+        409,
+        "run_in_progress",
+        "No se puede eliminar una evaluación en curso"
+      );
+    }
+    return apiError(404, "not_found", "Corrida no encontrada");
+  }
+  return Response.json({ deleted: true });
 });

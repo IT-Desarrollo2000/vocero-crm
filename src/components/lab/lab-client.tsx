@@ -9,6 +9,7 @@ import {
   FlaskConical,
   Play,
   Sparkles,
+  Trash2,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -69,14 +70,44 @@ export function LabClient() {
     const data = (await res.json()) as { runs: Run[]; aiConfigured: boolean };
     setRuns(data.runs);
     setAiConfigured(data.aiConfigured);
-    if (!selectedRunId && data.runs[0]) setSelectedRunId(data.runs[0].id);
-  }, [selectedRunId]);
+    // Funcional: tras eliminar la corrida seleccionada, el closure aún vería
+    // el id viejo y no auto-seleccionaría la siguiente.
+    setSelectedRunId((prev) => prev ?? data.runs[0]?.id ?? null);
+  }, []);
 
   const refetchDetail = useCallback(async (runId: string) => {
     const res = await fetch(`/api/lab/runs/${runId}`).catch(() => null);
+    if (res?.status === 404) {
+      // Eliminada (p. ej. desde otra pestaña): suelta el detalle y la
+      // selección para que el historial elija la siguiente.
+      setDetail(null);
+      setSelectedRunId((prev) => (prev === runId ? null : prev));
+      void refetchRuns();
+      return;
+    }
     if (!res?.ok) return;
     setDetail((await res.json()) as { run: Run; cases: Case[] });
-  }, []);
+  }, [refetchRuns]);
+
+  async function removeRun(runId: string): Promise<string | null> {
+    const res = await fetch(`/api/lab/runs/${runId}`, { method: "DELETE" }).catch(
+      () => null
+    );
+    if (!res) return "No se pudo eliminar la evaluación";
+    if (!res.ok && res.status !== 404) {
+      const data = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      return data?.error?.message ?? "No se pudo eliminar la evaluación";
+    }
+    // 404: ya no existía — se trata como eliminada y se refresca la lista.
+    if (selectedRunId === runId) {
+      setSelectedRunId(null);
+      setDetail(null);
+    }
+    await refetchRuns();
+    return null;
+  }
 
   useEffect(() => {
     void refetchRuns();
@@ -169,6 +200,7 @@ export function LabClient() {
           runs={runs}
           selectedRunId={selectedRunId}
           onSelect={setSelectedRunId}
+          onDelete={removeRun}
         />
         {detail ? (
           <Report detail={detail} onApplied={() => void refetchDetail(detail.run.id)} />
@@ -217,10 +249,12 @@ function HistoryList({
   runs,
   selectedRunId,
   onSelect,
+  onDelete,
 }: {
   runs: Run[];
   selectedRunId: string | null;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => Promise<string | null>;
 }) {
   return (
     <div className="space-y-2">
@@ -231,12 +265,57 @@ function HistoryList({
         <p className="text-xs text-muted-foreground">Sin corridas todavía.</p>
       )}
       {runs.map((run) => (
-        <button
+        <HistoryRow
           key={run.id}
-          onClick={() => onSelect(run.id)}
-          className={`w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 ${
-            selectedRunId === run.id ? "border-primary/50 bg-accent/60" : "bg-card"
-          }`}
+          run={run}
+          selected={selectedRunId === run.id}
+          onSelect={() => onSelect(run.id)}
+          onDelete={() => onDelete(run.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Fila del historial: seleccionar + eliminar con confirmación en dos pasos. */
+function HistoryRow({
+  run,
+  selected,
+  onSelect,
+  onDelete,
+}: {
+  run: Run;
+  selected: boolean;
+  onSelect: () => void;
+  onDelete: () => Promise<string | null>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    const err = await onDelete();
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setConfirming(false);
+  }
+
+  return (
+    <div
+      className={`rounded-lg border transition-colors ${
+        // Con tokens planos: `primary/50` no pinta nada (es una var CSS sin canal alfa).
+        selected ? "border-brand bg-brand-tint" : "bg-card hover:bg-accent"
+      }`}
+    >
+      <div className="flex items-start">
+        <button
+          onClick={onSelect}
+          className="min-w-0 flex-1 rounded-lg p-3 text-left"
         >
           <div className="flex items-center justify-between">
             <ScoreBadge run={run} />
@@ -265,7 +344,48 @@ function HistoryList({
             })}
           </p>
         </button>
-      ))}
+        {run.status !== "running" && !confirming && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="m-1.5 h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label="Eliminar evaluación"
+            title="Eliminar evaluación"
+            onClick={() => {
+              setError(null);
+              setConfirming(true);
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+      {confirming && (
+        <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2">
+          <span className="text-xs text-danger-text">¿Eliminar?</span>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={busy}
+            onClick={() => void remove()}
+          >
+            {busy ? "Eliminando…" : "Sí, eliminar"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setConfirming(false)}
+          >
+            Cancelar
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p className="px-3 pb-2 text-xs text-danger-text" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

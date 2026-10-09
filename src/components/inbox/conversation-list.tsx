@@ -5,11 +5,16 @@ import { Search, Sparkles, UserRound, X } from "lucide-react";
 import type { ConversationDto } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
-import { matchesQuery } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
-import { formatTime, previewText } from "./helpers";
+import {
+  filterConversations,
+  formatTime,
+  needsHuman,
+  previewText,
+  type ConversationFilter,
+} from "./helpers";
 
 const STAGE_DOT: Record<string, string> = {
   Nuevo: "#9ca3af",
@@ -70,7 +75,7 @@ export function ConversationList({
   onSeeded: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [filter, setFilter] = useState<ConversationFilter>("all");
   const [stage, setStage] = useState<string>("all");
   const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,26 +94,17 @@ export function ConversationList({
 
   const loading = conversationsProp === null;
   const conversations = conversationsProp ?? [];
-  // Solo NOMBRE y TELÉFONO, como cualquier filtro de contactos. Antes también
-  // miraba el preview, y como el agente nombra al dueño en sus propios
-  // mensajes, buscar ese nombre devolvía media bandeja. Encima era una
-  // búsqueda de mensajes a medias: solo el último de cada hilo, no el historial.
-  const searched = conversations.filter(
-    (c) =>
-      matchesQuery(query, {
-        text: [c.contact.name],
-        phone: c.contact.phone,
-      }) && (stage === "all" || c.stageName === stage)
-  );
-  // La bandeja elegida es el filtro de AFUERA: "Todas" y "No leídas" cuentan
-  // dentro de ella, no sobre la suma de los dos canales.
-  const inInbox =
-    inbox === "all" ? searched : searched.filter((c) => c.channel === inbox);
+  // Búsqueda (nombre y teléfono) + etapa → bandeja → pastilla. Ver helpers.
+  const { searched, inInbox, visible } = filterConversations(conversations, {
+    query,
+    stage,
+    inbox,
+    filter,
+  });
   const inboxCount = (ch: Channel) =>
     searched.filter((c) => c.channel === ch).length;
   const unreadCount = inInbox.filter((c) => c.unreadCount > 0).length;
-  const visible =
-    filter === "unread" ? inInbox.filter((c) => c.unreadCount > 0) : inInbox;
+  const handoffCount = inInbox.filter(needsHuman).length;
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
   const multiChannel = channels.length > 1;
@@ -186,11 +182,18 @@ export function ConversationList({
         </div>
       </header>
 
-      <div className="flex items-center gap-1.5 border-b px-4 py-2.5">
+      {/* Con tres pastillas no cabe todo en 360px: el selector de etapa baja
+          a una segunda línea en vez de salirse por la derecha. */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5">
         {(
           [
             { id: "all", label: "Todas", count: inInbox.length },
             { id: "unread", label: "No leídas", count: unreadCount },
+            {
+              id: "handoff",
+              label: "Atención humana",
+              count: handoffCount,
+            },
           ] as const
         ).map((f) => (
           <button
@@ -244,7 +247,9 @@ export function ConversationList({
           <EmptyState onSeeded={onSeeded} />
         ) : visible.length === 0 ? (
           <p className="p-6 text-center text-xs text-text-3">
-            Sin resultados para este filtro.
+            {filter === "handoff"
+              ? "Ninguna conversación requiere atención humana."
+              : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>

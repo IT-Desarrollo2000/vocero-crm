@@ -10,7 +10,8 @@ import { AppNav } from "@/components/app-nav";
 /**
  * Cascarón de la app en dos modos:
  *
- * - Escritorio (lg+): el panel lateral es una columna fija, como siempre.
+ * - Escritorio (lg+): el panel lateral es una columna fija, como siempre,
+ *   que se puede contraer a solo iconos.
  * - Móvil/tableta: el lateral sale de la izquierda como cajón sobre un velo,
  *   y arriba queda una barra con el hamburguesa y la marca. El cajón se cierra
  *   solo al navegar (el `pathname` cambia) y con Escape.
@@ -24,6 +25,7 @@ export function AppShell({
   userName,
   role,
   theme,
+  navCollapsed = false,
   commit,
   agenda = false,
   children,
@@ -32,6 +34,8 @@ export function AppShell({
   userName: string;
   role: string;
   theme: ThemePreference;
+  /** Lateral contraído en escritorio (cookie leída en el servidor). */
+  navCollapsed?: boolean;
   /** Commit resuelto en el servidor (build-arg o variable de la plataforma). */
   commit?: string;
   /** 015 — ¿esta instancia tiene agenda? Lo decide el servidor. */
@@ -73,6 +77,7 @@ export function AppShell({
         userName={userName}
         role={role}
         theme={theme}
+        initialCollapsed={navCollapsed}
         agenda={agenda}
         open={navOpen}
         onClose={() => setNavOpen(false)}

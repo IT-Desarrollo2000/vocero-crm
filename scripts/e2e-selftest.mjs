@@ -978,6 +978,7 @@ async function main() {
   await agendaChecks();
   await atribucionChecks();
   await canalesChecks();
+  await labChecks();
 
   console.log(`\n===== ${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -2088,4 +2089,110 @@ async function canalesChecks() {
     // Deja el canal sano para quien corra después.
     await reconnect("tok-e2e-canal");
   }
+}
+
+/* ============================================================
+ * US4 — Laboratorio: eliminar una evaluación (tests/e2e/us4-lab.md)
+ *
+ * Una corrida en curso NO se elimina (409 run_in_progress: el índice UNIQUE
+ * parcial es el candado de concurrencia); una terminada se va con sus casos
+ * y sus conversaciones de prueba. Las conversaciones se observan por la
+ * API de mensajes (no filtra is_test): 200 ANTES y 404 DESPUÉS, para que la
+ * ausencia sea una prueba de verdad y no un "no encontré nada".
+ * ============================================================ */
+
+async function labChecks() {
+  console.log("\n== Laboratorio: eliminar evaluación ==");
+  const LAB_TIMEOUT_MS = 180_000;
+
+  // Una corrida huérfana de una ejecución abortada bloquearía el POST.
+  const t0 = Date.now();
+  for (;;) {
+    const runs = (await api("/api/lab/runs")).json?.runs ?? [];
+    if (!runs.some((r) => r.status === "running")) break;
+    if (Date.now() - t0 > LAB_TIMEOUT_MS) {
+      ok("(setup) no hay corridas del Laboratorio en curso", false, "sigue una en curso tras 180s");
+      return;
+    }
+    await sleep(1000);
+  }
+
+  const launch = await api("/api/lab/runs", { method: "POST" });
+  if (launch.json?.error?.code === "ai_not_configured") {
+    ok(
+      "Laboratorio: el proveedor de IA está configurado (OPENROUTER_API_TOKEN + OPENROUTER_BASE_URL → ai-mock)",
+      false,
+      JSON.stringify(launch.json)
+    );
+    return;
+  }
+  const runId = launch.json?.runId;
+  ok("POST /api/lab/runs → 202 con runId", launch.res.status === 202 && !!runId, `status=${launch.res.status} ${JSON.stringify(launch.json)}`);
+  if (!runId) return;
+
+  const enCurso = await api(`/api/lab/runs/${runId}`, { method: "DELETE" });
+  ok(
+    "DELETE de una corrida en curso → 409 run_in_progress",
+    enCurso.res.status === 409 && enCurso.json?.error?.code === "run_in_progress",
+    `status=${enCurso.res.status} ${JSON.stringify(enCurso.json)}`
+  );
+
+  const tRun = Date.now();
+  let detail = null;
+  for (;;) {
+    const d = await api(`/api/lab/runs/${runId}`);
+    detail = d.json;
+    if (detail?.run && detail.run.status !== "running") break;
+    if (Date.now() - tRun > LAB_TIMEOUT_MS) break;
+    await sleep(1000);
+  }
+  console.log(`  ..  corrida terminó en ${((Date.now() - tRun) / 1000).toFixed(1)}s (status=${detail?.run?.status})`);
+  ok(
+    "la corrida termina (done/failed) dentro del timeout",
+    detail?.run && detail.run.status !== "running",
+    JSON.stringify(detail?.run)
+  );
+  if (!detail?.run || detail.run.status === "running") return;
+
+  const convIds = (detail.cases ?? []).map((c) => c.conversationId).filter(Boolean);
+  ok(
+    "el detalle expone las conversaciones de prueba de sus casos",
+    detail.run.status === "failed" || convIds.length > 0,
+    JSON.stringify(detail.cases?.map((c) => c.conversationId))
+  );
+  const faltantes = [];
+  for (const cid of convIds) {
+    const m = await api(`/api/conversations/${cid}/messages`);
+    if (m.res.status !== 200) faltantes.push(`${cid}:${m.res.status}`);
+  }
+  ok(
+    `(antes) sus ${convIds.length} conversaciones de prueba existen (200)`,
+    faltantes.length === 0,
+    faltantes.join(", ")
+  );
+
+  const del = await api(`/api/lab/runs/${runId}`, { method: "DELETE" });
+  ok("DELETE de una corrida terminada → 200", del.res.status === 200, `status=${del.res.status} ${JSON.stringify(del.json)}`);
+
+  const trasBorrar = await api(`/api/lab/runs/${runId}`);
+  ok("el detalle de la corrida eliminada → 404", trasBorrar.res.status === 404, `status=${trasBorrar.res.status}`);
+
+  const lista = (await api("/api/lab/runs")).json?.runs ?? [];
+  ok("la lista ya no incluye la corrida", !lista.some((r) => r.id === runId));
+
+  const sobrevivientes = [];
+  for (const cid of convIds) {
+    const m = await api(`/api/conversations/${cid}/messages`);
+    if (m.res.status !== 404) sobrevivientes.push(`${cid}:${m.res.status}`);
+  }
+  ok(
+    `sus ${convIds.length} conversaciones de prueba se borraron (404)`,
+    sobrevivientes.length === 0,
+    sobrevivientes.join(", ")
+  );
+
+  const otraVez = await api(`/api/lab/runs/${runId}`, { method: "DELETE" });
+  ok("DELETE repetido → 404", otraVez.res.status === 404, `status=${otraVez.res.status}`);
+  const inexistente = await api("/api/lab/runs/tr_no_existe_e2e", { method: "DELETE" });
+  ok("DELETE de un id inexistente → 404", inexistente.res.status === 404, `status=${inexistente.res.status}`);
 }

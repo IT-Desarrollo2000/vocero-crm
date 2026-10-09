@@ -1,5 +1,65 @@
 /** Utilidades de presentación de la bandeja. */
 
+import type { Channel } from "@/lib/channels";
+import { matchesQuery } from "@/lib/search";
+import type { ConversationDto } from "@/lib/types";
+
+/** Pastillas de la bandeja: todas, no leídas o pidiendo atención humana. */
+export type ConversationFilter = "all" | "unread" | "handoff";
+
+/**
+ * Atención humana = la conversación tiene handoff abierto. Mismo criterio que
+ * el distintivo del renglón; una IA apagada a mano NO cuenta como handoff.
+ */
+export function needsHuman(c: ConversationDto): boolean {
+  return c.handoffAt != null;
+}
+
+/**
+ * Filtrado de la bandeja, en capas y en este orden:
+ *  1. búsqueda (solo NOMBRE y TELÉFONO) + etapa del embudo → `searched`
+ *     (base de los contadores por canal);
+ *  2. bandeja/canal elegido → `inInbox` (base de las pastillas);
+ *  3. pastilla → `visible`.
+ *
+ * Solo nombre y teléfono, como cualquier filtro de contactos. Antes también
+ * miraba el preview, y como el agente nombra al dueño en sus propios
+ * mensajes, buscar ese nombre devolvía media bandeja.
+ */
+export function filterConversations(
+  conversations: readonly ConversationDto[],
+  opts: {
+    query: string;
+    stage: string;
+    inbox: Channel | "all";
+    filter: ConversationFilter;
+  }
+): {
+  searched: ConversationDto[];
+  inInbox: ConversationDto[];
+  visible: ConversationDto[];
+} {
+  const { query, stage, inbox, filter } = opts;
+  const searched = conversations.filter(
+    (c) =>
+      matchesQuery(query, {
+        text: [c.contact.name],
+        phone: c.contact.phone,
+      }) && (stage === "all" || c.stageName === stage)
+  );
+  // La bandeja elegida es el filtro de AFUERA: las pastillas cuentan dentro
+  // de ella, no sobre la suma de los canales.
+  const inInbox =
+    inbox === "all" ? searched : searched.filter((c) => c.channel === inbox);
+  const visible =
+    filter === "unread"
+      ? inInbox.filter((c) => c.unreadCount > 0)
+      : filter === "handoff"
+        ? inInbox.filter(needsHuman)
+        : inInbox;
+  return { searched, inInbox, visible };
+}
+
 export function formatTime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);

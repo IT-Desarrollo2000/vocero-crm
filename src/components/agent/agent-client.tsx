@@ -85,13 +85,13 @@ export function AgentClient() {
             aria-label="Agente encendido"
             disabled={!aiConfigured}
             onClick={() => void saveProfile({ enabled: !profile.enabled })}
-            className={`relative h-6 w-11 rounded-full transition-colors disabled:opacity-40 ${
-              profile.enabled ? "bg-primary" : "bg-secondary"
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-40 ${
+              profile.enabled ? "bg-brand" : "bg-border-strong"
             }`}
           >
             <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-knob transition-transform ${
-                profile.enabled ? "translate-x-5" : "translate-x-0.5"
+              className={`h-5 w-5 rounded-full bg-knob shadow-sm transition-transform ${
+                profile.enabled ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>

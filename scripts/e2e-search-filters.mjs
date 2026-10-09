@@ -11,7 +11,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = "http://localhost:3000";
+const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const PN = "PN-SEARCH-1";
 const S = Math.random().toString(36).slice(2, 6).toUpperCase();
 let failures = 0;
@@ -137,6 +137,57 @@ list = await rows();
 ok("búsqueda y etapa se combinan (nunca contradicen)",
    list.every((t) => t.includes(`Zoraida${S}`) && t.includes(stage)), JSON.stringify(list));
 await page.screenshot({ path: ".tmp/e2e-inbox.png" });
+
+console.log("\n== Bandeja: pastilla 'Atención humana' ==");
+// Se provoca el handoff con un echo del mock (el dueño contesta a mano desde
+// el teléfono → handoff manual_reply): no requiere BOT_API_KEY.
+await box.fill("");
+await sel.selectOption("all");
+const echo = await req.post(`${BASE}/api/dev/wa-mock/echo`, {
+  data: {
+    phoneNumberId: PN,
+    to: PHONE2,
+    text: "te atiendo yo",
+    waMessageId: `wamid.s.${S}.echo`,
+  },
+});
+ok("echo del dueño entregado al webhook", echo.ok(), String(echo.status()));
+await new Promise((res) => setTimeout(res, 1500));
+const convsHo = (await (await req.get(`${BASE}/api/conversations`)).json()).conversations;
+const byName = (n) => convsHo.find((c) => c.contact.name === n);
+ok("la conversación de Josué quedó en atención humana (setup)",
+   !!byName(`Josué${S} Ramírez`)?.handoffAt,
+   JSON.stringify(byName(`Josué${S} Ramírez`)?.handoffReason));
+ok("la de Zoraida NO (caso negativo)", !byName(`Zoraida${S} Belier`)?.handoffAt);
+
+// "Atención humana" también es el texto del distintivo de cada renglón; el
+// nombre accesible de los renglones empieza por el contacto, así que el ancla
+// ^ aísla la pastilla.
+const hoPill = page.getByRole("button", { name: /^Atención humana/ });
+// Recarga: lo que se prueba es el filtro, no la propagación por SSE.
+await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
+await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
+await hoPill.click();
+await page.waitForTimeout(400);
+list = await rows();
+ok("la pastilla deja solo conversaciones con el distintivo",
+   list.length > 0 && list.every((t) => t.includes("Atención humana")),
+   JSON.stringify(list.length));
+ok("Josué (con handoff) aparece", has(list, `Josué${S}`), JSON.stringify(list.length));
+ok("Zoraida (sin handoff) no aparece", !has(list, `Zoraida${S}`));
+const pillCount = Number((await hoPill.innerText()).replace(/\D/g, ""));
+ok("el contador de la pastilla coincide con la lista", pillCount === list.length,
+   JSON.stringify({ pillCount, filas: list.length }));
+
+await box.fill(`Zoraida${S}`);
+await page.waitForTimeout(400);
+ok("búsqueda de alguien sin handoff + pastilla → estado vacío coherente",
+   (await rows()).length === 0 &&
+     (await page.getByText("Ninguna conversación requiere atención humana.").isVisible()));
+await box.fill("");
+await page.getByRole("button", { name: /^Todas/ }).click();
+await page.waitForTimeout(300);
+ok("volver a 'Todas' restaura la lista", (await rows()).length >= 3);
 
 console.log("\n== Contactos: búsqueda tolerante + filtro por etapa ==");
 const cp = await ctx.newPage();

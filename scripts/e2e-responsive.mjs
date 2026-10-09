@@ -8,7 +8,9 @@
  *  - el panel de detalles flota sobre el hilo en vez de robarle ancho;
  *  - ninguna pantalla recorta contenido a lo ancho (main no desborda);
  *  - los campos de texto miden ≥16px (si no, iOS hace zoom y descuadra todo);
- *  - en escritorio NADA de lo anterior cambia (el lateral sigue fijo).
+ *  - en escritorio NADA de lo anterior cambia (el lateral sigue fijo);
+ *  - en escritorio el lateral se contrae a iconos y lo recuerda (cookie), sin
+ *    afectar al cajón móvil.
  *
  * Uso: node scripts/e2e-responsive.mjs
  * Requiere: app corriendo (pnpm dev) con WA_MOCK_ENABLED=true y Playwright.
@@ -314,6 +316,138 @@ ok(
   JSON.stringify(tres)
 );
 await desk.screenshot({ path: `${SHOTS}/desktop-inbox.png` });
+// Las pastillas (Todas / No leídas / Atención humana) y el selector de etapa
+// no se salen de la columna de 360px: si no caben, bajan de línea.
+const filtros = await desk.evaluate(() => {
+  const lista = document.querySelector("main > div > section");
+  const sel = document.querySelector('select[aria-label="Filtrar por etapa del embudo"]');
+  const pastilla = [...document.querySelectorAll("button")].find((b) =>
+    b.textContent?.startsWith("Atención humana")
+  );
+  if (!lista || !sel || !pastilla) return null;
+  const l = lista.getBoundingClientRect();
+  const dentro = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.left >= l.left && r.right <= l.right + 0.5;
+  };
+  return { selector: dentro(sel), pastilla: dentro(pastilla) };
+});
+ok(
+  "los filtros de la Bandeja caben en la columna (nada se sale por la derecha)",
+  filtros?.selector === true && filtros?.pastilla === true,
+  JSON.stringify(filtros)
+);
+
+console.log("\n== 7. Escritorio: el lateral se contrae y lo recuerda ==");
+const anchoLateral = () =>
+  desk.evaluate(() => {
+    const aside = document.querySelector("aside");
+    return aside ? Math.round(aside.getBoundingClientRect().width) : 0;
+  });
+// El ancho se anima (200 ms): se espera a que asiente en vez de medir de una.
+const asienta = (px) => until(async () => (await anchoLateral()) === px, 5000);
+await desk.getByRole("button", { name: "Contraer menú" }).click();
+ok("al contraer, el lateral mide 64px", await asienta(64), `${await anchoLateral()}px`);
+ok(
+  "contraído, la Bandeja sigue alcanzable por su nombre",
+  await desk.getByRole("link", { name: /Bandeja/ }).isVisible()
+);
+await desk.screenshot({ path: `${SHOTS}/desktop-lateral-contraido.png` });
+// "load" (no "domcontentloaded"): en dev React tarda en hidratar y un clic
+// antes de eso cae en un botón sin manejador.
+await desk.reload({ waitUntil: "load" });
+const expandir = desk.getByRole("button", { name: "Expandir menú" });
+await expandir.waitFor({ timeout: 20000 });
+ok(
+  "al recargar sigue contraído (la cookie persistió)",
+  await asienta(64),
+  `${await anchoLateral()}px`
+);
+// Reintenta solo mientras siga diciendo "Expandir": si el primer clic llegó
+// antes de hidratar no hizo nada, y si ya expandió no se vuelve a alternar.
+await until(async () => {
+  if (await expandir.isVisible()) await expandir.click({ timeout: 2000 });
+  return (await anchoLateral()) === 224;
+}, 10000);
+ok("al expandir vuelve a 224px", await asienta(224), `${await anchoLateral()}px`);
+
+console.log("\n== 8. Teléfono: la cookie contraída no encoge el cajón ==");
+await ctx.addCookies([
+  { name: "vocero-nav-collapsed", value: "1", url: BASE },
+]);
+await desk.setViewportSize(PHONE);
+await desk.goto(`${BASE}/pipeline`, { waitUntil: "load" });
+const abrir = desk.getByRole("button", { name: "Abrir el menú" });
+await abrir.waitFor({ timeout: 20000 });
+// Mismo cuidado con la hidratación: se reintenta mientras el cajón no abra.
+await until(async () => {
+  const visible = await desk.getByRole("link", { name: /Bandeja/ }).isVisible();
+  if (!visible) await abrir.click({ timeout: 2000 });
+  return visible;
+}, 10000);
+// 17rem = 272px: el ancho del cajón de siempre.
+ok(
+  "en móvil el cajón abre completo aunque la cookie diga contraído",
+  await until(async () => (await anchoLateral()) === 272, 3000),
+  `${await anchoLateral()}px`
+);
+ok(
+  "en móvil el cajón muestra las etiquetas",
+  await desk.locator("aside").getByText("Bandeja", { exact: true }).isVisible()
+);
+ok(
+  "en móvil no aparece el botón de contraer",
+  !(await desk.getByRole("button", { name: /(Contraer|Expandir) menú/ }).isVisible())
+);
+// Deja la cookie expandida: otros guiones comparten el navegador/la sesión.
+await ctx.addCookies([
+  { name: "vocero-nav-collapsed", value: "0", url: BASE },
+]);
+
+console.log("\n== 9. Agente: el interruptor de encendido no se sale del riel ==");
+await desk.setViewportSize({ width: 1400, height: 900 });
+await desk.goto(`${BASE}/agent`, { waitUntil: "load" });
+const sw = desk.getByRole("switch", { name: "Agente encendido" });
+await sw.waitFor({ timeout: 20000 });
+// Margen de la perilla a cada lado del riel (px). Antes era absolute sin
+// left: quedaba centrada y al encender se salía por la derecha.
+const margenes = () =>
+  sw.evaluate((el) => {
+    const t = el.getBoundingClientRect();
+    const k = el.firstElementChild.getBoundingClientRect();
+    return {
+      on: el.getAttribute("aria-checked") === "true",
+      izq: Math.round(k.left - t.left),
+      der: Math.round(t.right - k.right),
+      arriba: Math.round(k.top - t.top),
+      abajo: Math.round(t.bottom - k.bottom),
+    };
+  });
+const dentro = (m) =>
+  m.izq >= 1 &&
+  m.der >= 1 &&
+  Math.abs(m.arriba - m.abajo) <= 1 &&
+  (m.on ? m.der <= 3 : m.izq <= 3);
+// La perilla anima (transition-transform): se espera a que asiente.
+const asientaSw = async () => {
+  let m = await margenes();
+  await until(async () => dentro((m = await margenes())), 3000);
+  return m;
+};
+const estado = (m) => (m.on ? "encendido" : "apagado");
+const antes = await asientaSw();
+ok(`perilla dentro del riel (${estado(antes)})`, dentro(antes), JSON.stringify(antes));
+if (await sw.isEnabled()) {
+  // Un solo clic (la página ya cargó con "load"): reintentar podría alternarlo
+  // dos veces mientras se guarda el perfil.
+  await sw.click();
+  await until(async () => (await margenes()).on !== antes.on, 8000);
+  const despues = await asientaSw();
+  ok(`perilla dentro del riel (${estado(despues)})`, dentro(despues), JSON.stringify(despues));
+  // Deja el agente como estaba: otros guiones dependen de él.
+  await sw.click();
+  await until(async () => (await margenes()).on === antes.on, 5000);
+}
 
 console.log(
   failures === 0
