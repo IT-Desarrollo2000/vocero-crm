@@ -13,7 +13,8 @@ import { scoped } from "@/lib/db/tenant";
  *
  * Una corrida `running` no se elimina: el índice parcial UNIQUE
  * `test_run_org_running_uq` es el candado de concurrencia y el runner sigue
- * escribiendo sobre ella. No hay cancelación — se espera a que termine.
+ * escribiendo sobre ella. Se espera a que termine (o a que el timeout del
+ * runner la aborte y la marque `failed`).
  */
 
 export type DeleteRunResult =

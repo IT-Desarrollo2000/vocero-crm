@@ -10,15 +10,40 @@ import { PERSONAS, type Persona } from "@/server/lab/personas";
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
  * proceso (sin cola externa), turnos secuenciales con debounce 0, timeout
- * global de 10 minutos, y lock de concurrencia por índice parcial UNIQUE en
- * BD (máx. 1 corrida `running` por organización).
+ * global (10 min por defecto, `LAB_RUN_TIMEOUT_MS`), y lock de concurrencia
+ * por índice parcial UNIQUE en BD (máx. 1 corrida `running` por organización).
+ *
+ * Cancelación cooperativa: al vencer el timeout se aborta la corrida y TODA
+ * escritura/publicación del runner se chequea contra la señal antes de
+ * hacerse. `runAgentTurn` y `chatJson` no aceptan señal, así que un turno ya
+ * en vuelo termina (a lo sumo deja una respuesta más en su conversación de
+ * prueba); después el runner no escribe nada más de esa corrida.
  *
  * Sandbox (FR-031): las conversaciones se crean con is_test=true; el pipeline
  * del agente persiste las respuestas sin tocar la API, y el sender real lanza
  * si algo intenta enviarlas.
  */
 
-const RUN_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_RUN_TIMEOUT_MS = 10 * 60 * 1000;
+/** Tope de setTimeout en Node: por encima dispara casi de inmediato. */
+const MAX_TIMER_MS = 2_147_483_647;
+/**
+ * Espera tras abortar a que el runner salga solo (p.ej. que asiente una
+ * escritura ya despachada) antes de `failRun`. No espera al LLM: si sigue
+ * colgado, las compuertas le impiden escribir después.
+ */
+export const ABORT_GRACE_MS = 30_000;
+
+/** `LAB_RUN_TIMEOUT_MS`: entero positivo en ms; inválido → 10 minutos. */
+export function parseRunTimeoutMs(raw: string | undefined): number {
+  const value = raw?.trim();
+  if (!value || !/^\d+$/.test(value)) return DEFAULT_RUN_TIMEOUT_MS;
+  const ms = Number(value);
+  if (!Number.isSafeInteger(ms) || ms <= 0 || ms > MAX_TIMER_MS) {
+    return DEFAULT_RUN_TIMEOUT_MS;
+  }
+  return ms;
+}
 
 export class RunConflictError extends Error {}
 
@@ -62,22 +87,92 @@ async function executeRun(
   runId: string,
   organizationId: string
 ): Promise<void> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error("timeout de 10 minutos superado")),
-      RUN_TIMEOUT_MS
-    )
-  );
+  const timeoutMs = parseRunTimeoutMs(process.env.LAB_RUN_TIMEOUT_MS);
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  let onTimeout: () => void = () => {};
+  const timedOut = new Promise<"timeout">((resolve) => {
+    onTimeout = () => resolve("timeout");
+  });
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`timeout de ${timeoutMs} ms superado`));
+    onTimeout();
+  }, timeoutMs);
+
+  const work = runAllCases(runId, organizationId, signal);
+  // Un rechazo tardío de la corrida abortada no debe quedar sin manejar.
+  work.catch(() => {});
+
   try {
-    await Promise.race([runAllCases(runId, organizationId), timeout]);
+    const first = await Promise.race([
+      work.then(() => "done" as const),
+      timedOut,
+    ]);
+    if (first === "done") return;
+
+    // Orden: abort (ya hecho) → esperar a que el runner salga, con tope →
+    // cerrar el caso en curso → failRun. El run sigue `running` mientras
+    // tanto: el candado UNIQUE no se libera ni la corrida se puede borrar.
+    const settled = await settleWithin(work, ABORT_GRACE_MS);
+    // Terminó justo antes de notar el abort: queda `done`, no se pisa.
+    if (settled === "resolved") return;
+    await closeRunningCases(runId);
+    await failRun(runId, organizationId, String(signal.reason));
   } catch (err) {
+    // Fallo propio de la corrida (no timeout): se aborta igual por si algo
+    // quedara en vuelo.
+    controller.abort(err);
+    await closeRunningCases(runId);
     await failRun(runId, organizationId, String(err));
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** Espera `work` hasta `ms`; el timer de la espera siempre se limpia. */
+async function settleWithin(
+  work: Promise<unknown>,
+  ms: number
+): Promise<"resolved" | "rejected" | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cap = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
+  try {
+    return await Promise.race([
+      work.then(
+        () => "resolved" as const,
+        () => "rejected" as const
+      ),
+      cap,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * El caso interrumpido no puede quedar `running`: pasa a `judge_failed`
+ * ("sin veredicto"), único estado terminal sin evaluación. Los que no
+ * empezaron siguen `pending`.
+ */
+async function closeRunningCases(runId: string): Promise<void> {
+  await getDb()
+    .update(schema.agentTestCase)
+    .set({ status: "judge_failed" })
+    .where(
+      and(
+        eq(schema.agentTestCase.runId, runId),
+        eq(schema.agentTestCase.status, "running")
+      )
+    );
 }
 
 async function runAllCases(
   runId: string,
-  organizationId: string
+  organizationId: string,
+  signal: AbortSignal
 ): Promise<void> {
   const db = getDb();
   const cases = await db
@@ -111,12 +206,14 @@ async function runAllCases(
 
   let done = 0;
   const total = cases.length;
+  signal.throwIfAborted();
   publishProgress(organizationId, runId, "running", done, total);
 
   for (const testCase of cases) {
     const persona = PERSONAS.find((p) => p.key === testCase.persona);
     if (!persona) continue;
 
+    signal.throwIfAborted();
     await db
       .update(schema.agentTestCase)
       .set({ status: "running" })
@@ -124,9 +221,13 @@ async function runAllCases(
 
     const { transcript, conversationId } = await runConversation(
       organizationId,
-      persona
+      testCase.id,
+      persona,
+      signal
     );
 
+    // Sin juez si ya se abortó: ahorra la llamada al LLM.
+    signal.throwIfAborted();
     const outcome = await judgeCase({
       personaKey: persona.key,
       transcript,
@@ -134,6 +235,7 @@ async function runAllCases(
       behaviorText,
     });
 
+    signal.throwIfAborted();
     await db
       .update(schema.agentTestCase)
       .set({
@@ -146,6 +248,7 @@ async function runAllCases(
       .where(eq(schema.agentTestCase.id, testCase.id));
 
     done += 1;
+    signal.throwIfAborted();
     publishProgress(organizationId, runId, "running", done, total);
   }
 
@@ -158,6 +261,8 @@ async function runAllCases(
     .where(eq(schema.agentTestCase.runId, runId));
   const score = computeScore(finalCases);
 
+  // Sin esto una corrida abortada podría pasar de `failed` a `done`.
+  signal.throwIfAborted();
   await getDb()
     .update(schema.agentTestRun)
     .set({ status: "done", score, finishedAt: new Date() })
@@ -168,7 +273,9 @@ async function runAllCases(
 /** Conversa el guion completo contra el agente real; corta al primer handoff. */
 async function runConversation(
   organizationId: string,
-  persona: Persona
+  caseId: string,
+  persona: Persona,
+  signal: AbortSignal
 ): Promise<{
   transcript: { role: "cliente" | "agente"; text: string }[];
   conversationId: string;
@@ -176,9 +283,11 @@ async function runConversation(
   const db = getDb();
 
   // Contacto sintético ARCHIVADO (no aparece en la lista ni genera leads).
+  signal.throwIfAborted();
   const contactId = await upsertTestContact(organizationId, persona);
 
   const convId = newId("conversation");
+  signal.throwIfAborted();
   await db.insert(schema.conversation).values({
     id: convId,
     organizationId,
@@ -186,8 +295,16 @@ async function runConversation(
     isTest: true,
     aiEnabled: true,
   });
+  // Ligada al caso desde ya: si la corrida se interrumpe, borrarla
+  // (lab/delete.ts) encuentra esta conversación y no queda huérfana.
+  signal.throwIfAborted();
+  await db
+    .update(schema.agentTestCase)
+    .set({ conversationId: convId })
+    .where(eq(schema.agentTestCase.id, caseId));
 
   for (const line of persona.script) {
+    signal.throwIfAborted();
     const now = new Date();
     await db.insert(schema.message).values({
       id: newId("message"),
@@ -199,13 +316,17 @@ async function runConversation(
       status: "delivered",
       waTimestamp: now,
     });
+    signal.throwIfAborted();
     await db
       .update(schema.conversation)
       .set({ lastInboundAt: now, lastMessageAt: now, updatedAt: now })
       .where(eq(schema.conversation.id, convId));
 
-    // Turno REAL del agente, secuencial y sin debounce (FR-030).
+    // Turno REAL del agente, secuencial y sin debounce (FR-030). No acepta
+    // señal: se chequea antes y después.
+    signal.throwIfAborted();
     await runAgentTurn(convId);
+    signal.throwIfAborted();
 
     const convRows = await db
       .select({ handoffAt: schema.conversation.handoffAt })

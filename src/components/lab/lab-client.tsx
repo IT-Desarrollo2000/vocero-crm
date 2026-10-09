@@ -436,7 +436,8 @@ function Report({
             {cases.some((c) => c.status === "judge_failed") && (
               <p className="mt-3 text-xs text-warning-text">
                 {cases.filter((c) => c.status === "judge_failed").length} caso(s) sin
-                veredicto (el juez no respondió válido); excluidos del score.
+                veredicto (el juez no respondió válido o la corrida se cortó por
+                tiempo); excluidos del score.
               </p>
             )}
           </CardContent>
