@@ -147,8 +147,15 @@ repo ya registra. Los subagentes con `memory: project` usan
 
 ## Arquitectura de agentes
 
-1. **Orquestador** = la sesión principal de Claude Code (este CLAUDE.md + skill
-   `loop-sdd`).
-2. **Subagentes** (`.claude/agents/`): `deploy-ops` (deploy/logs/healthchecks,
-   no escribe código de app) · `public-site-builder` (páginas públicas/legales
-   y config de paneles externos).
+1. **Orquestador** = la sesión principal de Claude Code (Opus, esfuerzo alto;
+   este CLAUDE.md + skill `loop-sdd`). Planifica, coordina y verifica.
+2. **Subagentes globales** (`~/.claude/agents/`, Opus, esfuerzo medio):
+   `code-reader` (lee y explica código, solo lectura) · `code-editor` (edita y
+   corre `pnpm typecheck && pnpm lint && pnpm test` hasta verde) ·
+   `docs-researcher` (documentación externa con fuentes, no toca el repo).
+3. **Subagentes del proyecto** (`.claude/agents/`, Sonnet):
+   `deploy-ops` (deploy/logs/healthchecks, no escribe código de app) ·
+   `public-site-builder` (páginas públicas/legales y config de paneles
+   externos).
+4. **Asesor**: consultarlo antes de un plan grande, cuando un error se repite y
+   antes de declarar hecha una tarea larga (regla en `~/.claude/CLAUDE.md`).
