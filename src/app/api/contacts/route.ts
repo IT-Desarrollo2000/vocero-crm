@@ -1,10 +1,11 @@
-import { desc, eq, inArray, or, sql } from "drizzle-orm";
+import { count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { normalizeMx } from "@/lib/meta/client";
+import { nextOffset, parsePage } from "@/lib/pagination";
 import { digitsOnly, normalizeText } from "@/lib/search";
 import { serializeContact } from "@/server/contacts";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
@@ -25,6 +26,9 @@ export const GET = withAuth(async (session, req: Request) => {
   const q = url.searchParams.get("q")?.trim();
   const stage = url.searchParams.get("stage")?.trim();
   const includeArchived = url.searchParams.get("archived") === "true";
+  // Paginado: antes era un `.limit(200)` mudo y el contacto 201 desaparecía
+  // del directorio (y de la búsqueda) sin aviso.
+  const page = parsePage(url.searchParams);
 
   const db = getDb();
 
@@ -67,37 +71,50 @@ export const GET = withAuth(async (session, req: Request) => {
         )
       : undefined;
 
-  // El filtro de etapa se aplica ANTES del límite: si no, un contacto de la
-  // etapa buscada podría quedar fuera por el corte de 200.
+  // Todos los filtros (etapa y archivados incluidos) van en SQL ANTES de
+  // paginar: filtrar después del corte devolvería páginas cortas sin ser la
+  // última y un `total` que no cuadra con lo que se puede recorrer.
   const stageContactIds = stage
     ? leadStages.filter((r) => r.stageName === stage).map((r) => r.contactId)
     : null;
-  if (stageContactIds?.length === 0) return Response.json({ contacts: [] });
+  if (stageContactIds?.length === 0) {
+    return Response.json({ contacts: [], total: 0, nextOffset: null });
+  }
 
-  const rows = await db
-    .select()
-    .from(schema.contact)
-    .where(
-      scoped(
-        schema.contact.organizationId,
-        session.organizationId,
-        search,
-        stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined
-      )
+  const where = scoped(
+    schema.contact.organizationId,
+    session.organizationId,
+    search,
+    stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
+    includeArchived ? undefined : isNull(schema.contact.archivedAt)
+  );
+
+  const [rows, totals] = await Promise.all([
+    db
+      .select()
+      .from(schema.contact)
+      .where(where)
+      // El `id` desempata: con `updatedAt` iguales, un orden no determinista
+      // repetiría o saltaría contactos entre una página y la siguiente.
+      .orderBy(desc(schema.contact.updatedAt), desc(schema.contact.id))
+      .limit(page.limit)
+      .offset(page.offset),
+    db.select({ n: count() }).from(schema.contact).where(where),
+  ]);
+  const total = Number(totals[0]?.n ?? 0);
+
+  const contacts = rows.map((c) =>
+    serializeContact(
+      c,
+      stageByContact.get(c.id) ?? null,
+      priorityByContact.get(c.id) ?? null
     )
-    .orderBy(desc(schema.contact.updatedAt))
-    .limit(200);
-
-  const contacts = rows
-    .filter((c) => includeArchived || !c.archivedAt)
-    .map((c) =>
-      serializeContact(
-        c,
-        stageByContact.get(c.id) ?? null,
-        priorityByContact.get(c.id) ?? null
-      )
-    );
-  return Response.json({ contacts });
+  );
+  return Response.json({
+    contacts,
+    total,
+    nextOffset: nextOffset(page, rows.length, total),
+  });
 });
 
 const createSchema = z.object({

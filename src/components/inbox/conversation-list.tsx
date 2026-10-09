@@ -8,6 +8,8 @@ import { ChannelBadge } from "@/components/channel-badge";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
+import { useStages } from "@/components/use-stages";
+import { stageColorByName } from "@/lib/stage-colors";
 import {
   filterConversations,
   formatTime,
@@ -15,14 +17,6 @@ import {
   previewText,
   type ConversationFilter,
 } from "./helpers";
-
-const STAGE_DOT: Record<string, string> = {
-  Nuevo: "#9ca3af",
-  "En conversación": "#7b93b3",
-  Interesado: "#b08b5e",
-  Cliente: "#5f8f74",
-  Perdido: "#a2504c",
-};
 
 function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   const [seeding, setSeeding] = useState(false);
@@ -114,6 +108,23 @@ export function ConversationList({
   for (const c of conversations) {
     if (c.stageName && !stages.includes(c.stageName)) stages.push(c.stageName);
   }
+
+  // El color del punto sale del tipo y la posición de la etapa en el
+  // pipeline, no de su nombre (ver lib/stage-colors).
+  const { stages: pipelineStages, reload: reloadStages } = useStages();
+  // Si aparece un nombre que la lista no conoce (el dueño renombró o creó una
+  // etapa con la Bandeja abierta), se pide la lista otra vez — una sola vez
+  // por combinación de nombres desconocidos, para no entrar en bucle.
+  const unknownStages = stages
+    .filter((n) => !pipelineStages.some((s) => s.name === n))
+    .join("|");
+  const askedFor = useRef("");
+  useEffect(() => {
+    if (!unknownStages || pipelineStages.length === 0) return;
+    if (askedFor.current === unknownStages) return;
+    askedFor.current = unknownStages;
+    void reloadStages();
+  }, [unknownStages, pipelineStages.length, reloadStages]);
 
   function clearQuery() {
     if (inputRef.current) inputRef.current.value = "";
@@ -317,7 +328,10 @@ export function ConversationList({
                             <span
                               className="h-[7px] w-[7px] rounded-full"
                               style={{
-                                background: STAGE_DOT[c.stageName] ?? "#9ca3af",
+                                background: stageColorByName(
+                                  c.stageName,
+                                  pipelineStages
+                                ),
                               }}
                             />
                             {c.stageName}

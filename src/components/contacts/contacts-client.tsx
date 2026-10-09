@@ -21,15 +21,49 @@ import { Textarea } from "@/components/ui/textarea";
 import { SOURCE_LABELS } from "@/server/contact-source";
 import { priorityRank } from "@/server/leads/priority";
 import { PriorityBadge } from "@/components/pipeline/priority-picker";
+import { useStages } from "@/components/use-stages";
+import { PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT } from "@/lib/pagination";
+import { stageColorByName } from "@/lib/stage-colors";
 import { NewContactDialog } from "./new-contact-dialog";
 import { StartConversation } from "./start-conversation";
+
+/** Contactos por página del directorio ("Cargar más" pide otros tantos). */
+const PAGE_SIZE = PAGE_DEFAULT_LIMIT;
+
+type ContactsPage = {
+  contacts: ContactDto[];
+  total?: number;
+  nextOffset?: number | null;
+};
+
+/**
+ * A quién llamar primero: alta arriba, sin prioridad al final. El orden lo
+ * decide esta lista, no el servidor, porque es una preferencia de trabajo y no
+ * un dato del contacto. Se aplica a lo YA cargado: "Cargar más" puede
+ * intercalar contactos con prioridad entre los anteriores.
+ */
+function byPriority(list: ContactDto[]): ContactDto[] {
+  return [...list].sort(
+    (a, b) => priorityRank(a.priority ?? null) - priorityRank(b.priority ?? null)
+  );
+}
 
 export function ContactsClient() {
   const router = useRouter();
   const [contacts, setContacts] = useState<ContactDto[]>([]);
+  // Paginado del servidor: cuántos hay en total con estos filtros y desde
+  // dónde pedir la siguiente página (null = ya no hay más).
+  const [total, setTotal] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Cada recarga de la primera página invalida lo que siga en vuelo: una
+  // respuesta tardía no debe pisar ni mezclarse con la lista nueva.
+  const requestId = useRef(0);
+  const loadedCount = useRef(0);
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState("all");
-  const [stages, setStages] = useState<string[]>([]);
+  const { stages: pipelineStages } = useStages();
+  const stages = pipelineStages.map((s) => s.name);
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<ContactDto | null>(null);
   const [creando, setCreando] = useState(false);
@@ -43,32 +77,61 @@ export function ContactsClient() {
     if (typed) setQuery(typed);
   }, []);
 
-  useEffect(() => {
-    void (async () => {
-      const res = await fetch("/api/pipeline/stages").catch(() => null);
-      if (!res?.ok) return;
-      const data = (await res.json()) as { stages: { name: string }[] };
-      setStages(data.stages.map((s) => s.name));
-    })();
-  }, []);
+  const fetchPage = useCallback(
+    async (offset: number, limit: number) => {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (stage !== "all") params.set("stage", stage);
+      if (showArchived) params.set("archived", "true");
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      const res = await fetch(`/api/contacts?${params}`).catch(() => null);
+      if (!res?.ok) return null;
+      return (await res.json().catch(() => null)) as ContactsPage | null;
+    },
+    [query, stage, showArchived]
+  );
 
-  const refetch = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (query.trim()) params.set("q", query.trim());
-    if (stage !== "all") params.set("stage", stage);
-    if (showArchived) params.set("archived", "true");
-    const res = await fetch(`/api/contacts?${params}`).catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as { contacts: ContactDto[] };
-    // A quién llamar primero: alta arriba, sin prioridad al final. El orden lo
-    // decide esta lista, no el servidor, porque es una preferencia de trabajo y
-    // no un dato del contacto.
-    setContacts(
-      [...data.contacts].sort(
-        (a, b) => priorityRank(a.priority ?? null) - priorityRank(b.priority ?? null)
-      )
-    );
-  }, [query, stage, showArchived]);
+  /**
+   * Primera página: REEMPLAZA la lista. `keep` pide al menos esa cantidad
+   * para que archivar o editar en la página 3 no lo regrese a la 1.
+   */
+  const refetch = useCallback(
+    async (keep = 0) => {
+      const id = ++requestId.current;
+      const limit = Math.min(PAGE_MAX_LIMIT, Math.max(PAGE_SIZE, keep));
+      const data = await fetchPage(0, limit);
+      if (!data || id !== requestId.current) return;
+      loadedCount.current = data.contacts.length;
+      setContacts(byPriority(data.contacts));
+      setTotal(data.total ?? data.contacts.length);
+      setNextOffset(data.nextOffset ?? null);
+    },
+    [fetchPage]
+  );
+
+  /** Siguiente página: se AGREGA a lo que ya está en pantalla. */
+  async function loadMore() {
+    if (nextOffset === null || loadingMore) return;
+    const id = requestId.current;
+    setLoadingMore(true);
+    const data = await fetchPage(nextOffset, PAGE_SIZE);
+    setLoadingMore(false);
+    if (!data || id !== requestId.current) return;
+    setContacts((prev) => {
+      // Si alguien escribió mientras se paginaba, su contacto subió al
+      // principio y el offset repite uno: se descarta por `id`.
+      const seen = new Set(prev.map((c) => c.id));
+      const merged = byPriority([
+        ...prev,
+        ...data.contacts.filter((c) => !seen.has(c.id)),
+      ]);
+      loadedCount.current = merged.length;
+      return merged;
+    });
+    setTotal(data.total ?? total);
+    setNextOffset(data.nextOffset ?? null);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => void refetch(), 250);
@@ -81,7 +144,7 @@ export function ContactsClient() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }).catch(() => null);
-    void refetch();
+    void refetch(loadedCount.current);
   }
 
   return (
@@ -173,7 +236,19 @@ export function ContactsClient() {
                     </span>
                     {c.priority && <PriorityBadge value={c.priority} />}
                     {c.stageName && (
-                      <Badge variant="outline">{c.stageName}</Badge>
+                      <Badge variant="outline" className="gap-1.5">
+                        <span
+                          aria-hidden
+                          className="h-[7px] w-[7px] rounded-full"
+                          style={{
+                            background: stageColorByName(
+                              c.stageName,
+                              pipelineStages
+                            ),
+                          }}
+                        />
+                        {c.stageName}
+                      </Badge>
                     )}
                     {c.archivedAt && (
                       <Badge variant="secondary">Archivado</Badge>
@@ -232,6 +307,23 @@ export function ContactsClient() {
               </li>
             ))}
           </ul>
+        )}
+        {contacts.length > 0 && (
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              Mostrando {contacts.length} de {Math.max(total, contacts.length)}
+            </p>
+            {nextOffset !== null && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? "Cargando…" : "Cargar más"}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
