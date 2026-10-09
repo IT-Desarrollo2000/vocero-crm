@@ -52,6 +52,12 @@ const putSchema = z.object({
   token: z.string().trim().min(1),
 });
 
+type DebugTokenInfo = {
+  is_valid?: boolean;
+  type?: string;
+  profile_id?: string;
+};
+
 /**
  * Guarda la conexión validando ANTES contra Graph, igual que el wizard de
  * WhatsApp: un token que no sirve, o que es de otra Página, no llega a la
@@ -64,15 +70,16 @@ export const PUT = withAuth(async (session, req: Request) => {
   if (!body.ok) return body.response;
   const { pageId, token } = body.data;
 
-  // `/me` y no `/{pageId}`: con un token de Página, `me` ES la Página. Pedir
-  // `/{pageId}` responde el perfil público de cualquier Página con cualquier
-  // token válido, así que nunca detectaría un token de usuario o de otra Página.
-  let page: { id?: string; name?: string };
+  // `debug_token` sobre el propio token y no `me`: leer cualquier campo de la
+  // Página (incluso `id`) exige `pages_read_engagement`, que Messenger no
+  // necesita. `debug_token` dice el tipo, la Página dueña y si es válido.
+  let info: DebugTokenInfo | undefined;
   try {
-    page = await graphRequest<{ id?: string; name?: string }>(
-      "me?fields=id,name",
+    const debug = await graphRequest<{ data?: DebugTokenInfo }>(
+      `debug_token?input_token=${encodeURIComponent(token)}`,
       { token }
     );
+    info = debug.data;
   } catch (err) {
     if (err instanceof MetaApiError && (err.status === 0 || err.status >= 500)) {
       return apiError(
@@ -81,19 +88,26 @@ export const PUT = withAuth(async (session, req: Request) => {
         "No se pudo contactar a Meta; intenta de nuevo"
       );
     }
+  }
+  if (!info?.is_valid || info.type !== "PAGE") {
     return apiError(
       422,
       "invalid_token",
-      "El token no es válido o no tiene acceso a esa Página"
+      "El token no es válido o no es un token de Página"
     );
   }
-  if (page.id && page.id !== pageId) {
+  if (info.profile_id && info.profile_id !== pageId) {
     return apiError(
       422,
       "id_mismatch",
-      `El token es de la Página ${page.id}, no de ${pageId}`
+      `El token es de la Página ${info.profile_id}, no de ${pageId}`
     );
   }
+
+  // El nombre es solo cosmético: sin `pages_read_engagement` Meta no lo da.
+  const page = await graphRequest<{ name?: string }>("me?fields=name", {
+    token,
+  }).catch(() => ({ name: undefined }));
 
   // La Página enruta el webhook: solo puede pertenecer a una organización.
   const owner = await getMessengerCredentialsByPageId(pageId);

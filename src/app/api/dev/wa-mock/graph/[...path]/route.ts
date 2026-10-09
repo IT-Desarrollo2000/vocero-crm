@@ -99,6 +99,21 @@ export async function GET(req: Request, ctx: Params) {
     });
   }
 
+  // 017 — GET debug_token → validación del token de Página de Messenger.
+  // Como Meta: tipo PAGE y la Página dueña sale del token (`-id<n>`).
+  if (path.length === 1 && path[0] === "debug_token") {
+    const input = new URL(req.url).searchParams.get("input_token") ?? "";
+    const owner = ownerIdFromToken(input);
+    return Response.json({
+      data: {
+        is_valid: true,
+        type: "PAGE",
+        ...(owner ? { profile_id: owner } : {}),
+        scopes: ["pages_messaging", "pages_manage_metadata"],
+      },
+    });
+  }
+
   // 017 — GET me → verificación del token. Instagram pide `id,username`
   // (graph.instagram.com, que el self-test apunta aquí) y Messenger `id,name`
   // (con un token de Página, `me` es la Página).
