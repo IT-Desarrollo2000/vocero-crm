@@ -47,9 +47,11 @@ describe("filterConversations — pastillas de la bandeja", () => {
     handoffReason: "hostilidad",
     aiEnabled: false,
   });
-  // IA apagada a mano, SIN handoff: no es "atención humana".
+  // IA apagada a mano, SIN handoff: también es "atención humana".
   const lucia = mk({ name: "Lucía Sol", aiEnabled: false });
-  const all = [kevin, diego, ana, lucia];
+  // Ni handoff ni IA apagada: la atiende el agente.
+  const pablo = mk({ name: "Pablo Ríos" });
+  const all = [kevin, diego, ana, lucia, pablo];
 
   it("'all' devuelve todo, en el mismo orden", () => {
     const { visible, inInbox, searched } = filterConversations(all, {
@@ -57,8 +59,8 @@ describe("filterConversations — pastillas de la bandeja", () => {
       filter: "all",
     });
     expect(names(visible)).toEqual(names(all));
-    expect(inInbox).toHaveLength(4);
-    expect(searched).toHaveLength(4);
+    expect(inInbox).toHaveLength(5);
+    expect(searched).toHaveLength(5);
   });
 
   it("'unread' deja solo las que tienen mensajes sin leer", () => {
@@ -66,16 +68,32 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(names(visible)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
   });
 
-  it("'handoff' deja solo las que tienen handoffAt", () => {
+  it("'handoff' deja las que tienen handoffAt o la IA apagada", () => {
     const { visible } = filterConversations(all, { ...base, filter: "handoff" });
-    expect(names(visible)).toEqual(["Diego Pérez", "Ana Kevinsky"]);
+    expect(names(visible)).toEqual(["Diego Pérez", "Ana Kevinsky", "Lucía Sol"]);
   });
 
-  it("IA apagada sin handoff NO cuenta como atención humana", () => {
-    expect(needsHuman(lucia)).toBe(false);
+  it("IA apagada sin handoff SÍ cuenta como atención humana", () => {
+    expect(needsHuman(lucia)).toBe(true);
     expect(needsHuman(diego)).toBe(true);
+    expect(needsHuman(pablo)).toBe(false);
     const { visible } = filterConversations([lucia], { ...base, filter: "handoff" });
-    expect(visible).toHaveLength(0);
+    expect(names(visible)).toEqual(["Lucía Sol"]);
+  });
+
+  it("handoff + IA apagada cuenta una sola vez", () => {
+    // Diego tiene ambos; no se duplica en la lista ni en el contador.
+    const { visible } = filterConversations([diego, pablo], {
+      ...base,
+      filter: "handoff",
+    });
+    expect(names(visible)).toEqual(["Diego Pérez"]);
+    expect([diego, pablo].filter(needsHuman)).toHaveLength(1);
+  });
+
+  it("handoff con la IA encendida también cuenta", () => {
+    const juan = mk({ name: "Juan", handoffAt: "2026-10-03T10:00:00.000Z" });
+    expect(needsHuman(juan)).toBe(true);
   });
 
   it("'handoff' se combina con la búsqueda", () => {

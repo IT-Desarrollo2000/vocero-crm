@@ -170,14 +170,58 @@ await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
 await hoPill.click();
 await page.waitForTimeout(400);
 list = await rows();
-ok("la pastilla deja solo conversaciones con el distintivo",
-   list.length > 0 && list.every((t) => t.includes("Atención humana")),
-   JSON.stringify(list.length));
+// Toda fila del filtro lleva UNO de los dos distintivos, nunca ambos: handoff
+// → "Atención humana"; IA apagada a mano sin handoff → "IA pausada".
+const oneBadge = (t) => t.includes("Atención humana") !== t.includes("IA pausada");
+const rowOf = (l, name) => l.find((t) => t.includes(name)) ?? "";
+ok("la pastilla deja solo conversaciones con un distintivo (y solo uno)",
+   list.length > 0 && list.every(oneBadge),
+   JSON.stringify(list.filter((t) => !oneBadge(t)).slice(0, 2)));
 ok("Josué (con handoff) aparece", has(list, `Josué${S}`), JSON.stringify(list.length));
+ok("Josué lleva 'Atención humana', no 'IA pausada'",
+   rowOf(list, `Josué${S}`).includes("Atención humana") &&
+     !rowOf(list, `Josué${S}`).includes("IA pausada"),
+   JSON.stringify(rowOf(list, `Josué${S}`)));
 ok("Zoraida (sin handoff) no aparece", !has(list, `Zoraida${S}`));
 const pillCount = Number((await hoPill.innerText()).replace(/\D/g, ""));
 ok("el contador de la pastilla coincide con la lista", pillCount === list.length,
    JSON.stringify({ pillCount, filas: list.length }));
+
+// IA apagada a mano SIN handoff: misma API que el switch "IA en esta
+// conversación" del panel de contacto (PATCH { aiEnabled }).
+const anon = `Anónima${S}`;
+const anonConv = convsHo.find((c) => c.contact.name === `${anon} Sin Tel`);
+ok("la conversación de Anónima existe y no tiene handoff (setup)",
+   !!anonConv && !anonConv.handoffAt && anonConv.aiEnabled !== false,
+   JSON.stringify(anonConv && { handoffAt: anonConv.handoffAt, aiEnabled: anonConv.aiEnabled }));
+const setAi = (aiEnabled) =>
+  req.patch(`${BASE}/api/conversations/${anonConv?.id}`, { data: { aiEnabled } });
+const pausar = await setAi(false);
+ok("pausar la IA de Anónima (PATCH aiEnabled:false)", pausar.ok(), String(pausar.status()));
+await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
+await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
+await hoPill.click();
+await page.waitForTimeout(400);
+list = await rows();
+ok("con la IA pausada, Anónima aparece en 'Atención humana'", has(list, anon),
+   JSON.stringify(list.length));
+ok("y lleva el distintivo 'IA pausada', no 'Atención humana'",
+   rowOf(list, anon).includes("IA pausada") && !rowOf(list, anon).includes("Atención humana"),
+   JSON.stringify(rowOf(list, anon)));
+const pillCount2 = Number((await hoPill.innerText()).replace(/\D/g, ""));
+ok("el contador sube con ella y coincide con la lista",
+   pillCount2 === list.length && pillCount2 === pillCount + 1,
+   JSON.stringify({ antes: pillCount, ahora: pillCount2, filas: list.length }));
+
+const reactivar = await setAi(true);
+ok("reactivar la IA de Anónima (PATCH aiEnabled:true)", reactivar.ok(), String(reactivar.status()));
+await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
+await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
+await hoPill.click();
+await page.waitForTimeout(400);
+list = await rows();
+ok("con la IA reactivada, Anónima sale del filtro", !has(list, anon),
+   JSON.stringify(list.length));
 
 await box.fill(`Zoraida${S}`);
 await page.waitForTimeout(400);

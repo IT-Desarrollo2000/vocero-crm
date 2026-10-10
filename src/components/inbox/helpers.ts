@@ -8,11 +8,13 @@ import type { ConversationDto } from "@/lib/types";
 export type ConversationFilter = "all" | "unread" | "handoff";
 
 /**
- * Atención humana = la conversación tiene handoff abierto. Mismo criterio que
- * el distintivo del renglón; una IA apagada a mano NO cuenta como handoff.
+ * Atención humana = nadie automático va a contestar: la conversación tiene
+ * handoff abierto O la IA se apagó a mano. Cada caso lleva su distintivo en
+ * el renglón ("Atención humana" / "IA pausada"), así que toda fila del filtro
+ * muestra uno de los dos — nunca ambos.
  */
 export function needsHuman(c: ConversationDto): boolean {
-  return c.handoffAt != null;
+  return c.handoffAt != null || c.aiEnabled === false;
 }
 
 /**

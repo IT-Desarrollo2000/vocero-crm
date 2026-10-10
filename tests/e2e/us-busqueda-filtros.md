@@ -1,6 +1,6 @@
 # Guion E2E — Búsqueda de la Bandeja y filtro por etapa del embudo
 
-> Automatizado en `scripts/e2e-search-filters.mjs` (36 checks, Playwright
+> Automatizado en `scripts/e2e-search-filters.mjs` (44 checks, Playwright
 > contra `pnpm dev` con wa-mock). Nace del reporte de Kevin del 2026-08-05:
 > «escribo Kevin en el buscador y no me da los resultados».
 
@@ -48,8 +48,10 @@ al montar se adopta lo que ya haya en el DOM.
 ## Pastilla «Atención humana» (Bandeja)
 
 Tercera pastilla junto a «Todas / No leídas». Atención humana = la
-conversación tiene `handoffAt` (mismo criterio que el distintivo del renglón);
-apagar la IA a mano sin handoff NO cuenta. Lógica pura en
+conversación tiene `handoffAt` **o** la IA se apagó a mano
+(`aiEnabled === false`, decisión del dueño 2026-10-10). Cada renglón del
+filtro lleva uno de dos distintivos, nunca ambos: «Atención humana» si hay
+handoff, «IA pausada» si solo se apagó la IA. Lógica pura en `needsHuman()` /
 `filterConversations()` (`src/components/inbox/helpers.ts`), cubierta por
 `tests/unit/inbox-filters.test.ts`.
 
@@ -57,16 +59,24 @@ apagar la IA a mano sin handoff NO cuenta. Lógica pura en
     (`POST /api/dev/wa-mock/echo`: el dueño contesta a mano → `manual_reply`).
     ✅ La API devuelve su `handoffAt`; «Zoraida» queda sin handoff.
 11. Pulsar «Atención humana».
-    ✅ Solo quedan renglones con el distintivo; Josué sí, Zoraida no.
+    ✅ Todo renglón lleva exactamente un distintivo («Atención humana» o
+    «IA pausada»); Josué sí (con «Atención humana»), Zoraida no.
     ✅ El contador de la pastilla coincide con las filas (cuenta dentro de la
     bandeja/etapa/búsqueda activas, igual que «No leídas»).
-12. Camino infeliz: buscar a Zoraida con la pastilla puesta.
+12. Pausar la IA de «Anónima» (sin handoff) con la misma API que el switch
+    «IA en esta conversación» del panel: `PATCH /api/conversations/:id`
+    `{ aiEnabled: false }`. Recargar y pulsar la pastilla.
+    ✅ Anónima aparece, con el distintivo «IA pausada» (no «Atención humana»).
+    ✅ El contador sube en uno y sigue coincidiendo con las filas.
+    Reactivarla (`{ aiEnabled: true }`), recargar, pastilla.
+    ✅ Anónima sale del filtro.
+13. Camino infeliz: buscar a Zoraida con la pastilla puesta.
     ✅ Estado vacío coherente: «Ninguna conversación requiere atención humana.»
     ✅ Volver a «Todas» restaura la lista.
 
 ## Búsqueda del servidor (Contactos)
 
-13. `jose` → «Josué Ramírez»; `+52 462 555 0101` → el contacto con ese número.
+14. `jose` → «Josué Ramírez»; `+52 462 555 0101` → el contacto con ese número.
     ✅ Espejo en SQL de `matchesQuery`: `translate()` para los acentos (sin
     depender de la extensión `unaccent`) y `regexp_replace` para los dígitos.
     ✅ Los comodines de LIKE (`%`, `_`) van escapados: teclear `%` no lista todo.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, Sparkles, UserRound, X } from "lucide-react";
+import { PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
 import type { ConversationDto } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
@@ -337,12 +337,19 @@ export function ConversationList({
                             {c.stageName}
                           </span>
                         )}
-                        {c.handoffAt && (
+                        {/* Uno u otro, nunca ambos: el handoff manda sobre la
+                            IA apagada a mano (ver needsHuman). */}
+                        {c.handoffAt ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text">
                             <UserRound className="h-3 w-3" strokeWidth={1.7} />
                             Atención humana
                           </span>
-                        )}
+                        ) : c.aiEnabled === false ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-3">
+                            <PauseCircle className="h-3 w-3" strokeWidth={1.7} />
+                            IA pausada
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                   </button>
