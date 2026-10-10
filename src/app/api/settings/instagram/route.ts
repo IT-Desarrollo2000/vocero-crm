@@ -98,7 +98,7 @@ async function verify(data: z.infer<typeof putSchema>): Promise<Check> {
     data.source === "meta"
       ? `${process.env.IG_GRAPH_BASE_URL ?? "https://graph.instagram.com"}/${
           process.env.META_GRAPH_API_VERSION ?? "v25.0"
-        }/me?fields=id,username`
+        }/me?fields=user_id,username`
       : `${process.env.ZERNIO_BASE_URL ?? "https://zernio.com/api/v1"}/inbox/conversations?limit=1`;
 
   let res: Response;
@@ -128,16 +128,21 @@ async function verify(data: z.infer<typeof putSchema>): Promise<Check> {
   }
 
   if (data.source === "meta") {
+    // `me` responde dos ids: `id` es el de la cuenta DENTRO de esta app
+    // (app-scoped) y `user_id` el de la cuenta profesional, que es el que
+    // muestra el panel de Meta y el que llega en el webhook (entry.id).
     const json = (await res.json().catch(() => null)) as {
       id?: string;
+      user_id?: string;
       username?: string;
     } | null;
-    if (json?.id && json.id !== data.igUserId) {
+    const accountId = json?.user_id ?? json?.id;
+    if (accountId && accountId !== data.igUserId) {
       return {
         ok: false,
         status: 422,
         code: "id_mismatch",
-        message: `El IG_ID del token es ${json.id}, no ${data.igUserId}`,
+        message: `El IG_ID del token es ${accountId}, no ${data.igUserId}`,
       };
     }
     return { ok: true, username: json?.username ?? null };

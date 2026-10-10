@@ -65,8 +65,10 @@ Para ambos canales:
   como "reconectar" y pausa los envíos.
 - En la app de Instagram del teléfono: *Configuración → Mensajes → Permitir
   acceso a los mensajes* (herramientas conectadas).
-- El **IG_ID** del perfil lo devuelve `GET https://graph.instagram.com/me?fields=id,username`
-  con ese token.
+- El **IG_ID** del perfil es el `user_id` que devuelve
+  `GET https://graph.instagram.com/me?fields=user_id,username` con ese token
+  (el mismo que muestra el panel de Meta). Ojo: el campo `id` de esa respuesta
+  es OTRO número (el id de la cuenta dentro de tu app) y no sirve aquí.
 
 ### Messenger
 

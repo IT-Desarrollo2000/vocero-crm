@@ -114,13 +114,14 @@ export async function GET(req: Request, ctx: Params) {
     });
   }
 
-  // 017 — GET me → verificación del token. Instagram pide `id,username`
-  // (graph.instagram.com, que el self-test apunta aquí) y Messenger `id,name`
-  // (con un token de Página, `me` es la Página).
+  // 017 — GET me → verificación del token de Instagram (graph.instagram.com,
+  // que el self-test apunta aquí) y nombre de la Página en Messenger. Como
+  // Meta, Instagram responde DOS ids: `id` app-scoped (distinto) y `user_id`,
+  // el de la cuenta profesional, que es el que se valida.
   if (path.length === 1 && path[0] === "me") {
     const owner = ownerIdFromToken(token);
     return Response.json({
-      ...(owner ? { id: owner } : {}),
+      ...(owner ? { id: `9${owner}`, user_id: owner } : {}),
       username: "vocero_prueba",
       name: "Página de prueba Vocero",
     });
