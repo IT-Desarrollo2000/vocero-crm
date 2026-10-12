@@ -296,9 +296,6 @@ export function LabClient() {
         selectionNotice={selectionNotice}
         onToggle={toggle}
         onReload={refetchPersonas}
-        onReplace={(list) =>
-          applyPersonas(list, personas.status === "ready" ? personas.runInProgress : false)
-        }
       />
 
       <div className="grid gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[280px_1fr]">

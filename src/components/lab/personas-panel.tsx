@@ -49,14 +49,12 @@ export function PersonasPanel({
   selectionNotice,
   onToggle,
   onReload,
-  onReplace,
 }: {
   state: PersonasState;
   selected: string[];
   selectionNotice: string | null;
   onToggle: (key: string) => void;
   onReload: () => Promise<void>;
-  onReplace: (personas: LabPersonaDto[]) => void;
 }) {
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -141,9 +139,11 @@ export function PersonasPanel({
             <RestoreDefaults
               personas={state.personas}
               onCancel={() => setRestoring(false)}
-              onDone={(res) => {
-                onReplace(res.personas);
+              onDone={async (res) => {
+                // Recarga con `?archived=1`: la respuesta podría no traer las
+                // archivadas y la lista de archivadas se vaciaría.
                 setRestoring(false);
+                await onReload();
                 setNotice(
                   res.restored.length > 0
                     ? `Restauradas ${res.restored.length} persona(s) del set "${SEED_SET_LABELS[res.set]}".`
@@ -380,7 +380,7 @@ function RestoreDefaults({
 }: {
   personas: LabPersonaDto[];
   onCancel: () => void;
-  onDone: (res: LabRestoreDefaultsResponse) => void;
+  onDone: (res: LabRestoreDefaultsResponse) => Promise<void>;
 }) {
   const current = personas.find((p) => p.seedSet)?.seedSet ?? "neutro";
   const [set, setSet] = useState<LabSeedSet>(current);
@@ -402,7 +402,7 @@ function RestoreDefaults({
       setConfirming(false);
       return;
     }
-    onDone(res.data);
+    await onDone(res.data);
   }
 
   return (
@@ -516,7 +516,7 @@ function PersonaForm({
 
   return (
     <form
-      aria-label={personaId ? `Editar persona ${initial.name}` : "Nueva persona"}
+      aria-label={personaId ? `Formulario de ${initial.name}` : "Formulario de persona nueva"}
       className="space-y-3 rounded-md border border-brand bg-brand-tint p-3"
       onSubmit={(e) => {
         e.preventDefault();

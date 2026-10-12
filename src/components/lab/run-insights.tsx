@@ -182,7 +182,7 @@ function DiffView({
       </ul>
 
       {s.profile.length > 0 && (
-        <section aria-label="Perfil del agente" className="space-y-2">
+        <section className="space-y-2">
           <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Perfil del agente
           </h4>
@@ -196,7 +196,7 @@ function DiffView({
       )}
 
       {(s.kb.added.length > 0 || s.kb.removed.length > 0 || s.kb.edited.length > 0) && (
-        <section aria-label="Conocimiento" className="space-y-1">
+        <section className="space-y-1">
           <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Conocimiento
           </h4>
@@ -226,7 +226,7 @@ function DiffView({
       {(s.personas.added.length > 0 ||
         s.personas.removed.length > 0 ||
         s.personas.edited.length > 0) && (
-        <section aria-label="Personas de la corrida" className="space-y-1">
+        <section className="space-y-1">
           <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Personas
           </h4>
@@ -251,7 +251,7 @@ function DiffView({
       )}
 
       {s.models.length > 0 && (
-        <section aria-label="Modelos" className="space-y-1">
+        <section className="space-y-1">
           <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Modelos
           </h4>
