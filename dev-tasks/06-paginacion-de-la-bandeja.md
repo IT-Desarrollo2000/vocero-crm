@@ -423,19 +423,19 @@ posterior.
 - [x] **T-06-01** (06-0) Migración 0016, un índice (SQL a mano, `IF NOT EXISTS`) +
   declaración en `schema.ts`; verificar `pnpm db:generate` sin diff y `EXPLAIN`
   de la consulta de lista. *(sin dependencias)*
-- [ ] **T-06-02** Extraer `searchContactSql` a `src/lib/search-sql.ts` y usarlo
+- [x] **T-06-02** (06-0, como `contactSearchSql` en `src/server/search.ts`) Extraer `searchContactSql` a `src/lib/search-sql.ts` y usarlo
   en `contacts/route.ts` (refactor sin cambio de comportamiento; corre
   `scripts/e2e-contactos-paginacion.mjs`). *(—)*
-- [ ] **T-06-03** `list-query.ts`: parseo Zod de filtros + `encode/decodeCursor`
+- [x] **T-06-03** (06-0) `list-query.ts`: parseo Zod de filtros + `encode/decodeCursor`
   + unit tests. *(—)*
-- [ ] **T-06-04** DTO: `sortAt` y `stageId` en `types.ts` y
+- [x] **T-06-04** (06-0; `stageId` lo llena 06-A) DTO: `sortAt` y `stageId` en `types.ts` y
   `serializeConversation`. *(—)*
-- [ ] **T-06-05** Reescribir `listConversations` (keyset, join de etapa,
+- [x] **T-06-05** Reescribir `listConversations` (keyset, join de etapa,
   preview en lote, filtros, `since`, `contact`, `ids`) usando
   `conversationVisibleTo(viewer)` de 09 (o `undefined` si 09 aún no está). *(T-06-01..04)*
-- [ ] **T-06-06** `countConversations` + `GET /api/conversations/counts`. *(T-06-03, T-06-05)*
-- [ ] **T-06-07** `?ids=` en lote + `GET /api/conversations/:id`, ambos con visibilidad. *(T-06-05)*
-- [ ] **T-06-08** Ruta `GET /api/conversations` con los nuevos parámetros y
+- [x] **T-06-06** `countConversations` + `GET /api/conversations/counts`. *(T-06-03, T-06-05)*
+- [x] **T-06-07** `?ids=` en lote + `GET /api/conversations/:id`, ambos con visibilidad. *(T-06-05)*
+- [x] **T-06-08** Ruta `GET /api/conversations` con los nuevos parámetros y
   compatibilidad (D-06-1). *(T-06-05)*
 - [ ] **T-06-09** Verificar con 09 que todos los `conversation.updated` viajan
   como `{ id }` (paso 7) y que el filtro SSE de `message.new` está activo; si
@@ -447,8 +447,9 @@ posterior.
 - [x] **T-06-12** `inbox-client.tsx`: SSE con upsert, `loadFirst` al reconectar (sin `since`),
   `?contact=` fuera de página. *(T-06-10)*
 - [x] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)*
-- [ ] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
-  según D-06-1. *(T-06-08)*
+- [x] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
+  según D-06-1. *(T-06-08)* — 06-A: `api.md` al día; con D-06-1 = (a) los
+  guiones existentes no cambian.
 - [ ] **T-06-15** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
   build && pnpm test` + E2E en BD aislada (`.env.e2e`, Postgres :5433). *(todo)*
 
@@ -555,9 +556,9 @@ de `listConversations`, los stubs 501 de `/counts` y `GET /[id]`,
 
 | Endpoint | Política | Respuesta | Estado en 06-0 |
 |---|---|---|---|
-| `GET /api/conversations` | `any*` | `ConversationsPage = { conversations: ConversationDto[]; nextCursor: string \| null }` | Firma nueva; solo `since`/`assigned` implementados (lista completa, `nextCursor: null`) |
-| `GET /api/conversations/counts` | `any*` | `ConversationCounts` | Stub 501 `not_implemented` |
-| `GET /api/conversations/[id]` | `any*` | `{ conversation: ConversationDto }`; 404 `not_found` si no existe, es `is_test` o no la ves | Stub 501 `not_implemented` |
+| `GET /api/conversations` | `any*` | `ConversationsPage = { conversations: ConversationDto[]; nextCursor: string \| null }` | Implementado (06-A): todos los modos y filtros |
+| `GET /api/conversations/counts` | `any*` | `ConversationCounts` | Implementado (06-A) |
+| `GET /api/conversations/[id]` | `any*` | `{ conversation: ConversationDto }`; 404 `not_found` si no existe, es `is_test` o no la ves | Implementado (06-A) |
 
 Las tres van con `withAuth(...)` y la visibilidad de 09
 (`conversationVisibleTo(viewer)`) en el WHERE; `is_test = false` siempre.
@@ -684,6 +685,49 @@ alternativa es un índice parcial **con** `sql\`is_test = false\`` inline en
 la consulta (nunca parámetro). Sin `CONCURRENTLY` (migrate.mjs corre en
 transacción). Declarado en `schema.ts` con las expresiones como SQL crudo;
 `pnpm db:generate` no produce diff.
+
+### Verificación del plan (06-A)
+
+La consulta de lista queda en la forma que prefiere el contrato: keyset
+fila-valor `(coalesce(last_message_at, created_at), id) < ($t::timestamp, $i)`
+dentro de `organization_id = $org AND is_test = $false AND <visibilidad>`,
+`ORDER BY coalesce(...) DESC, id DESC LIMIT limit+1`, con los JOIN de
+`contact`, `lead`, `pipeline_stage` y `user`; el preview va aparte en UN
+`SELECT DISTINCT ON (conversation_id) … WHERE organization_id = $1 AND
+conversation_id IN (…) ORDER BY conversation_id, created_at DESC, id DESC`.
+Los unit (`tests/unit/inbox-list.test.ts`) fijan ese texto.
+
+Para confirmar el plan contra la BD aislada (`.env.e2e`, Postgres :5433) con
+datos sembrados (p. ej. tras `scripts/e2e-bandeja-paginacion.mjs`, o 5 000
+filas para CA-06-09), imitar las sentencias PREPARADAS de postgres-js (plan
+genérico con parámetros), no un SQL con literales:
+
+```sql
+SET search_path = vocero, extensions;  -- o el esquema de la instancia
+PREPARE lista(text, boolean, text, text, int) AS
+  SELECT c.id, to_char(coalesce(c.last_message_at, c.created_at), 'YYYY-MM-DD HH24:MI:SS.US')
+  FROM conversation c
+  JOIN contact ct ON c.contact_id = ct.id
+  LEFT JOIN lead l ON l.contact_id = ct.id
+  LEFT JOIN pipeline_stage s ON s.id = l.stage_id
+  LEFT JOIN "user" u ON u.id = c.assigned_user_id
+  WHERE c.organization_id = $1 AND c.is_test = $2 AND true
+    AND (coalesce(c.last_message_at, c.created_at), c.id) < ($3::timestamp, $4)
+  ORDER BY coalesce(c.last_message_at, c.created_at) DESC, c.id DESC
+  LIMIT $5;
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE lista('<org>', false, '<t del cursor>', '<id del cursor>', 51);
+```
+
+Esperado: `Index Scan using conversation_org_sort_idx` con
+`Index Cond: (organization_id = $1) AND (ROW(...) < ROW($3, $4))` y sin `Sort`
+de toda la tabla; los JOIN como Nested Loop sobre las ≤ 51 filas. Si la
+comparación fila-valor NO entra como Index Cond (queda como Filter), se cambia
+`keysetCondition` a la forma expandida
+`sort_at < $t OR (sort_at = $t AND id < $i)` y se repite. Lo mismo para
+`/counts` (una pasada `count(*) FILTER (WHERE …)` sobre las filas de la org;
+objetivo < 300 ms a 5 000 filas) y para el preview
+(`Index Scan using message_org_conv_idx`).
 
 ### SSE y reconexión (06-B)
 

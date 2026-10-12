@@ -1,11 +1,9 @@
 import { apiError, withAuth } from "@/lib/api";
-import { parseInboxQuery } from "@/server/inbox/list-query";
+import { parseAssigned, parseInboxQuery } from "@/server/inbox/list-query";
 import { listConversations } from "@/server/inbox/queries";
-import type { AssignedFilter, ConversationsPage } from "@/lib/types";
+import type { ConversationsPage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const ASSIGNED: readonly AssignedFilter[] = ["me", "unassigned", "all"];
 
 /**
  * Lista de la Bandeja para quien pide (09: el Vendedor ve las suyas + las sin
@@ -20,11 +18,8 @@ const ASSIGNED: readonly AssignedFilter[] = ["me", "unassigned", "all"];
  */
 export const GET = withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
-  const assignedParam = url.searchParams.get("assigned");
-  if (
-    assignedParam !== null &&
-    !(ASSIGNED as readonly string[]).includes(assignedParam)
-  ) {
+  const assigned = parseAssigned(url.searchParams.get("assigned"));
+  if (!assigned) {
     return apiError(
       422,
       "invalid_query",
@@ -35,7 +30,7 @@ export const GET = withAuth(async (session, req: Request) => {
   const page: ConversationsPage = await listConversations(
     session.organizationId,
     session,
-    { ...query, assigned: (assignedParam ?? "all") as AssignedFilter }
+    { ...query, assigned }
   );
   return Response.json(page);
 });
