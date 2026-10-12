@@ -108,13 +108,17 @@ export function buildFichaRows(
   }
   for (const [key, value] of fichaEntries(ficha)) {
     if (definidas.has(key)) continue;
+    // Una clave libre sin meta no lleva candado: el agente no la escribe de
+    // todos modos (`clave_desconocida`) y el bot sí puede. Marcarla "legado"
+    // pondría candado a toda ficha anterior a 04.
+    const p = fichaProvenance(m[key], true);
     rows.push({
       key,
       label: fichaLabel(key),
       value,
       def: null,
       meta: m[key],
-      provenance: fichaProvenance(m[key], true),
+      provenance: p === "legado" ? null : p,
     });
   }
   return rows;

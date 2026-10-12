@@ -140,12 +140,18 @@ describe("buildFichaRows", () => {
     ]);
     expect(rows[0]).toMatchObject({ label: "Modelo de interés", value: undefined, provenance: null });
     expect(rows[1]).toMatchObject({ value: 350000, provenance: "ia" });
-    expect(rows[3]).toMatchObject({ label: "Apodo", def: null, provenance: "legado" });
+    expect(rows[3]).toMatchObject({ label: "Apodo", def: null, provenance: null });
   });
 
-  it("sin definición es la ficha libre de siempre", () => {
-    const rows = buildFichaRows({ zona: "Roma", dolor: "x" }, undefined, null);
+  it("un campo definido con valor y sin meta sí es legado (candado)", () => {
+    const rows = buildFichaRows({ ciudad: "Mérida" }, {}, FICHA_TEMPLATE_AUTOS_ELECTRICOS);
+    expect(rows.find((r) => r.key === "ciudad")?.provenance).toBe("legado");
+  });
+
+  it("sin definición es la ficha libre de siempre, sin candados", () => {
+    const rows = buildFichaRows({ zona: "Roma", dolor: "x" }, {}, null);
     expect(rows.map((r) => r.key)).toEqual(["dolor", "zona"]);
+    expect(rows.every((r) => r.provenance === null)).toBe(true);
   });
 });
 

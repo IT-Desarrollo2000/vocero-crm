@@ -73,6 +73,9 @@ export function FichaPanel({
   const [valorNuevo, setValorNuevo] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [historial, setHistorial] = useState(false);
+  // Sube cuando el servidor ya respondió a un cambio: recarga el historial
+  // (no antes, o la lectura le gana la carrera al PATCH).
+  const [histVersion, setHistVersion] = useState(0);
 
   const filas = buildFichaRows(ficha, meta, fields);
 
@@ -82,6 +85,7 @@ export function FichaPanel({
       await onSave(patch);
     } finally {
       setGuardando(false);
+      setHistVersion((v) => v + 1);
     }
   }
 
@@ -135,6 +139,7 @@ export function FichaPanel({
       await onUnlock(clave);
     } finally {
       setGuardando(false);
+      setHistVersion((v) => v + 1);
     }
   }
 
@@ -298,8 +303,9 @@ export function FichaPanel({
 
       {historial && contactId && (
         <FichaHistorial
-          // Remontar al cambiar la ficha recarga el historial con lo último.
-          key={`${contactId}:${JSON.stringify(ficha)}:${JSON.stringify(meta ?? {})}`}
+          // Remontar recarga el historial: tras un cambio propio ya confirmado
+          // o cuando la ficha llega distinta del servidor (agente vía SSE).
+          key={`${contactId}:${histVersion}:${JSON.stringify(ficha)}:${JSON.stringify(meta ?? {})}`}
           contactId={contactId}
           labelFor={labelFor}
         />
@@ -317,6 +323,7 @@ function Procedencia({ fila }: { fila: FichaRow }) {
     return (
       <span
         title={title}
+        role="img"
         aria-label={title}
         className="mt-1 flex shrink-0 items-center gap-0.5 rounded-full border border-brand-soft bg-brand-tint px-1.5 text-[10px] font-medium text-brand-text"
       >
@@ -329,6 +336,7 @@ function Procedencia({ fila }: { fila: FichaRow }) {
     return (
       <span
         title={title}
+        role="img"
         aria-label={title}
         className="mt-1 flex shrink-0 items-center gap-0.5 rounded-full border border-info-soft bg-info-tint px-1.5 text-[10px] font-medium text-info-text"
       >
@@ -338,7 +346,7 @@ function Procedencia({ fila }: { fila: FichaRow }) {
     );
   }
   return (
-    <span title={title} aria-label={title} className="mt-1.5 shrink-0 text-text-3">
+    <span title={title} role="img" aria-label={title} className="mt-1.5 shrink-0 text-text-3">
       <Lock className="h-3 w-3" />
     </span>
   );
