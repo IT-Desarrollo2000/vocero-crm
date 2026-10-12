@@ -95,3 +95,43 @@ export async function decideDelivery(
       return { kind: "drop" };
   }
 }
+
+/**
+ * Cola de entrega de UNA conexión SSE (09, T-09-08): cada evento pasa por
+ * `decideDelivery` y se envía en el MISMO orden en que llegó, aunque la
+ * decisión de uno tarde más que la del siguiente (un `message.status` nunca
+ * adelanta a su `message.new`).
+ *
+ * La cola nunca queda rechazada: si la decisión o el envío lanzan, ese evento
+ * se descarta y los siguientes siguen saliendo. Tras `close()` no se decide ni
+ * se envía nada más (una conexión muerta deja de consultar la BD).
+ */
+export function createDeliveryQueue(opts: {
+  viewer: { role: Role };
+  deps: DeliveryDeps;
+  send: (event: SseEvent) => void;
+}): { push: (event: SseEvent) => void; close: () => void; idle: () => Promise<void> } {
+  let tail: Promise<void> = Promise.resolve();
+  let closed = false;
+
+  const step = async (event: SseEvent) => {
+    if (closed) return;
+    const decision = await decideDelivery(event, opts.viewer, opts.deps);
+    if (closed || decision.kind === "drop") return;
+    opts.send(decision.kind === "rewrite" ? decision.event : event);
+  };
+
+  return {
+    push(event) {
+      if (closed) return;
+      tail = tail.then(() => step(event)).catch(() => {
+        // Descartado: el stream sigue vivo (cerrar por defecto).
+      });
+    },
+    close() {
+      closed = true;
+    },
+    /** Se resuelve cuando la cola se vació (para pruebas). */
+    idle: () => tail,
+  };
+}

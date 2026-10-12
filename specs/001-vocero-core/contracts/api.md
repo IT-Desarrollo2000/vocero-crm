@@ -11,10 +11,10 @@ Todas autenticadas por sesión Better Auth y scoped a la organización del usuar
 | `GET /api/conversations?since=&assigned=` | lista bandeja (excluye `is_test`) de lo VISIBLE para quien pide (09: Vendedor = suyas + sin asignar); `assigned=me\|unassigned\|all` (def. `all`; otro → 422 `invalid_query`); cada fila trae `assignedTo` / `assignedAt` |
 | `POST /api/conversations/:id/assign` | 09 — tomar / liberar / asignar `{ userId \| null, expect? }` (ver dev-tasks/09 "Contrato 09-0") |
 | `GET/POST /api/quick-replies`, `PATCH/DELETE /api/quick-replies/:id` | 09 — respuestas rápidas (GET cualquier rol; escritura Propietario) |
-| `GET /api/conversations/:id/messages?since=` | hilo + catch-up |
-| `POST /api/conversations/:id/messages` | enviar texto `{ text }` — 409 si ventana cerrada |
-| `POST /api/conversations/:id/messages/template` | enviar plantilla `{ templateId, variable }` |
-| `PATCH /api/conversations/:id` | `{ aiEnabled? , reactivate? }` (quita handoff) |
+| `GET /api/conversations/:id/messages?since=` | hilo + catch-up — 404 si no es visible para quien pide (09) |
+| `POST /api/conversations/:id/messages` | enviar texto `{ text }` — 409 si ventana cerrada; 404 si no es visible; Vendedor: "responder = tomar" (el reclamo atómico es la compuerta: si otro la tomó, 404 y no sale nada) |
+| `POST /api/conversations/:id/messages/template` | enviar plantilla `{ templateId, variable }` — misma visibilidad y compuerta que el texto (también `messages/media`) |
+| `PATCH /api/conversations/:id` | `{ aiEnabled? , reactivate?, markRead? }` (quita handoff) — 404 si no es visible (predicado en el WHERE del UPDATE) |
 | `GET/POST /api/contacts`, `PATCH /api/contacts/:id` | lista/búsqueda `?q=`, paginada `?limit=` (def. 50, máx 200) `&offset=` → `{ contacts, total, nextOffset }`; notas, archivar |
 | `GET/POST/PATCH/DELETE /api/pipeline/stages(/:id)` | etapas (DELETE exige `moveTo`) |
 | `PATCH /api/pipeline/leads/:id` | `{ stageId, position }` (drag & drop) |

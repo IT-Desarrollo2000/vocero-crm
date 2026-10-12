@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, exists, sql } from "drizzle-orm";
 import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import { isOwner } from "@/lib/roles";
+import { conversationVisibleTo } from "@/server/inbox/visibility";
 import {
   ensureAssetAvailable,
   readMediaFile,
@@ -31,7 +33,29 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       scoped(
         schema.mediaAsset.organizationId,
         session.organizationId,
-        eq(schema.mediaAsset.id, assetId)
+        eq(schema.mediaAsset.id, assetId),
+        // 09 (D-09-5): al Vendedor solo si el adjunto cuelga de un mensaje
+        // de una conversación que ve; si no (o sin mensaje) → 404.
+        isOwner(session)
+          ? undefined
+          : exists(
+              db
+                .select({ one: sql`1` })
+                .from(schema.message)
+                .innerJoin(
+                  schema.conversation,
+                  eq(schema.conversation.id, schema.message.conversationId)
+                )
+                .where(
+                  scoped(
+                    schema.message.organizationId,
+                    session.organizationId,
+                    eq(schema.message.mediaAssetId, schema.mediaAsset.id),
+                    eq(schema.conversation.organizationId, session.organizationId),
+                    conversationVisibleTo(session)
+                  )
+                )
+            )
       )
     )
     .limit(1);

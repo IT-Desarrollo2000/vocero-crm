@@ -26,8 +26,8 @@ Connection: keep-alive
   - `booking.updated` — `{ bookingId }` (015)
   - `lab.run` — `{ runId, status, progress: {done, total}, score? }` (solo Propietario)
 - **Visibilidad por conexión** (09, `src/server/events/visibility.ts` →
-  `decideDelivery(event, viewer, { canSee })` → `deliver | rewrite | drop`; su
-  cableado en la ruta llega con 09-A/T-09-08 — hasta entonces solo filtra `lab.run`):
+  `decideDelivery(event, viewer, { canSee })` → `deliver | rewrite | drop`; la ruta
+  lo aplica con la cola por conexión `createDeliveryQueue`):
   - Propietario: todo `deliver`.
   - Vendedor: `message.new` / `message.status` solo si ve la conversación
     (`canSeeConversation`, consulta por PK: suya o sin asignar); `conversation.updated`
