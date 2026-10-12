@@ -25,8 +25,20 @@ const AgentAction = z.discriminatedUnion('action', [
 ])
 ```
 
+- **04 — `ficha` acompañante**: TODA acción acepta además
+  `ficha: z.record(z.unknown()).nullable().optional().catch(undefined)` — un
+  `ficha` que no sea objeto se descarta sin invalidar la acción (jamás
+  provoca reintentos ni handoff `error`). Antes de validar (`z.preprocess`):
+  `{"action":"update_ficha", ficha, text|reply?}` se traduce a `reply` (con
+  texto) o `none`; `reply` sin `text` toma `reply`; y un `reply` que sigue sin
+  texto pero trae `ficha` objeto se degrada a `none` conservando la ficha. La
+  ficha se escribe DESPUÉS de entregar la respuesta, por `upsertFicha({ source:
+  "ia" })` (coerción por tipo, "el humano gana", bitácora `ficha_event`), en
+  `try/catch` con logs sin valores. Sin campos con `agentFills`, el prompt no
+  menciona la ficha y lo que mande el modelo se ignora.
 - `move_stage.stage` se resuelve contra nombres de etapas de la org (fuzzy exacto →
-  lower-case); sin match → se degrada a `reply` si trae texto, o `none`.
+  lower-case); sin match → se degrada a `reply` si trae texto, o `none` (la
+  `ficha` se conserva en la acción degradada).
 - Regex de respaldo de handoff (se evalúa sobre el mensaje del cliente ANTES del LLM):
   `/(hablar|comunicar|contactar)[\s\S]{0,40}?(asesor|humano|persona|alguien)|un asesor|atenci[oó]n humana/i`
   — "somos 4 personas" NO matchea (unit test).

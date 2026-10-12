@@ -7,6 +7,9 @@ import { renderKb } from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import { PERSONAS, type Persona } from "@/server/lab/personas";
 import { resetTestContact } from "@/server/bot/ficha";
+import { scoped } from "@/lib/db/tenant";
+import type { FichaCheck, FichaFieldDef } from "@/lib/ficha-fields";
+import { computeFichaCheck } from "@/server/lab/ficha-check";
 
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
@@ -220,11 +223,21 @@ async function runAllCases(
       .set({ status: "running" })
       .where(eq(schema.agentTestCase.id, testCase.id));
 
-    const { transcript, conversationId } = await runConversation(
+    const { transcript, conversationId, contactId } = await runConversation(
       organizationId,
       testCase.id,
       persona,
       signal
+    );
+
+    // 04 — Chequeo determinista de la ficha (no lo decide el juez). Un fallo
+    // aquí no tumba el caso: el chequeo es informativo.
+    signal.throwIfAborted();
+    const fichaCheck = await readFichaCheck(
+      organizationId,
+      contactId,
+      persona,
+      profile?.fichaFields ?? null
     );
 
     // Sin juez si ya se abortó: ahorra la llamada al LLM.
@@ -247,6 +260,7 @@ async function runAllCases(
         status: outcome.status,
         veredicto: outcome.status === "done" ? outcome.verdict.veredicto : null,
         hallazgos: outcome.status === "done" ? outcome.verdict.hallazgos : null,
+        fichaCheck,
       })
       .where(eq(schema.agentTestCase.id, testCase.id));
 
@@ -282,6 +296,7 @@ async function runConversation(
 ): Promise<{
   transcript: { role: "cliente" | "agente"; text: string }[];
   conversationId: string;
+  contactId: string;
 }> {
   const db = getDb();
 
@@ -351,6 +366,7 @@ async function runConversation(
 
   return {
     conversationId: convId,
+    contactId,
     transcript: messages
       .filter((m) => m.text)
       .map((m) => ({
@@ -358,6 +374,43 @@ async function runConversation(
         text: m.text!,
       })),
   };
+}
+
+/**
+ * 04 — Lee la ficha con la que quedó el contacto sintético y la compara con
+ * lo que la persona debía dejar (`expectFicha`). `null` si no aplica o si la
+ * lectura falla (se registra sin valores).
+ */
+async function readFichaCheck(
+  organizationId: string,
+  contactId: string,
+  persona: Persona,
+  fields: readonly FichaFieldDef[] | null
+): Promise<FichaCheck | null> {
+  if (!persona.expectFicha || !fields?.length) return null;
+  try {
+    const rows = await getDb()
+      .select({ ficha: schema.contact.ficha })
+      .from(schema.contact)
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          organizationId,
+          eq(schema.contact.id, contactId)
+        )
+      )
+      .limit(1);
+    return computeFichaCheck({
+      expect: persona.expectFicha,
+      fields,
+      ficha: rows[0]?.ficha ?? null,
+    });
+  } catch (err) {
+    console.error(
+      `[lab] chequeo de ficha no disponible: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return null;
+  }
 }
 
 /** 03 — La semilla en texto para el juez ("el agente tenía estos datos"). */

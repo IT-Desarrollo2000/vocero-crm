@@ -385,18 +385,18 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
 - [x] T-04-02 Unit `tests/unit/ficha-coerce.test.ts` (nuevo): claves (exacta/acentos/label), número ("350 mil", "$1,200,000", "1.2 millones", "mucho"), si_no, opción (+allowOther), texto largo, null/"" ignorados, clave desconocida.
 - [x] T-04-03 Esquema Drizzle (`agent_profile.fichaFields`, `contact.fichaMeta`, tabla `fichaEvent`, `agent_test_case.fichaCheck`) + `pnpm db:generate` (`drizzle/0014_ficha_campos.sql`, editada a mano re-ejecutable) + prefijo `fe` en `ids.ts`.
 - [x] T-04-03b Verificar re-ejecución (2×) de `0014` sobre la BD aislada (:5433).
-- [ ] T-04-04 `upsertFicha` con `source`/procedencia/transacción/bitácora/`unlock`; `resetTestContact` limpia meta y eventos. Actualizar llamadores (`contacts/[id]`, `bot/ficha`).
-- [ ] T-04-05 Unit `tests/unit/ficha-provenance.test.ts` (nuevo): humano gana, legado sin meta protegido, ia corrige lo suyo, unlock, sin cambios → sin evento; `ficha-guard.test.ts` sigue verde.
-- [ ] T-04-06 `actions.ts`: `withFicha`, `.catch`, `z.preprocess` de `update_ficha`, `degradeAction` conserva ficha. Unit en `tests/unit/agent-actions-ficha.test.ts` (nuevo): ficha basura no invalida la acción.
-- [ ] T-04-07 `prompts.ts`: sección de campos solo con `agentFills`.
-- [ ] T-04-08 `pipeline.ts`: `applyAgentFicha` tras la entrega, `try/catch`, SSE si cambió. Unit: excepción en `upsertFicha` → reply entregado, sin handoff.
-- [ ] T-04-09 APIs: `/api/agent/ficha-fields` (solo Propietario), `GET /api/contacts/[id]` con `fichaFields`/`fichaMeta`, `fichaUnlock` en PATCH, `/api/contacts/[id]/ficha/history` (nuevo), aditivos en `/api/bot/context` y `/api/bot/ficha`.
+- [x] T-04-04 `upsertFicha` con `source`/procedencia/transacción/bitácora/`unlock`; `resetTestContact` limpia meta y eventos. Actualizar llamadores (`contacts/[id]`, `bot/ficha`).
+- [x] T-04-05 Unit `tests/unit/ficha-provenance.test.ts` (nuevo): humano gana, legado sin meta protegido, ia corrige lo suyo, unlock, sin cambios → sin evento; `ficha-guard.test.ts` sigue verde.
+- [x] T-04-06 `actions.ts`: `withFicha`, `.catch`, `z.preprocess` de `update_ficha`, `degradeAction` conserva ficha. Unit en `tests/unit/agent-actions-ficha.test.ts` (nuevo): ficha basura no invalida la acción.
+- [x] T-04-07 `prompts.ts`: sección de campos solo con `agentFills`.
+- [x] T-04-08 `pipeline.ts`: `applyAgentFicha` tras la entrega, `try/catch`, SSE si cambió. Unit: excepción en `upsertFicha` → reply entregado, sin handoff.
+- [x] T-04-09 APIs: `/api/agent/ficha-fields` (solo Propietario), `GET /api/contacts/[id]` con `fichaFields`/`fichaMeta`, `fichaUnlock` en PATCH, `/api/contacts/[id]/ficha/history` (nuevo), aditivos en `/api/bot/context` y `/api/bot/ficha`.
 - [x] T-04-10 UI Agente: tarjeta "Campos de la ficha" + plantilla.
 - [x] T-04-11 UI Bandeja: `FichaPanel` con campos, chips, candado, controles por tipo, historial. Extender `tests/unit/ficha-ui.test.ts`.
-- [ ] T-04-12 ai-mock: ramas de ficha, ficha-rota, update_ficha.
-- [ ] T-04-13 Laboratorio: `expectFicha` + `fichaCheck` en el caso + línea en el reporte. (UI del reporte lista: "Ficha N/M" en `lab-client.tsx`; falta el servidor.)
-- [ ] T-04-14 E2E `scripts/e2e-agente-ficha.mjs` (nuevo) + guion `tests/e2e/us-agente-ficha.md` (nuevo); enganchar en `scripts/e2e-selftest.mjs`; ajustar `scripts/e2e-ficha-lead.mjs` si cambia la regla del bot (decisión abierta).
-- [ ] T-04-15 Docs: `README.md` (contrato `/api/bot/*`), `specs/001-vocero-core/contracts/ai.md`, `tests/e2e/us-bot-api.md`.
+- [x] T-04-12 ai-mock: ramas de ficha, ficha-rota, update_ficha.
+- [x] T-04-13 Laboratorio: `expectFicha` + `fichaCheck` en el caso + línea en el reporte. — Servidor (`expectFicha`, `computeFichaCheck`) y UI ("Ficha N/M" en el reporte) hechos.
+- [ ] T-04-14 E2E `scripts/e2e-agente-ficha.mjs` (nuevo) + guion `tests/e2e/us-agente-ficha.md` (nuevo); enganchar en `scripts/e2e-selftest.mjs`; ajustar `scripts/e2e-ficha-lead.mjs` si cambia la regla del bot (decisión abierta). — Escritos como `scripts/e2e-ficha-agente.mjs` + `tests/e2e/us-ficha-agente.md` y paso del candado en `e2e-ficha-lead.mjs` (solo `node --check`); falta correrlos en vivo. `e2e-selftest.mjs` es un guion monolítico sin registro de guiones externos: el nuevo corre aparte, como `e2e-contexto-agente.mjs`.
+- [x] T-04-15 Docs: `README.md` (contrato `/api/bot/*`), `specs/001-vocero-core/contracts/ai.md`, `tests/e2e/us-bot-api.md`.
 - [ ] T-04-16 Gate completo + `pnpm test:e2e` en BD aislada + corrida del Laboratorio con modelo real.
 
 ### Pruebas

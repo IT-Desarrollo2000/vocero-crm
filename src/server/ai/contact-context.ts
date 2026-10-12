@@ -2,6 +2,11 @@ import { and, asc, count, desc, eq, gt, lte } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isValidTimeZone } from "@/lib/time/slots";
+import {
+  fichaWriteBlocked,
+  type FichaFieldDef,
+  type FichaMeta,
+} from "@/lib/ficha-fields";
 import type { SourceValue } from "@/lib/types";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { DEFAULT_TIMEZONE } from "@/server/agenda/settings";
@@ -138,6 +143,8 @@ export type ContactContext = {
     source: SourceValue | null;
     createdAt: Date | null;
     ficha: Record<string, unknown> | null;
+    /** 04 — Procedencia por clave (`contact.ficha_meta`); ver `fichaRenderOptions`. */
+    fichaMeta?: FichaMeta | null;
     notes: string | null;
   } | null;
   lead: {
@@ -175,6 +182,36 @@ export type RenderContextOptions = {
   definedKeys?: string[];
   meta?: Record<string, { source: string; locked?: boolean }>;
 };
+
+/**
+ * 04 — Opciones de render a partir de la definición de campos y la
+ * procedencia. UNA sola fuente para el agente in-process y para
+ * `GET /api/bot/context`: los dos reciben EXACTAMENTE el mismo bloque.
+ *
+ * Se marca "(confirmado por el equipo)" todo lo que el agente no puede pisar
+ * (`fichaWriteBlocked` con `source: "ia"`): meta `humano` y las claves
+ * legadas (con valor y sin meta).
+ *
+ * Sin definición de campos el agente no llena la ficha (RF-04-02): el bloque
+ * queda exactamente como antes de 04.
+ */
+export function fichaRenderOptions(
+  ctx: Pick<ContactContext, "contact">,
+  fields: readonly FichaFieldDef[] | null | undefined
+): RenderContextOptions {
+  if (!fields || fields.length === 0) return {};
+  const ficha = ctx.contact?.ficha ?? {};
+  const fichaMeta = ctx.contact?.fichaMeta ?? {};
+  const meta: NonNullable<RenderContextOptions["meta"]> = {};
+  for (const [key, value] of Object.entries(ficha)) {
+    if (value === null || value === undefined || value === "") continue;
+    const entry = fichaMeta[key];
+    meta[key] = {
+      source: fichaWriteBlocked("ia", entry, true) ? "humano" : (entry?.by ?? "humano"),
+    };
+  }
+  return { definedKeys: fields.map((f) => f.key), meta };
+}
 
 /* ============================================================
  * Render
@@ -448,6 +485,7 @@ export async function loadContactContext(input: {
           source: schema.contact.source,
           createdAt: schema.contact.createdAt,
           ficha: schema.contact.ficha,
+          fichaMeta: schema.contact.fichaMeta,
           notes: schema.contact.notes,
         })
         .from(schema.contact)
@@ -640,6 +678,7 @@ export async function loadContactContext(input: {
           source: contactRow.source,
           createdAt: contactRow.createdAt,
           ficha: (contactRow.ficha as Record<string, unknown> | null) ?? null,
+          fichaMeta: contactRow.fichaMeta ?? null,
           notes: contactRow.notes,
         }
       : null,

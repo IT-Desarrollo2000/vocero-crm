@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
 
 import { buildBotContextPayload } from "@/server/bot/context";
 import {
+  fichaRenderOptions,
   renderContactContext,
   type ContactContext,
 } from "@/server/ai/contact-context";
@@ -123,6 +124,42 @@ describe("buildBotContextPayload — contrato aditivo", () => {
       attribution: { sourceType: "ad", headline: "H", body: "B" },
       bookings: { next: { scheduledAt: "2026-10-13T16:00:00.000Z", durationMinutes: 30, moreCount: 0 }, last: null },
     });
+  });
+
+  it("04 — aditivos: contact.fichaMeta y fichaFields en la raíz", () => {
+    const sin = buildBotContextPayload({ contact, conversation, lead, ctx, block: null });
+    expect(sin.contact.fichaMeta).toEqual({});
+    expect(sin.fichaFields).toBeNull();
+
+    const meta = { modelo_interes: { by: "humano" as const, at: "2026-10-12T00:00:00.000Z" } };
+    const fields = [
+      { key: "modelo_interes", label: "Modelo de interés", type: "texto" as const, agentFills: true },
+    ];
+    const con = buildBotContextPayload({
+      contact: { ...contact, fichaMeta: meta },
+      conversation,
+      lead,
+      ctx,
+      block: null,
+      fichaFields: fields,
+    });
+    expect(con.contact.fichaMeta).toEqual(meta);
+    expect(con.fichaFields).toEqual(fields);
+  });
+
+  it("04 — el bloque marca lo que el agente no puede pisar (mismas opciones que el agente)", () => {
+    const fields = [
+      { key: "modelo_interes", label: "Modelo de interés", type: "texto" as const, agentFills: true },
+    ];
+    const conMeta = { ...ctx, contact: { ...ctx.contact!, ficha: { modelo_interes: "T03", zona: "Centro" }, fichaMeta: { zona: { by: "ia" as const, at: "x" } } } };
+    const block = renderContactContext(conMeta, fichaRenderOptions(conMeta, fields));
+    // `modelo_interes` es legado (sin meta) → confirmado; `zona` la llenó el agente.
+    expect(block).toContain("modelo_interes: «T03» (confirmado por el equipo)");
+    expect(block).toContain("zona: «Centro»\n");
+    // Sin definición, el bloque queda como antes de 04.
+    expect(renderContactContext(conMeta, fichaRenderOptions(conMeta, null))).toBe(
+      renderContactContext(conMeta)
+    );
   });
 
   it("sin contexto (falló al armarse) las claves previas salen igual", () => {

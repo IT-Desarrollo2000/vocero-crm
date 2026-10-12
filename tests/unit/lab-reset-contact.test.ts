@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let contactRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
+const deletes: string[] = [];
 
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
@@ -24,6 +25,10 @@ vi.mock("@/lib/db", () => ({
         return { where: () => Promise.resolve([]) };
       },
     }),
+    delete: () => {
+      deletes.push("ficha_event");
+      return { where: () => Promise.resolve([]) };
+    },
   }),
   schema: new Proxy(
     {},
@@ -42,6 +47,7 @@ const SINTETICO = PERSONAS[0]!.phone;
 describe("resetTestContact — guarda", () => {
   beforeEach(() => {
     updates.length = 0;
+    deletes.length = 0;
     contactRows = [];
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -58,7 +64,10 @@ describe("resetTestContact — guarda", () => {
     expect(updates[0]).toMatchObject({
       notes: "[IA] semilla",
       ficha: { modelo_interes: "Leapmotor T03" },
+      // 04 — la procedencia y la bitácora tampoco se heredan entre casos.
+      fichaMeta: null,
     });
+    expect(deletes).toEqual(["ficha_event"]);
   });
 
   it("sin semilla → notas y ficha vacías", async () => {
@@ -72,6 +81,7 @@ describe("resetTestContact — guarda", () => {
     const ok = await resetTestContact({ organizationId: "org_1", contactId: "ct_x" });
     expect(ok).toBe(false);
     expect(updates).toHaveLength(0);
+    expect(deletes).toHaveLength(0);
     expect(console.warn).toHaveBeenCalled();
   });
 

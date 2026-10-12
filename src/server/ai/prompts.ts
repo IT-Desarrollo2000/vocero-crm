@@ -1,10 +1,54 @@
 import type { schema } from "@/lib/db";
+import type { FichaFieldDef } from "@/lib/ficha-fields";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
 
 /** Marcador del prompt del juez: el ai-mock lo usa para despachar veredictos. */
 export const JUDGE_MARKER = "[JUEZ]";
+
+/** 04 — Encabezado de la sección de campos de la ficha (el ai-mock lo busca). */
+export const FICHA_FIELDS_MARKER = "CAMPOS DE LA FICHA";
+
+const FICHA_TYPE_HINT: Record<FichaFieldDef["type"], string> = {
+  texto: "texto",
+  numero: "número (solo la cifra, p. ej. 350000)",
+  si_no: "sí/no (true o false)",
+  opcion: "opción",
+};
+
+/**
+ * 04 — Qué campos de la ficha llena el agente y cómo (RF-04-11). `null` si
+ * ningún campo tiene `agentFills`: entonces el prompt no menciona la ficha
+ * como acción (RF-04-02). La definición la escribe el Propietario (input
+ * propio, no del cliente) y ya viene acotada por `fichaFieldsSchema`.
+ */
+export function renderFichaFieldsSection(
+  fields: readonly FichaFieldDef[] | null | undefined
+): string | null {
+  const fill = (fields ?? []).filter((f) => f.agentFills);
+  if (fill.length === 0) return null;
+  const lines = fill.map((f) => {
+    const parts = [`- ${f.key} (${FICHA_TYPE_HINT[f.type]}): ${f.label}`];
+    if (f.type === "opcion" && f.options?.length) {
+      parts.push(
+        `opciones: ${f.options.join(" | ")}${f.allowOther ? " (u otro texto breve si ninguna aplica)" : ""}`
+      );
+    }
+    if (f.hint) parts.push(`pista: ${f.hint}`);
+    return parts.join(" — ");
+  });
+  return [
+    `${FICHA_FIELDS_MARKER} (lo que el negocio quiere saber del cliente):`,
+    ...lines,
+    "Reglas de la ficha:",
+    '- Incluye "ficha" SOLO con datos que el cliente dijo explícitamente en la conversación; no deduzcas ni inventes.',
+    "- No repitas valores que ya están guardados en la ficha del contacto.",
+    '- Nunca cambies un campo marcado "(confirmado por el equipo)".',
+    "- Usa exactamente las claves de arriba; si un dato no cabe en ningún campo, no lo pongas en la ficha.",
+    "- La ficha nunca reemplaza tu respuesta: sigue contestando al cliente con normalidad.",
+  ].join("\n");
+}
 
 export function renderKb(entries: KbEntry[]): string {
   if (entries.length === 0) return "(knowledge base vacío)";
@@ -39,8 +83,14 @@ export function buildAgentSystemPrompt(input: {
    * proveedores que no aceptan varios mensajes `system`.
    */
   contactBlock?: string;
+  /**
+   * 04 — Definición de campos de la ficha. Solo los que tienen `agentFills`
+   * entran al prompt; sin ninguno, el prompt no menciona `ficha` (RF-04-02).
+   */
+  fichaFields?: readonly FichaFieldDef[] | null;
 }): string {
   const { profile } = input;
+  const fichaSection = renderFichaFieldsSection(input.fichaFields);
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   const agendaLines = input.agenda
     ? [
@@ -66,6 +116,7 @@ export function buildAgentSystemPrompt(input: {
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     `Etapas del pipeline disponibles: ${stageNames}`,
     input.contactBlock || null,
+    fichaSection,
     [
       "En cada turno respondes ÚNICAMENTE un objeto JSON con UNA acción:",
       '- {"action":"none"} — no responder nada.',
@@ -74,6 +125,11 @@ export function buildAgentSystemPrompt(input: {
       '- {"action":"move_stage","stage":"<nombre exacto de etapa>","reply":"..."} — mover el lead (reply opcional).',
       '- {"action":"handoff","reason":"...","farewell":"..."} — escalar a un humano (farewell opcional para despedirte).',
       ...agendaLines,
+      ...(fichaSection
+        ? [
+            'Cualquier acción puede llevar además "ficha":{"<clave>":valor} con datos del cliente para su ficha (ver CAMPOS DE LA FICHA). No gasta tu turno: sigue respondiendo normal.',
+          ]
+        : []),
       "Reglas duras:",
       "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
       "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",

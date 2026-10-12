@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { effectiveSource } from "@/server/contact-source";
+import type { FichaMeta } from "@/lib/ficha-fields";
 import type { FichaDto, PriorityValue } from "@/lib/types";
 
 export function serializeContact(
@@ -21,6 +22,8 @@ export function serializeContact(
     // Viaja siempre, aunque esté vacía: la pantalla necesita distinguir "aún
     // no la han llenado" de "este contacto no la trae".
     ficha: (c.ficha as FichaDto | null) ?? {},
+    // 04 — Procedencia por clave (aditivo); `{}` si nadie ha escrito desde 04.
+    fichaMeta: (c.fichaMeta ?? {}) as FichaMeta,
   };
 }
 

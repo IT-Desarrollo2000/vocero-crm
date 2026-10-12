@@ -101,6 +101,12 @@ CRM no impone un cuestionario.
     números no finitos— se ignoran en silencio y el resto sí se guarda: un 422
     le tiraría al bot datos de calificación que ya costaron una conversación.
 26. Conversación inexistente → **404**. Cuerpo sin `ficha` → **422**.
+27. (04, D-04-4) Una clave que editó una persona en la bandeja tiene candado:
+    el PUT responde **200** con `ignored: [{key, reason:"candado_humano"}]` y el
+    valor del equipo queda intacto (`scripts/e2e-ficha-lead.mjs`). Lo que sí
+    escribe el bot queda con `fichaMeta[key].by = "bot"`; `GET /api/bot/context`
+    trae `contact.fichaMeta` y `fichaFields` (la definición de campos, o
+    `null`).
 
 ## El bot envía a través del CRM
 
