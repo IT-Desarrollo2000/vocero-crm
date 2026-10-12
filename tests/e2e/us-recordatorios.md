@@ -11,7 +11,9 @@
 > node --env-file=.env.e2e scripts/e2e-recordatorios.mjs
 > ```
 >
-> Gasta 2 inicios de sesión (owner y Vendedor). El reloj real del ticker va
+> Gasta hasta 3 POST de inicio de sesión (alta del owner ya existente, su
+> inicio de sesión y el Vendedor). Requiere el ai-mock para la corrida del
+> Laboratorio del paso g). El reloj real del ticker va
 > apagado (`AGENDA_REMINDER_TICK_MS=0`): cada vuelta la fuerza
 > `POST /api/dev/reminders/tick { now }`, que llama `runReminderTick` DIRECTO
 > (sin el candado del proceso), así dos POST en paralelo ejercitan el UNIQUE.

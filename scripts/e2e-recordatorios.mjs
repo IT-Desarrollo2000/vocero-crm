@@ -30,7 +30,8 @@
  * org del self-test puede tener citas de corridas anteriores que también
  * venzan con el reloj simulado.
  *
- * Presupuesto del limitador de login: 2 POST a /sign-in|sign-up.
+ * Presupuesto del limitador de login: hasta 3 POST a /sign-in|sign-up (alta
+ * del owner que ya existe + su inicio de sesión + el Vendedor).
  *
  * Uso:
  *   1) BD migrada (0018 incluida) y app corriendo con WA_MOCK_ENABLED=true,
@@ -128,9 +129,15 @@ const phone = () =>
 const tick = (now) =>
   owner.api("/api/dev/reminders/tick", { method: "POST", body: body(now ? { now: iso(now) } : {}) });
 
+/**
+ * El CRM normaliza el destinatario (521… → 52…): se compara por los últimos
+ * 10 dígitos para no depender de esa regla.
+ */
+const last10 = (s) => String(s ?? "").replace(/\D/g, "").slice(-10);
+
 async function outboxTo(to) {
   const ob = (await owner.api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
-  return ob.filter((o) => o.to === to && o.type === "template");
+  return ob.filter((o) => last10(o.to) === last10(to) && o.type === "template");
 }
 
 async function bookingById(c, id) {
@@ -210,6 +217,9 @@ async function main() {
   ok("GET /api/calendar/settings trae `reminders`", cal.res.ok && !!cal.json?.reminders, short(cal));
 
   console.log("\n== b) WhatsApp, Vendedor y agenda 24/7 ==");
+  // Una corrida anterior abortada puede haber dejado el mock fallando.
+  const sano = await owner.api("/api/dev/wa-mock/fail-sends", { method: "POST", body: body({ mode: "off" }) });
+  ok("wa-mock: envíos sanos al empezar", sano.json?.failSends === "off", short(sano));
   const conn = await owner.api("/api/settings/whatsapp", {
     method: "PUT",
     body: body({ wabaId: WABA, phoneNumberId: PN, token: "tok-e2e-reco" }),
@@ -406,7 +416,7 @@ async function main() {
     ok("cita de prueba: sin recordatorios", (c?.reminders ?? []).length === 0, JSON.stringify(c?.reminders));
     ok(
       "outbox sin plantillas nuevas por la cita de prueba",
-      after.slice(before).every((o) => o.type !== "template" || o.to !== ctB.phone),
+      after.slice(before).every((o) => o.type !== "template" || last10(o.to) !== last10(ctB.phone)),
       `nuevas=${after.length - before}`
     );
   }

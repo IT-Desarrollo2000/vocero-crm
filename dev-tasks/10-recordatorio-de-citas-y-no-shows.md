@@ -617,11 +617,11 @@ bookingReport(orgId, range: ReportRange, now: Date): Promise<BookingReportDto>
 | Ruta | Política | Cuerpo / query | 200 | Errores |
 |---|---|---|---|---|
 | `GET /api/calendar/settings` | owner | — | `{ settings, reminders: ReminderSettingsDto }` | 404 AGENDA off |
-| `PUT /api/calendar/settings` | owner | lo de siempre + `reminderEnabled?`, `reminderTemplateId?` (string\|null), `reminderOffsetsMinutes?` (1–2 enteros únicos, 60..4320), `reminderVariables?` (`ReminderField[]`) | `{ settings, reminders }` | 422 `invalid_body` (forma; y en 10-A: plantilla no `approved`/no WhatsApp o mapeo incompleto, con mensaje) · **hoy 501 `not_implemented` si llega cualquier campo de recordatorio** |
+| `PUT /api/calendar/settings` | owner | lo de siempre + `reminderEnabled?`, `reminderTemplateId?` (string\|null), `reminderOffsetsMinutes?` (1–2 enteros únicos, 60..4320), `reminderVariables?` (`ReminderField[]`) | `{ settings, reminders }` | 422 `invalid_body` (forma; y en 10-A: plantilla no `approved`/no WhatsApp o mapeo incompleto, con mensaje) |
 | `GET /api/bookings` | any | — | cada cita con `reminders: BookingReminderDto[]` (aditivo) + `businessTimezone: string` (zona del negocio, aditivo 10-A: el Vendedor no lee los ajustes) | 404 AGENDA off |
-| `POST /api/bookings/[id]/reminders/[reminderId]/retry` | any | sin cuerpo | `{ ok: true, reminder: BookingReminderDto }` (ya resuelto tras el envío síncrono) | 404 `not_found` · 409 `not_retryable` · 409 `retry_exhausted` · 409 `booking_not_active` · 404 AGENDA off · hoy 501 |
-| `GET /api/reports/bookings` | owner | rango de Reportes (`range`, `from`, `to`) | `BookingReportDto` (`src/lib/reports.ts`): `range` + bloques `offers`, `attendance`, `byReminder` | 403 Vendedor · 422 `invalid_range` · 503 `report_timeout` · 404 AGENDA off · hoy 501 |
-| `POST /api/dev/reminders/tick` | dev | `{ now?: ISO }` (JSON obligatorio, `{}` vale) | `ReminderTickResultDto` `{ now, organizations, recovered, claimed, sent, failed, skipped }` | 404 sin mocks o AGENDA off · 422 · hoy 501 |
+| `POST /api/bookings/[id]/reminders/[reminderId]/retry` | any | sin cuerpo | `{ ok: true, reminder: BookingReminderDto }` (ya resuelto tras el envío síncrono) | 404 `not_found` · 409 `not_retryable` · 409 `retry_exhausted` · 409 `booking_not_active` · 404 AGENDA off |
+| `GET /api/reports/bookings` | owner | rango de Reportes (`range`, `from`, `to`) | `BookingReportDto` (`src/lib/reports.ts`): `range` + bloques `offers`, `attendance`, `byReminder` | 403 Vendedor · 422 `invalid_range` · 503 `report_timeout` · 404 AGENDA off |
+| `POST /api/dev/reminders/tick` | dev | `{ now?: ISO }` (JSON obligatorio, `{}` vale) | `ReminderTickResultDto` `{ now, organizations, recovered, claimed, sent, failed, skipped }` | 404 sin mocks o AGENDA off · 422 |
 | `GET/POST /api/dev/wa-mock/fail-sends` | dev | `{ mode: "off" \| "error" \| "down" }` | `{ failSends }` | — · **ya funciona**: `error` = 400 Meta 131026 → `meta_error`; `down` = 503 → `meta_unavailable`. Solo envíos de WhatsApp; `DELETE /api/dev/wa-mock/outbox` lo apaga. |
 
 ### DTOs
