@@ -18,6 +18,8 @@ import {
   type ConnectorId,
 } from "@/lib/agenda-connectors";
 import { ConnectorCredentials } from "@/components/settings/connector-credentials";
+import { RemindersCard } from "@/components/settings/reminders-card";
+import type { ReminderSettingsDto } from "@/lib/reminders";
 
 /**
  * 015 — Ajustes → Agenda: cuándo atiende el negocio y cómo se entrega la
@@ -53,6 +55,9 @@ const DEFAULT_INTERVAL: Interval = { start: "09:00", end: "18:00" };
 
 export function AgendaClient() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  // 10 — Hermano de `settings` en la respuesta; sin él (servidor viejo) no se
+  // pinta la sección de recordatorios.
+  const [reminders, setReminders] = useState<ReminderSettingsDto | null>(null);
   const [slots, setSlots] = useState<{ label: string }[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +70,12 @@ export function AgendaClient() {
         fetch("/api/calendar/availability").catch(() => null),
       ]);
       if (cfg?.ok) {
-        const data = (await cfg.json()) as { settings: Settings };
+        const data = (await cfg.json()) as {
+          settings: Settings;
+          reminders?: ReminderSettingsDto;
+        };
         setSettings(data.settings);
+        setReminders(data.reminders ?? null);
       }
       if (avail?.ok) {
         const data = (await avail.json()) as { slots: { label: string }[] };
@@ -372,6 +381,10 @@ export function AgendaClient() {
         {saved && <span className="text-sm text-brand-text">Guardado</span>}
         {error && <span className="text-sm text-destructive">{error}</span>}
       </div>
+
+      {/* Los recordatorios también se guardan por su cuenta: si el servidor
+          aún no los acepta, el horario de arriba se sigue guardando. */}
+      {reminders && <RemindersCard initial={reminders} />}
 
       {/* Las credenciales se guardan por su cuenta, no con el botón de arriba:
           se validan contra el proveedor antes de tocar la base. */}

@@ -1,0 +1,329 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, Clock, Hourglass, Inbox } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import type { AttendanceSliceDto, BookingReportDto } from "@/lib/reports";
+import {
+  BOOKING_REPORT_SOON_MESSAGE,
+  attendanceDetail,
+  classifyBookingReportResponse,
+  isBookingReportEmpty,
+  offerDataSinceNote,
+  offerDetail,
+  pendingToMarkLabel,
+  type BookingReportOutcome,
+} from "./bookings-report-format";
+import { formatCount, formatPercent } from "./format";
+import { KpiTile } from "./kpi-tile";
+import { RangePicker } from "./range-picker";
+import {
+  DEFAULT_RANGE,
+  parseRangeParams,
+  rangeToQuery,
+  type RangeSelection,
+} from "./range-params";
+import { TIMEOUT_MESSAGE } from "./report-fetch";
+import { ReportSection } from "./report-section";
+
+type Failure = Exclude<BookingReportOutcome, { kind: "ok" }>;
+
+/**
+ * 10 — Reportes → Citas. Pide `GET /api/reports/bookings` con el mismo rango
+ * de la URL que la pestaña Agente y pinta cada bloque por su cuenta: oferta →
+ * cita, asistencia y asistencia con vs sin recordatorio.
+ */
+export function BookingsReportClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selection = useMemo(() => parseRangeParams(searchParams), [searchParams]);
+  const query = rangeToQuery(selection);
+
+  const [report, setReport] = useState<BookingReportDto | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    setFailure(null);
+    void (async () => {
+      const res = await fetch(`/api/reports/bookings?${query}`, {
+        signal: ctrl.signal,
+      }).catch(() => null);
+      if (ctrl.signal.aborted) return;
+      const body: unknown = res ? await res.json().catch(() => null) : null;
+      if (ctrl.signal.aborted) return;
+      const outcome: BookingReportOutcome = res
+        ? classifyBookingReportResponse(res.status, body)
+        : { kind: "error" };
+      if (outcome.kind === "unauthorized") {
+        router.replace("/login");
+        return;
+      }
+      if (outcome.kind === "ok") {
+        setReport(outcome.report);
+      } else {
+        setReport(null);
+        setFailure(outcome);
+      }
+      setLoading(false);
+    })();
+    return () => ctrl.abort();
+  }, [query, attempt, router]);
+
+  function select(next: RangeSelection) {
+    router.replace(`${pathname}?${rangeToQuery(next)}`, { scroll: false });
+  }
+
+  const range = report?.range ?? null;
+  const tz = range?.tz ?? null;
+  const empty = report ? isBookingReportEmpty(report) : false;
+  const showBlocks = loading || !!report;
+
+  return (
+    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
+      <RangePicker
+        key={query}
+        value={selection}
+        onChange={select}
+        timezone={tz}
+        resolved={range ? { from: range.from, to: range.to } : null}
+        disabled={loading}
+      />
+
+      {failure && (
+        <ReportFailure
+          failure={failure}
+          onRetry={() => setAttempt((a) => a + 1)}
+          onShorter={() => select(DEFAULT_RANGE)}
+          canShorten={selection.preset !== DEFAULT_RANGE.preset}
+        />
+      )}
+
+      {!loading && empty && (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+        >
+          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Aún no hay ofertas ni citas en este rango.
+        </p>
+      )}
+
+      {showBlocks && (
+        <>
+          <Kpis report={report} loading={loading} />
+
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+            <ReportSection
+              title="Oferta → cita"
+              description="Conversaciones a las que la IA les ofreció horarios y que terminaron en una cita agendada por la IA."
+              block={report?.offers}
+              loading={loading}
+            >
+              {(data) => (
+                <div className="space-y-2 text-sm">
+                  <Row label="Conversaciones con oferta" value={formatCount(data.conversationsWithOffer)} />
+                  <Row label="Terminaron en cita" value={formatCount(data.converted)} />
+                  <Row label="Conversión" value={formatPercent(data.rate)} />
+                  <Row label="Rondas de horarios ofrecidas" value={formatCount(data.offerRounds)} />
+                  <p className="text-xs text-text-3">
+                    {offerDataSinceNote(data.dataSince, tz ?? "UTC")}
+                  </p>
+                </div>
+              )}
+            </ReportSection>
+
+            <ReportSection
+              title="Asistencia"
+              description="Citas del rango marcadas como realizadas o como no asistió."
+              block={report?.attendance}
+              loading={loading}
+            >
+              {(data) => (
+                <div className="space-y-2 text-sm">
+                  <Row label="Realizadas" value={formatCount(data.realizada)} />
+                  <Row label="No asistió" value={formatCount(data.noShow)} />
+                  <Row label="Asistencia" value={formatPercent(data.rate)} />
+                  <Row label="Canceladas" value={formatCount(data.cancelada)} />
+                  <p
+                    className={
+                      data.pendingToMark > 0 ? "text-xs text-warning-text" : "text-xs text-text-3"
+                    }
+                  >
+                    {pendingToMarkLabel(data)}
+                    {data.pendingToMark > 0 && " — márcalas en Citas para que cuenten."}
+                  </p>
+                </div>
+              )}
+            </ReportSection>
+          </div>
+
+          <ReportSection
+            title="Asistencia con vs sin recordatorio"
+            description="«Con» = al menos un recordatorio enviado para la hora vigente de la cita."
+            block={report?.byReminder}
+            loading={loading}
+          >
+            {(data) => (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SliceCard title="Con recordatorio" slice={data.withReminder} testId="slice-with-reminder" />
+                <SliceCard title="Sin recordatorio" slice={data.withoutReminder} testId="slice-without-reminder" />
+              </div>
+            )}
+          </ReportSection>
+
+          {range && (
+            <p className="text-xs text-text-3">
+              Excluye el Laboratorio. Días en {range.tz}.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function SliceCard({
+  title,
+  slice,
+  testId,
+}: {
+  title: string;
+  slice: AttendanceSliceDto;
+  testId: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={`${title}: ${formatPercent(slice.rate)}`}
+      data-testid={testId}
+      className="rounded-md border bg-subtle p-3"
+    >
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums">{formatPercent(slice.rate)}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{attendanceDetail(slice)}</p>
+    </div>
+  );
+}
+
+function Kpis({ report, loading }: { report: BookingReportDto | null; loading: boolean }) {
+  const offers = report?.offers;
+  const att = report?.attendance;
+  return (
+    <div
+      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
+      role="group"
+      aria-label="Resumen de citas"
+    >
+      <KpiTile
+        label="Oferta → cita"
+        testId="kpi-offer-conversion"
+        value={offers?.ok ? formatPercent(offers.data.rate) : "—"}
+        detail={offers?.ok ? offerDetail(offers.data) : undefined}
+        help="Conversaciones con al menos una oferta de horarios en el rango que terminaron en una cita agendada por la IA."
+        loading={loading}
+        unavailable={!loading && !offers?.ok}
+      />
+      <KpiTile
+        label="Asistencia"
+        testId="kpi-attendance"
+        value={att?.ok ? formatPercent(att.data.rate) : "—"}
+        detail={att?.ok ? attendanceDetail(att.data) : undefined}
+        help="Realizadas entre realizadas más no asistió, de las citas con hora en el rango."
+        loading={loading}
+        unavailable={!loading && !att?.ok}
+      />
+      <KpiTile
+        label="Pendientes de marcar"
+        testId="kpi-pending-to-mark"
+        value={att?.ok ? formatCount(att.data.pendingToMark) : "—"}
+        help="Citas cuya hora ya pasó y siguen como agendadas: no cuentan en la asistencia hasta marcarlas."
+        loading={loading}
+        unavailable={!loading && !att?.ok}
+      />
+    </div>
+  );
+}
+
+function ReportFailure({
+  failure,
+  onRetry,
+  onShorter,
+  canShorten,
+}: {
+  failure: Failure;
+  onRetry: () => void;
+  onShorter: () => void;
+  canShorten: boolean;
+}) {
+  if (failure.kind === "soon") {
+    return (
+      <p
+        role="status"
+        className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+      >
+        <Hourglass className="h-4 w-4 shrink-0" aria-hidden="true" />
+        {BOOKING_REPORT_SOON_MESSAGE}
+      </p>
+    );
+  }
+  if (failure.kind === "timeout") {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center gap-3 rounded-lg border border-warning-soft bg-warning-tint px-4 py-3 text-sm text-warning-text"
+      >
+        <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1">{TIMEOUT_MESSAGE}</span>
+        {canShorten ? (
+          <Button size="sm" variant="outline" onClick={onShorter}>
+            Probar con 30 días
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Reintentar
+          </Button>
+        )}
+      </div>
+    );
+  }
+  const message =
+    failure.kind === "invalid"
+      ? failure.message
+      : failure.kind === "forbidden"
+        ? "Solo el Propietario puede ver los reportes."
+        : "No se pudo cargar el reporte.";
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-danger-soft bg-danger-tint px-4 py-3 text-sm text-danger-text"
+    >
+      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">{message}</span>
+      {failure.kind === "error" && (
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          Reintentar
+        </Button>
+      )}
+      {failure.kind === "invalid" && canShorten && (
+        <Button size="sm" variant="outline" onClick={onShorter}>
+          Ver 30 días
+        </Button>
+      )}
+    </div>
+  );
+}

@@ -1,10 +1,12 @@
+import { Suspense } from "react";
 import { BarChart3 } from "lucide-react";
 import { ReportsTabs } from "@/components/reports/reports-tabs";
+import { agendaEnabled } from "@/server/agenda/flag";
 import { atribucionEnabled } from "@/server/attribution/flag";
 
 // 02 — Reportes es solo del Propietario: el layout de `(owner)` ya responde
 // 404 al Vendedor. Este marco (encabezado + pestañas) lo reutilizan los
-// reportes de ventas (punto 1) y de anuncios (07) cuando existan.
+// reportes de citas (10, con `AGENDA`), ventas (punto 1) y anuncios (07).
 export const dynamic = "force-dynamic";
 
 export default function ReportsLayout({
@@ -19,7 +21,10 @@ export default function ReportsLayout({
         <p className="text-xs text-muted-foreground">
           Solo Propietario · no incluye el Laboratorio
         </p>
-        <ReportsTabs ads={atribucionEnabled()} />
+        {/* Las pestañas leen la URL (`useSearchParams`) para conservar el rango. */}
+        <Suspense>
+          <ReportsTabs ads={atribucionEnabled()} bookings={agendaEnabled()} />
+        </Suspense>
       </header>
       <div className="min-w-0">{children}</div>
     </div>
