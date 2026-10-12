@@ -24,6 +24,7 @@ const contact = {
   name: "Ana",
   notes: "vieja\n[IA] reciente",
   ficha: { modelo_interes: "T03" },
+  fichaMeta: null,
   source: null,
   archivedAt: null,
   createdAt: new Date("2026-09-01T00:00:00Z"),

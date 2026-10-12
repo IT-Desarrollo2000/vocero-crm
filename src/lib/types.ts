@@ -1,6 +1,14 @@
 /** DTOs que viajan por la API interna (lado cliente). */
 
 import type { Channel, ReplyMode } from "@/lib/channels";
+import type {
+  FichaFieldDef,
+  FichaIgnored,
+  FichaIgnoreReason,
+  FichaMeta,
+  FichaOutcome,
+  FichaSource,
+} from "@/lib/ficha-fields";
 
 export type ConversationDto = {
   id: string;
@@ -109,6 +117,74 @@ export type ContactDto = {
   priority?: PriorityValue | null;
   /** Lo que se sabe del lead. `{}` mientras nadie haya calificado. */
   ficha?: FichaDto;
+  /**
+   * 04 — Procedencia por clave de `ficha`. `{}` si nadie ha escrito desde 04.
+   * Clave con valor y SIN entrada = dato anterior a 04 (legado): el agente no
+   * lo pisa. Candado = `fichaMeta[key].by === "humano"`.
+   */
+  fichaMeta?: FichaMeta;
+};
+
+/* ============================================================
+ * 04 — Campos de la ficha (contrato 04-0,
+ * dev-tasks/04-el-agente-llena-la-ficha.md)
+ * ============================================================ */
+
+/**
+ * `GET /api/agent/ficha-fields` y respuesta de `PUT`. `null` = sin
+ * definición (ficha libre; el agente no llena nada).
+ */
+export type FichaFieldsResponse = { fields: FichaFieldDef[] | null };
+
+/** Cuerpo de `PUT /api/agent/ficha-fields`. `[]` equivale a `null`. */
+export type FichaFieldsPutBody = { fields: FichaFieldDef[] | null };
+
+/** `GET /api/contacts/[id]`: lo de siempre + la definición para pintar el panel. */
+export type ContactDetailResponse = {
+  contact: ContactDto & { ficha: FichaDto; fichaMeta: FichaMeta };
+  stage: StageDto | null;
+  lead: { id: string } | null;
+  fichaFields: FichaFieldDef[] | null;
+};
+
+/** Cuerpo de `PATCH /api/contacts/[id]` (lo de ficha; el resto, igual que hoy). */
+export type ContactPatchBody = {
+  name?: string;
+  notes?: string | null;
+  archived?: boolean;
+  /** Parche (no reemplazo). `null` borra la clave. Queda con candado humano. */
+  ficha?: Record<string, FichaValue | null>;
+  /**
+   * Quita el candado sin borrar el valor: `by` pasa a `"ia"` (RF-04-08).
+   * Aplica a claves `humano` y legadas (con valor, sin meta); máx. 40.
+   */
+  fichaUnlock?: string[];
+};
+
+/** Una fila de la bitácora `ficha_event`. */
+export type FichaEventDto = {
+  id: string;
+  key: string;
+  /** null = la clave no tenía valor. */
+  oldValue: FichaValue | null;
+  /** null = borrado (aplicado) o intento sin valor guardable (invalido). */
+  newValue: FichaValue | null;
+  source: FichaSource;
+  outcome: FichaOutcome;
+  reason: FichaIgnoreReason | null;
+  /** Solo `source = "humano"`; null si el usuario ya no existe. */
+  actor: { id: string; name: string } | null;
+  conversationId: string | null;
+  createdAt: string;
+};
+
+/** `GET /api/contacts/[id]/ficha/history`: últimos 50, más reciente primero. */
+export type FichaHistoryResponse = { events: FichaEventDto[] };
+
+/** `PUT /api/bot/ficha` (aditivo: `ignored`). */
+export type BotFichaResponse = {
+  ficha: FichaDto;
+  ignored: FichaIgnored[];
 };
 
 /* ============================================================

@@ -10,6 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { FichaCheck, FichaFieldDef, FichaMeta } from "../ficha-fields";
 
 /* ============================================================
  * Auth (Better Auth + plugin organization)
@@ -155,6 +156,13 @@ export const contact = pgTable(
      * Merge campo a campo; `null` explícito borra la clave.
      */
     ficha: jsonb("ficha").$type<Record<string, unknown>>(),
+    /**
+     * 04 — Procedencia por clave de `ficha` (`{ [key]: { by, at, userId? } }`).
+     * Sidecar a propósito: la forma de `ficha` es contrato publicado. NULL o
+     * clave ausente = sin procedencia (dato anterior a 04: el agente no lo
+     * pisa). Solo la escribe la puerta `src/server/bot/ficha.ts`.
+     */
+    fichaMeta: jsonb("ficha_meta").$type<FichaMeta>(),
     /**
      * De dónde salió el prospecto. NULL = nadie la capturó, y entonces la API
      * la deduce. Así no hace falta backfill ni marcar en falso los contactos
@@ -383,6 +391,66 @@ export const conversation = pgTable(
   ]
 );
 
+/**
+ * 04 — Bitácora de la ficha: append-only. Una fila por clave cuyo valor cambió
+ * o cuyo intento de escritura se ignoró (candado humano, tipo, opción, tope…).
+ * Reenviar el mismo valor no genera fila.
+ *
+ * Regla dura: la ÚNICA puerta que inserta aquí —y que escribe `contact.ficha`
+ * y `contact.ficha_meta`— es `src/server/bot/ficha.ts`.
+ *
+ * Los valores son de calificación de un cliente ajeno: viven aquí (BD propia)
+ * pero jamás en logs (Constitución I).
+ */
+export const fichaEvent = pgTable(
+  "ficha_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contact.id, { onDelete: "cascade" }),
+    /** En qué conversación ocurrió (agente / bot); NULL = edición desde la UI. */
+    conversationId: text("conversation_id").references(() => conversation.id, {
+      onDelete: "set null",
+    }),
+    key: text("key").notNull(),
+    /** Escalar (o NULL = no había valor). */
+    oldValue: jsonb("old_value").$type<string | number | boolean | null>(),
+    /** Escalar (o NULL = borrado / intento sin valor guardable). */
+    newValue: jsonb("new_value").$type<string | number | boolean | null>(),
+    source: text("source", { enum: ["ia", "humano", "bot"] }).notNull(),
+    /** Solo `source = "humano"`. */
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    outcome: text("outcome", {
+      enum: ["aplicado", "ignorado_humano", "invalido"],
+    }).notNull(),
+    /** `FichaIgnoreReason` (src/lib/ficha-fields.ts); NULL si se aplicó. */
+    reason: text("reason", {
+      enum: [
+        "candado_humano",
+        "clave_desconocida",
+        "no_la_llena_el_agente",
+        "tipo",
+        "opcion",
+        "tope",
+      ],
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("ficha_event_org_contact_idx").on(
+      t.organizationId,
+      t.contactId,
+      t.createdAt
+    ),
+  ]
+);
+
 export const message = pgTable(
   "message",
   {
@@ -589,6 +657,12 @@ export const agentProfile = pgTable(
     instructions: text("instructions"),
     escalationRules: text("escalation_rules"),
     greeting: text("greeting"),
+    /**
+     * 04 — Definición de los campos de la ficha (orden = orden del panel).
+     * NULL = sin definición: ficha libre y el agente no llena nada.
+     * Se valida con `fichaFieldsSchema` (src/lib/ficha-fields.ts).
+     */
+    fichaFields: jsonb("ficha_fields").$type<FichaFieldDef[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -880,6 +954,11 @@ export const agentTestCase = pgTable(
     transcript: jsonb("transcript"),
     veredicto: text("veredicto", { enum: ["verde", "amarillo", "rojo"] }),
     hallazgos: jsonb("hallazgos"),
+    /**
+     * 04 — Chequeo determinista de llenado de la ficha por persona. Aparte de
+     * `transcript` (que alimenta al juez) y fuera del score: informativo.
+     */
+    fichaCheck: jsonb("ficha_check").$type<FichaCheck>(),
     status: text("status", {
       enum: ["pending", "running", "done", "judge_failed"],
     })

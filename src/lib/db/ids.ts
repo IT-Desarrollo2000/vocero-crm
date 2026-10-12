@@ -29,6 +29,8 @@ const prefixes = {
   adAttribution: "att",
   conversionEvent: "cve",
   capiSettings: "capi",
+  // 04 — bitácora de la ficha
+  fichaEvent: "fe",
 } as const;
 
 export type IdKind = keyof typeof prefixes;
