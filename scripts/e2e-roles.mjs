@@ -10,15 +10,19 @@
  *      relee que nada cambió) y 200 en su operación diaria
  *   d) /api/auth/organization/* → 404 para ambos; sigue habiendo 1 org
  *   h) Playwright: menú, páginas 404, /settings → Mi cuenta, cambio de nombre
+ *      y de contraseña propia (actual incorrecta → error y no cambia; actual
+ *      correcta → éxito; la nueva entra y la vieja no)
  *   e) gestión de equipo: cambio de rol, self_change, carrera de dos owners
  *      que se degradan a la vez (uno 200, el otro last_owner)
  *   f) restablecer contraseña: la vieja falla, la temporal entra
- *   g) baja con sesión abierta → 401; login → 403 "dado de baja"; re-alta
- *      con el mismo correo → relinked y vuelve a entrar
+ *   g) baja con sesión abierta → 401; login en /login (Playwright) → 403 y
+ *      la UI muestra "dado de baja"; re-alta con el mismo correo → relinked y
+ *      vuelve a entrar
  *
  * Presupuesto del limitador de login (10 / 10 min por IP y ruta): este guion
- * hace ≤ 7 POST a /sign-in/email y ≤ 3 a /sign-up/email (dos son altas de
- * equipo internas). Playwright reutiliza las cookies: no inicia sesión. Para
+ * hace ≤ 9 POST a /sign-in/email (uno es el login de la cuenta dada de baja
+ * desde la UI de /login) y ≤ 3 a /sign-up/email (dos son altas de equipo
+ * internas). Fuera de ese login, Playwright reutiliza las cookies del jar. Para
  * correrlo DOS veces seguidas, reinicia el servidor entre corridas.
  *
  * Uso:
@@ -99,6 +103,10 @@ const OWNER_EMAIL = "e2e@vocero.test";
 const OWNER_PASSWORD = "password-e2e-123";
 const SELLER_EMAIL = `vendedor.${S}@vocero.test`;
 const SELLER_PASSWORD = "password-vend-123";
+/** La que el vendedor se pone desde "Mi cuenta" (fase h). */
+const SELLER_CHANGED_PASSWORD = "password-propia-456";
+/** Contraseña vigente del vendedor (cambia en h y en f). */
+let sellerPassword = SELLER_PASSWORD;
 const OWNER2_EMAIL = `socio.${S}@vocero.test`;
 const OWNER2_PASSWORD = "password-socio-123";
 const PN = "PN-E2E-ROLES";
@@ -392,10 +400,11 @@ async function main() {
   ok("POST reset-password → 200 con temporal (≥16)", r.res.status === 200 && typeof temp === "string" && temp.length >= 16, short(r));
   const revoked = await seller.api("/api/conversations");
   ok("la sesión anterior del vendedor quedó revocada (401)", revoked.res.status === 401, short(revoked));
-  const oldPw = await signIn(client(), SELLER_EMAIL, SELLER_PASSWORD);
+  const oldPw = await signIn(client(), SELLER_EMAIL, sellerPassword);
   ok("la contraseña vieja ya no entra", !oldPw.res.ok, short(oldPw));
   const tempIn = await signIn(seller, SELLER_EMAIL, temp ?? "x");
   ok("la temporal entra", tempIn.res.ok, short(tempIn));
+  if (tempIn.res.ok) sellerPassword = temp;
   r = await owner.api(`/api/settings/team/${me?.id}/reset-password`, { method: "POST" });
   ok("restablecer la propia por aquí → 409 self_change", r.res.status === 409 && r.json?.error?.code === "self_change", short(r));
 
@@ -407,12 +416,7 @@ async function main() {
   const dead = await seller.api("/api/conversations");
   ok("su siguiente petición → 401", dead.res.status === 401, short(dead));
   ok("ya no aparece en el equipo", (await teamMember(SELLER_EMAIL)) === null);
-  const blocked = await signIn(client(), SELLER_EMAIL, temp ?? "x");
-  ok(
-    "su login → 403 \"Tu acceso fue dado de baja…\"",
-    blocked.res.status === 403 && /dado de baja/.test(JSON.stringify(blocked.json)),
-    short(blocked)
-  );
+  await removedLoginInBrowser(sellerPassword);
   const NEW_PW = "password-vuelve-123";
   r = await owner.api("/api/settings/team", {
     method: "POST",
@@ -515,9 +519,108 @@ async function browserChecks() {
           "el owner ve el nombre nuevo en Equipo",
           (team.json?.members ?? []).some((m) => m.email === SELLER_EMAIL && m.name === NEW_NAME)
         );
+        await changeOwnPassword(page);
       }
       await ctx.close();
     }
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * AC9: el vendedor cambia su contraseña desde "Mi cuenta" (UI real). Primero
+ * con la actual INCORRECTA (error y no cambia: lo prueba que el cambio
+ * siguiente acepta la vigente, sin gastar un login), luego con la correcta.
+ * La página ya está hidratada (acaba de guardar el nombre).
+ */
+async function changeOwnPassword(page) {
+  const current = page.locator("#account-current");
+  const next = page.locator("#account-new");
+  const confirm = page.locator("#account-confirm");
+  const submit = page.getByRole("button", { name: "Cambiar contraseña" });
+  const wrongMsg = page.getByText("La contraseña actual no es correcta.");
+  const okMsg = page.getByText("Contraseña actualizada");
+
+  await current.fill("password-equivocada-999");
+  await next.fill(SELLER_CHANGED_PASSWORD);
+  await confirm.fill(SELLER_CHANGED_PASSWORD);
+  await submit.click();
+  ok(
+    "vendedor: Mi cuenta con la actual incorrecta → \"La contraseña actual no es correcta.\"",
+    await until(async () => (await wrongMsg.count()) > 0, 20000)
+  );
+  ok("vendedor: tras el error no aparece el éxito", (await okMsg.count()) === 0);
+
+  await current.fill(sellerPassword);
+  await next.fill(SELLER_CHANGED_PASSWORD);
+  await confirm.fill(SELLER_CHANGED_PASSWORD);
+  await submit.click();
+  const changed = await until(async () => (await okMsg.count()) > 0, 20000);
+  ok(
+    "vendedor: con la actual correcta → \"Contraseña actualizada ✓\" (la vigente no había cambiado)",
+    changed,
+    (await page.locator("[role=alert]").allTextContents()).join(" | ")
+  );
+  ok("vendedor: el error anterior se limpió", (await wrongMsg.count()) === 0);
+
+  // revokeOtherSessions cierra también la sesión del jar de Node: el login con
+  // la nueva la repone para el resto del guion.
+  const oldSession = await seller.api("/api/conversations");
+  ok("la sesión del jar (otro \"dispositivo\") quedó cerrada (401)", oldSession.res.status === 401, short(oldSession));
+  const newIn = await signIn(seller, SELLER_EMAIL, SELLER_CHANGED_PASSWORD);
+  ok("login con la contraseña NUEVA → entra", newIn.res.ok, short(newIn));
+  if (newIn.res.ok) sellerPassword = SELLER_CHANGED_PASSWORD;
+  const opApi = await seller.api("/api/conversations");
+  ok("y opera (GET /api/conversations → 200)", opApi.res.status === 200, short(opApi));
+  const oldIn = await signIn(client(), SELLER_EMAIL, SELLER_PASSWORD);
+  ok("login con la contraseña VIEJA → falla", !oldIn.res.ok, short(oldIn));
+}
+
+/**
+ * RF-00-13 en la UI: la cuenta dada de baja intenta entrar por /login (con su
+ * contraseña correcta) → el servidor responde 403 y la página muestra el
+ * motivo, no "Correo o contraseña incorrectos". Gasta UN login (si el primer
+ * clic cae antes de hidratar, el submit nativo no llega a la API).
+ */
+async function removedLoginInBrowser(password) {
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.route("**/api/events*", (route) => route.abort());
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(60000);
+    let res = null;
+    for (let attempt = 0; attempt < 2 && !res; attempt++) {
+      await page.goto(`${BASE}/login`, { waitUntil: "load", timeout: 90000 });
+      await page.locator("#email").fill(SELLER_EMAIL);
+      await page.locator("#password").fill(password);
+      const wait = page
+        .waitForResponse((r) => r.url().includes("/api/auth/sign-in/email"), { timeout: 20000 })
+        .catch(() => null);
+      await page.getByRole("button", { name: "Entrar" }).click();
+      res = await wait;
+    }
+    let resBody = null;
+    try {
+      resBody = await res?.json();
+    } catch {}
+    ok(
+      "su login (UI /login) → 403 \"Tu acceso fue dado de baja…\"",
+      res?.status() === 403 && /dado de baja/.test(JSON.stringify(resBody)),
+      `${res?.status()} ${JSON.stringify(resBody)?.slice(0, 160)}`
+    );
+    const shown = await until(
+      async () => (await page.getByText("Tu acceso fue dado de baja; pide al Propietario que te reactive").count()) > 0,
+      20000
+    );
+    ok(
+      "la UI de /login muestra el motivo de la baja (no \"Correo o contraseña incorrectos\")",
+      shown && (await page.getByText("Correo o contraseña incorrectos.").count()) === 0,
+      (await page.locator("form p").allTextContents()).join(" | ")
+    );
+    ok("y se queda en /login", new URL(page.url()).pathname === "/login", page.url());
+    await ctx.close();
   } finally {
     await browser.close();
   }

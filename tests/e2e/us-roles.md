@@ -10,8 +10,9 @@
 > ```
 >
 > El limitador de login es en memoria por IP (10 / 10 min en `/sign-in/email`
-> y `/sign-up/email`). El guion gasta ≤ 7 inicios de sesión y Playwright
-> reutiliza las cookies, así que cabe en UNA corrida: para correrlo dos veces
+> y `/sign-up/email`). El guion gasta ≤ 9 inicios de sesión (uno es el login
+> de la cuenta dada de baja desde `/login`; fuera de ese, Playwright reutiliza
+> las cookies), así que cabe en UNA corrida: para correrlo dos veces
 > seguidas (o después de otro guion), **reinicia el servidor** antes. Corre
 > igual sobre BD vacía (primer registro) o con el owner `e2e@vocero.test` ya
 > creado (login); el vendedor y el socio llevan sufijo aleatorio.
@@ -61,6 +62,16 @@
 9. Vendedor en "Mi cuenta" cambia su nombre.
    ✅ "Nombre guardado ✓"; el lateral y Ajustes → Equipo (del owner) muestran
    el nombre nuevo.
+9b. Vendedor en "Mi cuenta" → "Cambiar contraseña" con la contraseña actual
+    INCORRECTA.
+    ✅ "La contraseña actual no es correcta."; no aparece el éxito y la
+    contraseña no cambia (lo prueba el paso siguiente, que acepta la vigente).
+9c. Mismo formulario con la actual CORRECTA y una nueva.
+    ✅ "Contraseña actualizada ✓ Tus otras sesiones se cerraron."; la sesión
+    abierta en otro "dispositivo" (el jar HTTP) → 401; login con la NUEVA
+    entra y opera; login con la VIEJA falla. (Ejercita el hook
+    `session.create.before` con path `/change-password`: se permite por
+    membresía.)
 10. Owner (control positivo).
     ✅ Ve "Agente" y "Laboratorio"; esas páginas dan 200; `/settings` →
     `/settings/whatsapp`.
@@ -81,14 +92,18 @@
 
 14. Owner → "Restablecer contraseña" del vendedor.
     ✅ Muestra una temporal (≥ 16 caracteres) una sola vez; la sesión abierta
-    del vendedor responde 401; la contraseña vieja ya no entra y la temporal
-    sí. Restablecer la propia por aquí → 409 `self_change`.
+    del vendedor responde 401; la contraseña vieja (la que se puso en 9c) ya
+    no entra y la temporal sí. Restablecer la propia por aquí → 409 `self_change`.
 
 ## g) Baja y re-alta (camino infeliz)
 
 15. Con el vendedor con sesión abierta, el owner lo da de baja.
-    ✅ Su siguiente petición → 401 (la Bandeja lo manda a `/login`); su login
-    → 403 "Tu acceso fue dado de baja; pide al Propietario que te reactive".
+    ✅ Su siguiente petición → 401 (la Bandeja lo manda a `/login`).
+15b. El vendedor dado de baja intenta entrar en `/login` (navegador) con su
+    contraseña correcta.
+    ✅ `POST /api/auth/sign-in/email` → 403 y la página muestra "Tu acceso
+    fue dado de baja; pide al Propietario que te reactive" (no "Correo o
+    contraseña incorrectos."); se queda en `/login`.
 16. El owner vuelve a dar de alta el mismo correo.
     ✅ 201 `relinked: true`; entra con la nueva contraseña y opera. Dar de
     alta otra vez a un miembro activo → 409 `duplicate`.

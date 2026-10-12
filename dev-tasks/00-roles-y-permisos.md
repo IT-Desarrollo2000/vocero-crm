@@ -504,7 +504,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "member_org_user_uq"
 - [x] T-00-17 Equipo UI: cambiar rol, baja, restablecer contraseña. Dep: 11.
 - [x] T-00-18 Componentes compartidos sin enlaces de Propietario (contact-panel, template-sender, start-conversation, pipeline-client, conversation-list). Dep: 14.
 - [x] T-00-19 E2E `scripts/e2e-roles.mjs` (nuevo) + guion `tests/e2e/us-roles.md` (nuevo); actualizar `tests/e2e/us7-team.md`. Dep: todas.
-- [ ] T-00-20 Gate completo `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` (el selftest corre como owner y debe seguir verde) + `e2e-roles.mjs` contra BD aislada (`.env.e2e`). Actualizar `dev-tasks/README.md` con el commit.
+- [x] T-00-20 Gate completo `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` (el selftest corre como owner y debe seguir verde) + `e2e-roles.mjs` contra BD aislada (`.env.e2e`). Actualizar `dev-tasks/README.md` con el commit.
 
 ### Pruebas
 

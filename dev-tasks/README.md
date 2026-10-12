@@ -23,7 +23,7 @@ tareas, pruebas y riesgos).
 
 | Orden | Tarea | Por qué en este lugar |
 |---|---|---|
-| 1 | [00 — Roles y permisos](00-roles-y-permisos.md) | Fundacional: todas las demás dependen de saber quién ve qué. También cierra huecos de seguridad actuales (un miembro puede cambiar credenciales hoy). |
+| 1 ✅ | [00 — Roles y permisos](00-roles-y-permisos.md) — **hecha** (53329a4…99c3f67 + cierre) | Fundacional: todas las demás dependen de saber quién ve qué. También cierra huecos de seguridad actuales (un miembro puede cambiar credenciales hoy). |
 | 2 | [03 — Contexto del contacto para el agente](03-contexto-del-contacto-para-el-agente.md) | Bajo esfuerzo, mejora inmediata en la calidad de las respuestas. |
 | 3 | [04 — El agente llena la ficha](04-el-agente-llena-la-ficha.md) | Se apoya en 03 (el agente ya ve la ficha) y alimenta métricas futuras. |
 | 4 | [09 — Equipo: asignación y respuestas rápidas](09-equipo-asignacion-y-respuestas-rapidas.md) | Define la visibilidad de la Bandeja por vendedor, que 05 y 06 necesitan. |
@@ -91,6 +91,10 @@ por defecto.
 **Nombres canónicos de los guardas de rol:** los define 00 (`withAuth(..., { role: "owner" })`, `requireOwnerPage()`, grupo de rutas `(owner)`, `useViewer()`). Donde otro archivo describa el guard de otra forma, manda 00.
 
 ## Hallazgos de paso (fuera de estas tareas)
+
+- `e2e-bitacora-etapas` y `e2e-templates-sync` ya fallaban antes de esta tanda
+  (comprobado sobre 5522e2f): no son efecto de que `templates/sync` pasara a
+  ser solo de Propietario (el guion corre como Propietario).
 
 - `cleanupOrphanRuns` (`src/instrumentation-node.ts:8-29`) marca como fallidas
   las corridas del Laboratorio en curso de **otras** réplicas al arrancar una.
