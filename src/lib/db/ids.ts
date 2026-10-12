@@ -31,6 +31,8 @@ const prefixes = {
   capiSettings: "capi",
   // 04 — bitácora de la ficha
   fichaEvent: "fe",
+  // 09 — respuestas rápidas
+  quickReply: "qr",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

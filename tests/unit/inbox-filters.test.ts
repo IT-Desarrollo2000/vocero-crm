@@ -16,6 +16,7 @@ function mk(
     aiEnabled: true,
     handoffAt: null,
     handoffReason: null,
+    handoffNote: null,
     lastInboundAt: null,
     lastMessageAt: null,
     unreadCount: 0,
@@ -25,8 +26,11 @@ function mk(
     outboundMedia: true,
     templates: true,
     preview: null,
+    // 09: sin asignar por defecto.
+    assignedTo: null,
+    assignedAt: null,
     ...rest,
-  } as ConversationDto;
+  } satisfies ConversationDto;
 }
 
 const base = { query: "", stage: "all", inbox: "all" as const };

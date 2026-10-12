@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseBody, withAuth } from "@/lib/api";
+import { publish } from "@/server/events/bus";
 import { serializeMember, teamErrorResponse } from "@/server/team/http";
 import { changeRole, removeMember } from "@/server/team/members";
 
@@ -30,11 +31,25 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   }
 }, { role: "owner" });
 
-/** Da de baja a un miembro: borra su membresía y todas sus sesiones. */
+/**
+ * Da de baja a un miembro: borra su membresía y todas sus sesiones, y sus
+ * conversaciones vuelven a "sin asignar" (09). `removeMember` resuelve tras
+ * el commit: aquí ya se puede avisar por SSE (solo el id, RF-09-09).
+ */
 export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
   const { memberId } = await ctx.params;
   try {
-    await removeMember(session.organizationId, session.userId, memberId);
+    const released = await removeMember(
+      session.organizationId,
+      session.userId,
+      memberId
+    );
+    for (const id of released) {
+      publish(session.organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id } },
+      });
+    }
     return Response.json({ ok: true });
   } catch (err) {
     return teamErrorResponse(err);

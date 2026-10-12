@@ -18,7 +18,12 @@ export type SseEvent =
         error?: string | null;
       };
     }
-  | { type: "conversation.updated"; data: { conversation: unknown } }
+  /**
+   * 09 (RF-09-09): SOLO el id — "algo cambió, refetchea con tu vista". Nada
+   * de nombre, teléfono, nota de handoff ni responsable: viaja a todos los
+   * roles y el cliente ya ignoraba el payload.
+   */
+  | { type: "conversation.updated"; data: { conversation: { id: string } } }
   /** 015 — algo cambió en la agenda: la pantalla de Citas se refresca sola. */
   | { type: "booking.updated"; data: { bookingId: string } }
   | {
