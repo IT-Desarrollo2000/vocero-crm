@@ -556,9 +556,9 @@ de `listConversations`, los stubs 501 de `/counts` y `GET /[id]`,
 
 | Endpoint | Política | Respuesta | Estado en 06-0 |
 |---|---|---|---|
-| `GET /api/conversations` | `any*` | `ConversationsPage = { conversations: ConversationDto[]; nextCursor: string \| null }` | Firma nueva; solo `since`/`assigned` implementados (lista completa, `nextCursor: null`) |
-| `GET /api/conversations/counts` | `any*` | `ConversationCounts` | Stub 501 `not_implemented` |
-| `GET /api/conversations/[id]` | `any*` | `{ conversation: ConversationDto }`; 404 `not_found` si no existe, es `is_test` o no la ves | Stub 501 `not_implemented` |
+| `GET /api/conversations` | `any*` | `ConversationsPage = { conversations: ConversationDto[]; nextCursor: string \| null }` | Implementado (06-A): todos los modos y filtros |
+| `GET /api/conversations/counts` | `any*` | `ConversationCounts` | Implementado (06-A) |
+| `GET /api/conversations/[id]` | `any*` | `{ conversation: ConversationDto }`; 404 `not_found` si no existe, es `is_test` o no la ves | Implementado (06-A) |
 
 Las tres van con `withAuth(...)` y la visibilidad de 09
 (`conversationVisibleTo(viewer)`) en el WHERE; `is_test = false` siempre.

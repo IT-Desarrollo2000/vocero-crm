@@ -32,7 +32,11 @@
  */
 
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
-const S = Math.random().toString(36).slice(2, 8);
+// Solo letras: con ≥ 3 dígitos, `q=S` también buscaría por teléfono y
+// arrastraría contactos de otras corridas (la BD de E2E no se limpia).
+const S = Array.from({ length: 6 }, () =>
+  String.fromCharCode(97 + Math.floor(Math.random() * 26))
+).join("");
 const RUN = String(Math.floor(10000 + Math.random() * 89999));
 const PN = "PN-E2E-PAG";
 const SEED = 130;
@@ -174,6 +178,25 @@ function sortedDesc(rows) {
   return true;
 }
 
+/**
+ * El agente puede responder (ai-mock) y mover sort_at de las sembradas: un
+ * recorrido en marcha vería saltar filas. Espera a que la lista de `q=S`
+ * se quede quieta 3 s.
+ */
+async function waitQuiet() {
+  let lastSig = "";
+  let stableSince = Date.now();
+  await until(async () => {
+    const all = (await owner.api(`/api/conversations${qs({ q: S })}`)).json?.conversations ?? [];
+    const sig = all.map((c) => `${c.id}:${c.sortAt}`).join("|");
+    if (sig !== lastSig) {
+      lastSig = sig;
+      stableSince = Date.now();
+    }
+    return Date.now() - stableSince > 3000;
+  }, 90000);
+}
+
 async function main() {
   console.log("== a) Owner, WhatsApp y alta del vendedor ==");
   let su = await owner.api("/api/auth/sign-up/email", {
@@ -219,18 +242,7 @@ async function main() {
     JSON.stringify(await counts(owner, mineQ)));
   ok("counts.all creció en ≥ 130", ((await counts(owner))?.all ?? 0) >= baseline + SEED);
 
-  // El agente puede responder (ai-mock) y mover sort_at: espera a que quiete.
-  let lastSig = "";
-  let stableSince = Date.now();
-  await until(async () => {
-    const all = (await owner.api(`/api/conversations${qs({ q: S })}`)).json?.conversations ?? [];
-    const sig = all.map((c) => `${c.id}:${c.sortAt}`).join("|");
-    if (sig !== lastSig) {
-      lastSig = sig;
-      stableSince = Date.now();
-    }
-    return Date.now() - stableSince > 3000;
-  }, 90000);
+  await waitQuiet();
 
   const seededAll = (await owner.api(`/api/conversations${qs({ q: S })}`)).json?.conversations ?? [];
   const seededIds = new Set(ids(seededAll));
@@ -277,6 +289,8 @@ async function main() {
     const first = (await owner.api(`/api/conversations?limit=1`)).json?.conversations ?? [];
     ok("la conversación del mensaje nuevo queda al tope", first[0]?.id === target, first[0]?.id);
   }
+
+  await waitQuiet(); // la respuesta del agente al mensaje nuevo de d)
 
   console.log("\n== e) Filtros con contadores coherentes ==");
   // unread: marca 3 como leídas.
@@ -352,6 +366,8 @@ async function main() {
     short(tp));
   const tpct = await owner.api(`/api/conversations${qs({ q: "%", limit: 50 })}`);
   ok("q = \"%\" no lista todo (comodín escapado)", tpct.res.ok && !(tpct.json?.conversations ?? []).some((r) => seededIds.has(r.id)));
+
+  await waitQuiet();
 
   console.log("\n== f) Vendedor: visibilidad en lista, ids, detalle y contadores ==");
   const ownersConv = byIndex(50);
