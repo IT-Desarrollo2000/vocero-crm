@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { deleteTestRun } from "@/server/lab/delete";
 import { legacyPersonaLabel } from "@/server/lab/personas";
+import { hallazgosDto, loadApplications } from "@/server/lab/suggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,11 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       )
     )
     .orderBy(asc(schema.agentTestCase.createdAt));
+  // 08 (RF-08-14) — marca persistente de sugerencia aplicada por hallazgo.
+  const applied = await loadApplications(
+    session.organizationId,
+    cases.map((c) => c.id)
+  );
 
   return Response.json({
     run: {
@@ -66,7 +72,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       personaSnapshot: c.personaSnapshot ?? null,
       status: c.status,
       veredicto: c.veredicto,
-      hallazgos: c.hallazgos ?? [],
+      hallazgos: hallazgosDto(c.id, c.hallazgos, applied),
       transcript: c.transcript ?? [],
       conversationId: c.conversationId,
       // 04 — aditivo: chequeo determinista de la ficha (`null` si no aplica).

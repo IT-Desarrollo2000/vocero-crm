@@ -50,7 +50,10 @@ export function renderFichaFieldsSection(
   ].join("\n");
 }
 
-export function renderKb(entries: KbEntry[]): string {
+/** 08 — Basta con el texto: el Laboratorio lo arma desde el snapshot. */
+export function renderKb(
+  entries: readonly Pick<KbEntry, "kind" | "question" | "answer" | "content">[]
+): string {
   if (entries.length === 0) return "(knowledge base vacío)";
   return entries
     .map((e) =>
@@ -177,11 +180,15 @@ export function buildJudgePrompt(input: {
   const system = [
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
     "Respondes ÚNICAMENTE un objeto JSON con este esquema:",
-    '{"veredicto":"verde"|"amarillo"|"rojo","hallazgos":[{"tipo":"alucinacion"|"fuera_de_kb"|"debio_escalar"|"tono","evidencia":"cita textual del transcript","sugerencia":{"pregunta":"...","respuesta":"..."}}]}',
+    '{"veredicto":"verde"|"amarillo"|"rojo","hallazgos":[{"tipo":"alucinacion"|"fuera_de_kb"|"debio_escalar"|"tono","evidencia":"cita textual del transcript","sugerencia":{"pregunta":"...","respuesta":"..."},"ajuste":{"campo":"tone"|"escalationRules"|"instructions","texto":"..."}}]}',
     "- verde: sin problemas relevantes. amarillo: mejorable. rojo: falla grave.",
     "- `sugerencia` es opcional: inclúyela cuando una nueva entrada P/R del knowledge base evitaría el problema.",
+    // 08 (RF-08-11) — Ajuste del perfil: se AGREGA al campo, así que es una
+    // instrucción breve y autocontenida, no el campo completo reescrito.
+    "- `ajuste` es opcional: inclúyelo cuando una instrucción breve agregada al COMPORTAMIENTO del agente evitaría el problema. Hallazgo tono → campo \"tone\" (cómo debe sonar). Hallazgo debio_escalar → campo \"escalationRules\" (cuándo pasar a un humano). Una regla general del negocio → \"instructions\". El texto se AGREGA al campo: una o dos frases, sin repetir lo que ya está configurado.",
     "- Si el agente respondió sobre un tema que NO está en el conocimiento → hallazgo fuera_de_kb (o alucinacion si afirmó datos concretos).",
     "- Si el cliente pidió un humano y no hubo escalado → debio_escalar.",
+    "- Si la persona trae CRITERIOS DE ÉXITO, evalúa contra ellos: incumplir uno es al menos amarillo.",
   ].join("\n");
 
   const transcript = input.transcript

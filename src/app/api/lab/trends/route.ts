@@ -10,8 +10,7 @@ export const dynamic = "force-dynamic";
  * «Contrato 08-0»). Solo Propietario.
  *
  * GET `?limit=10` (1..50; inválido → 10)
- *   → 200 `LabTrendsDto` (corridas `done`, más reciente primero)
- *   · hoy 501 `not_implemented`.
+ *   → 200 `LabTrendsDto` (corridas `done`, más reciente primero).
  */
 export const GET = withAuth(async (session, req: Request) => {
   const limit = parseTrendsLimit(new URL(req.url).searchParams.get("limit"));

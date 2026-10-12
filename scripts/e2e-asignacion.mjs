@@ -480,6 +480,12 @@ async function main() {
       LAB_TIMEOUT_MS
     )
   );
+  // 08 — Mismo set que el resto de los guiones (una BD limpia siembra el neutro).
+  r = await owner.api("/api/lab/personas/restore-defaults", {
+    method: "POST",
+    body: body({ set: "autos" }),
+  });
+  ok("owner: restore-defaults {set:autos} → 200", r.res.status === 200, short(r));
   const run = await owner.api("/api/lab/runs", { method: "POST" });
   ok("owner: POST /api/lab/runs → 202 con runId", run.res.status === 202 && !!run.json?.runId, short(run));
   const runId = run.json?.runId;

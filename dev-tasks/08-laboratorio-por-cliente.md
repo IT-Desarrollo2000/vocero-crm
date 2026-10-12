@@ -399,21 +399,25 @@ La tendencia (b) **no necesita migración**: se agrega sobre
 - [x] T-08-01 Schema + migración `0019` (`lab_persona` SIN semilla SQL — va en
       código —, columnas en `agent_test_run`/`agent_test_case`,
       `lab_suggestion_application`) + prefijos en `ids.ts`.
-- [ ] T-08-02 `persona-store.ts` + rutas `/api/lab/personas*` (Propietario).
-- [ ] T-08-03 Runner: personas de BD, `persona_snapshot`, selección, total de
-      casos en `failRun`, `config_snapshot` + `persona_set`.
-- [ ] T-08-04 Juez: prompt con objetivo/criterios conservando la key; `ajuste`
-      opcional en `Verdict`; ai-mock con marcador `[e2e-tono]`.
-- [ ] T-08-05 `suggestions.ts` + `apply` idempotente (KB y perfil) + `aplicada`
+- [x] T-08-02 `persona-store.ts` + rutas `/api/lab/personas*` (Propietario).
+- [x] T-08-03 Runner: personas de BD, `persona_snapshot`, selección, total de
+      casos en `failRun`, `config_snapshot` + `persona_keys`
+      (`src/server/lab/snapshot.ts`), timeout con `runTimeoutMsFor`.
+- [x] T-08-04 Juez: prompt con objetivo/criterios conservando la key; `ajuste`
+      opcional en `Verdict`; ai-mock con marcador `[e2e-tono]` y despacho por
+      la clave exacta de la persona.
+- [x] T-08-05 `suggestions.ts` + `apply` idempotente (KB y perfil) + `aplicada`
       en `GET /api/lab/runs/[id]`.
-- [ ] T-08-06 `history.ts`: tendencia y diff; rutas `trends` y `diff`; delta
+- [x] T-08-06 `history.ts`: tendencia y diff; rutas `trends` y `diff`; delta
       comparable en `GET /api/lab/runs`.
 - [ ] T-08-07 UI Personas + selector de corrida.
 - [ ] T-08-08 UI tendencia, "Qué cambió", `HallazgoCard` con perfil y estado
       persistente.
-- [ ] T-08-09 Unit tests.
-- [ ] T-08-10 E2E: extender `labChecks` o nuevo `scripts/e2e-lab-personas.mjs` +
-      guion `tests/e2e/us-lab-por-cliente.md`; actualizar `tests/e2e/us4-lab.md`.
+- [x] T-08-09 Unit tests (`lab-persona-crud`, `lab-history`,
+      `lab-suggestions`, `lab-ai-mock-judge`; `lab-timeout` con snapshot).
+- [x] T-08-10 E2E: `scripts/e2e-lab-personas.mjs` + guion
+      `tests/e2e/us-lab-personas.md`; `tests/e2e/us4-lab.md` (7 personas ≈ 86) y
+      `restore-defaults {set:"autos"}` en los guiones que corren el Lab.
 - [ ] T-08-11 Actualizar `specs/001-vocero-core/spec.md` FR-030/FR-032/FR-033
       (personas por organización, juez con criterios, sugerencias al perfil) y la
       guía de "Mapa del código" en `CLAUDE.md` (personas ya no se cambian en

@@ -128,6 +128,20 @@ ok(
   )
 );
 
+// 08 — Una BD limpia siembra el set neutro; este guion asume el de autos
+// (tests/e2e/us4-lab.md).
+{
+  const restore = await req.post(`${BASE}/api/lab/personas/restore-defaults`, {
+    headers: { origin: BASE },
+    data: { set: "autos" },
+  });
+  ok(
+    "POST /api/lab/personas/restore-defaults {set:autos} → 200",
+    restore.status() === 200,
+    `status=${restore.status()}`
+  );
+}
+
 // La primera visita COMPILA la ruta en `next dev`: se calienta por HTTP para
 // que la corrida en curso no termine mientras la página aún se compila.
 await req.get(`${BASE}/lab`, { timeout: 180000 });

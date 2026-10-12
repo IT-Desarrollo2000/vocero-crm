@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  *   → 200 `LabSuggestionApplyResultDto` `{ result: "applied"|"alreadyApplied",
  *     application }`
  *   · 404 `not_found` · 422 `invalid_body` · 422 `hallazgo_not_found`
- *   · 422 `target_mismatch` · 422 `too_long` · hoy 501 `not_implemented`.
+ *   · 422 `target_mismatch` · 422 `too_long`.
  *
  * Forma anterior (UI y E2E actuales, se retira cuando 08-B migre la UI):
  *   `{ caseId, hallazgoIndex, pregunta, respuesta }` → 201 `{ entry }`.

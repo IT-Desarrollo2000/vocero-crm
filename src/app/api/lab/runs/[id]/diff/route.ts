@@ -13,7 +13,7 @@ type Params = { params: Promise<{ id: string }> };
  * GET `?against=<runId>` (default: la corrida `done` anterior con snapshot)
  *   → 200 `LabRunDiffDto` (`{ available: false, reason }` si falta snapshot
  *     o no hay anterior)
- *   · 404 `not_found` (alguna corrida no es de la org) · hoy 501.
+ *   · 404 `not_found` (alguna corrida no es de la org).
  */
 export const GET = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
