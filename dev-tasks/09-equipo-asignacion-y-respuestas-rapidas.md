@@ -1,6 +1,6 @@
 # 09 — Equipo: asignación de conversaciones y respuestas rápidas
 
-> Estado: en curso (contrato 09-0 fijado) · Prioridad: alta · Esfuerzo: L (a: M · b: S-M) · Migración: sí (`0015_asignacion_respuestas_rapidas.sql`, numeración oficial del README) · Bandera: no (núcleo; la asignación no cambia nada para una instancia con un solo usuario)
+> Estado: hecha (2026-10-12) · Prioridad: alta · Esfuerzo: L (a: M · b: S-M) · Migración: sí (`0015_asignacion_respuestas_rapidas.sql`, numeración oficial del README) · Bandera: no (núcleo; la asignación no cambia nada para una instancia con un solo usuario)
 
 ## 1. Especificación
 
@@ -779,3 +779,19 @@ el servidor solo valida.
   atendidas, tiempo de primera respuesta) a partir de `assigned_user_id` /
   `assigned_at`; para historial completo de reasignaciones haría falta una
   bitácora (fuera de alcance aquí).
+
+## 4. Notas de despliegue
+
+- **Envío fallido de un Vendedor deja la conversación tomada.** "Responder =
+  tomar" asigna la conversación al Vendedor ANTES de enviar (`gateSend` →
+  `claimForSend`).
+  Si el envío falla después (ventana de 24 h cerrada, plantilla rota o
+  rechazada por Meta), la conversación queda asignada a él y ya se emitió
+  `conversation.updated`: el resto de vendedores dejó de verla. No se revierte
+  sola; el Vendedor puede liberarla ("Liberar", `POST
+  /api/conversations/:id/assign { userId: null }`) o el Propietario
+  reasignarla.
+- **Conversaciones del Laboratorio.** `conversationVisibleTo` excluye
+  `is_test` para el Vendedor (lista, detalle, PATCH, mensajes, adjuntos y
+  SSE heredan el predicado; `canSeeConversation` usa el mismo). El
+  Propietario las sigue viendo: el Laboratorio es suyo.

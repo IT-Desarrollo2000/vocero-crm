@@ -28,10 +28,19 @@ describe("conversationVisibleTo", () => {
     expect(q.params).toEqual([]);
   });
 
-  it("Vendedor → assigned_user_id = yo OR assigned_user_id IS NULL", () => {
+  it("Vendedor → is_test = false AND (assigned_user_id = yo OR assigned_user_id IS NULL)", () => {
     const q = render(conversationVisibleTo(seller));
-    expect(q.sql).toMatch(/"assigned_user_id" = \$1 or "conversation"\."assigned_user_id" is null/);
-    expect(q.params).toEqual(["usr_a"]);
+    expect(q.sql).toMatch(
+      /"conversation"\."is_test" = \$1 and \("conversation"\."assigned_user_id" = \$2 or "conversation"\."assigned_user_id" is null\)/
+    );
+    expect(q.params).toEqual([false, "usr_a"]);
+  });
+
+  it("Vendedor: excluye las conversaciones del Laboratorio (is_test); el Propietario no", () => {
+    const q = render(conversationVisibleTo(seller));
+    expect(q.sql).toContain('"is_test" = $1');
+    expect(q.params[0]).toBe(false);
+    expect(render(conversationVisibleTo(owner)).sql).not.toContain("is_test");
   });
 
   it("dentro de scoped(): org AND id AND (visible) — vale para SELECT y UPDATE", () => {
@@ -46,8 +55,8 @@ describe("conversationVisibleTo", () => {
     expect(q.sql).toContain('"organization_id" = $1');
     expect(q.sql).toContain('"id" = $2');
     // El OR va entre paréntesis: no se "escapa" del AND del tenant.
-    expect(q.sql).toMatch(/and \(.*"assigned_user_id" = \$3 or .*is null\)/);
-    expect(q.params).toEqual(["org_1", "cv_1", "usr_a"]);
+    expect(q.sql).toMatch(/and \(.*"is_test" = \$3 and \(.*"assigned_user_id" = \$4 or .*is null\)\)/);
+    expect(q.params).toEqual(["org_1", "cv_1", false, "usr_a"]);
   });
 });
 

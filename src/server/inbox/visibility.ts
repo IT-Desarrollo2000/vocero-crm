@@ -1,4 +1,4 @@
-import { eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isOwner, type Role } from "@/lib/roles";
@@ -7,7 +7,11 @@ import { isOwner, type Role } from "@/lib/roles";
  * Visibilidad de conversaciones por asignación (dev-tasks/09, RF-09-02).
  *
  *   Propietario → todas.
- *   Vendedor    → `assigned_user_id = <yo> OR assigned_user_id IS NULL`.
+ *   Vendedor    → `is_test = false AND (assigned_user_id = <yo> OR assigned_user_id IS NULL)`.
+ *
+ * Las conversaciones del Laboratorio (`is_test`) nacen sin asignar: sin el
+ * `is_test = false`, un Vendedor podría leerlas o modificarlas por id. El Lab
+ * es del Propietario, que sigue viendo todo.
  *
  * La regla vive AQUÍ y se aplica en el WHERE de la query — nunca como
  * "leer y luego comprobar": así lista, detalle, envío, adjuntos, SSE y la
@@ -34,9 +38,12 @@ export type Viewer = { userId: string; role: Role };
  */
 export function conversationVisibleTo(viewer: Viewer): SQL {
   if (isOwner(viewer)) return sql`true`;
-  return or(
-    eq(schema.conversation.assignedUserId, viewer.userId),
-    isNull(schema.conversation.assignedUserId)
+  return and(
+    eq(schema.conversation.isTest, false),
+    or(
+      eq(schema.conversation.assignedUserId, viewer.userId),
+      isNull(schema.conversation.assignedUserId)
+    )
   )!;
 }
 
@@ -46,7 +53,8 @@ export function conversationVisibleTo(viewer: Viewer): SQL {
  *
  * Atajo: para el Propietario devuelve `true` SIN consultar la BD (no es una
  * comprobación de existencia; quien necesite saber si existe, que la lea).
- * Para el Vendedor, una conversación inexistente o de otra org → `false`.
+ * Para el Vendedor, una conversación inexistente, de otra org o del
+ * Laboratorio → `false` (mismo predicado que `conversationVisibleTo`).
  * Un error de BD se propaga: el llamador decide (SSE: descartar el evento).
  */
 export async function canSeeConversation(

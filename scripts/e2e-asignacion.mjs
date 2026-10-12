@@ -22,6 +22,9 @@
  *   j) handoff vía /api/bot/handoff (si hay BOT_API_KEY): no cambia el
  *      responsable
  *   k) baja de un vendedor → sus conversaciones vuelven a "sin asignar"
+ *   l) Laboratorio: el owner lanza una corrida; la conversación de un caso
+ *      (is_test, sin asignar) → 404 al Vendedor en GET messages y PATCH;
+ *      el owner 200 (requiere IA → ai-mock)
  *
  * Presupuesto del limitador de login: 3 POST a /sign-in|sign-up (owner, A, B).
  * Streams SSE: como mucho 2 abiertos a la vez y SIEMPRE se cierran.
@@ -38,6 +41,7 @@ const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const BOT_KEY = process.env.BOT_API_KEY;
 const S = Math.random().toString(36).slice(2, 8);
 const PN = "PN-E2E-ASIG";
+const LAB_TIMEOUT_MS = 180_000;
 
 let failures = 0;
 let checks = 0;
@@ -466,6 +470,43 @@ async function main() {
   const unassignedW = await list(actors[W], "?assigned=unassigned");
   ok(`${W} las ve en "Sin asignar"`, mine.every((id) => unassignedW.some((c) => c.id === id)));
   ok("el owner sigue viendo todo", [id1, id2, id3].every((id) => afterBaja.some((c) => c.id === id)));
+
+  console.log(`\n== l) Conversaciones del Laboratorio: invisibles para el Vendedor por id ==`);
+  // Una corrida huérfana de una ejecución abortada bloquearía el POST.
+  ok(
+    "no hay corridas del Laboratorio en curso",
+    await until(
+      async () => !((await owner.api("/api/lab/runs")).json?.runs ?? []).some((c) => c.status === "running"),
+      LAB_TIMEOUT_MS
+    )
+  );
+  const run = await owner.api("/api/lab/runs", { method: "POST" });
+  ok("owner: POST /api/lab/runs → 202 con runId", run.res.status === 202 && !!run.json?.runId, short(run));
+  const runId = run.json?.runId;
+  let labConvId = null;
+  if (runId) {
+    let runStatus = "running";
+    await until(async () => {
+      const d = await owner.api(`/api/lab/runs/${runId}`);
+      runStatus = d.json?.run?.status ?? `http ${d.res.status}`;
+      labConvId = (d.json?.cases ?? []).find((c) => c.conversationId)?.conversationId ?? null;
+      return runStatus === "done" || runStatus === "failed";
+    }, LAB_TIMEOUT_MS);
+    ok("la corrida terminó (done/failed)", runStatus === "done" || runStatus === "failed", runStatus);
+  }
+  ok("un caso trae conversationId", !!labConvId);
+  if (labConvId) {
+    const seller = actors[W];
+    r = await seller.api(`/api/conversations/${labConvId}/messages`);
+    ok(`${W}: GET messages de una conversación del Lab → 404`, r.res.status === 404, short(r));
+    r = await seller.api(`/api/conversations/${labConvId}`, { method: "PATCH", body: body({ markRead: true }) });
+    ok(`${W}: PATCH de una conversación del Lab → 404`, r.res.status === 404, short(r));
+    ok(`${W}: no está en su lista`, !(await list(seller)).some((c) => c.id === labConvId));
+    r = await owner.api(`/api/conversations/${labConvId}/messages`);
+    ok("owner: GET messages de la conversación del Lab → 200", r.res.status === 200, short(r));
+    r = await owner.api(`/api/conversations/${labConvId}`, { method: "PATCH", body: body({ markRead: true }) });
+    ok("owner: PATCH de la conversación del Lab → 200", r.res.status === 200, short(r));
+  }
 }
 
 main()
