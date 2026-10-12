@@ -24,7 +24,7 @@ tareas, pruebas y riesgos).
 | Orden | Tarea | Por qué en este lugar |
 |---|---|---|
 | 1 ✅ | [00 — Roles y permisos](00-roles-y-permisos.md) — **hecha** (53329a4…99c3f67 + cierre) | Fundacional: todas las demás dependen de saber quién ve qué. También cierra huecos de seguridad actuales (un miembro puede cambiar credenciales hoy). |
-| 2 | [03 — Contexto del contacto para el agente](03-contexto-del-contacto-para-el-agente.md) | Bajo esfuerzo, mejora inmediata en la calidad de las respuestas. |
+| 2 ✅ | [03 — Contexto del contacto para el agente](03-contexto-del-contacto-para-el-agente.md) — **hecha** (4a08014); falta humo con modelo real antes del deploy | Bajo esfuerzo, mejora inmediata en la calidad de las respuestas. |
 | 3 | [04 — El agente llena la ficha](04-el-agente-llena-la-ficha.md) | Se apoya en 03 (el agente ya ve la ficha) y alimenta métricas futuras. |
 | 4 | [09 — Equipo: asignación y respuestas rápidas](09-equipo-asignacion-y-respuestas-rapidas.md) | Define la visibilidad de la Bandeja por vendedor, que 05 y 06 necesitan. |
 | 5 | [06 — Paginación de la Bandeja](06-paginacion-de-la-bandeja.md) | Mueve filtros al servidor heredando la visibilidad de 09. |

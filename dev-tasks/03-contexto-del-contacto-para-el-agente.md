@@ -1,6 +1,6 @@
 # 03 — Contexto del contacto para el agente
 
-> Estado: propuesto · Prioridad: alta · Esfuerzo: M · Migración: no · Bandera: no propia (las partes de cita y anuncio respetan `AGENDA` y `ATRIBUCION`)
+> Estado: hecha (2026-10-12; pendiente T-03-14 con modelo real y T-03-13 opcional) · Prioridad: alta · Esfuerzo: M · Migración: no · Bandera: no propia (las partes de cita y anuncio respetan `AGENDA` y `ATRIBUCION`)
 
 ## 1. Especificación
 
@@ -354,10 +354,10 @@ muestra `agentContext.block`. Útil para depurar sin abrir logs.
 - [x] T-03-09 `/api/bot/context`: campos aditivos + `agentContext.block` + `scoped()`; contrato aditivo probado en `tests/unit/bot-context.test.ts` (nuevo; el armado del JSON se extrajo a `src/server/bot/context.ts`); sección de contexto en `tests/e2e/us-bot-api.md` y `README.md`.
 - [x] T-03-10 `resetTestContact` en `src/server/bot/ficha.ts` (notas + ficha en un solo update, con guarda: solo contactos archivados de personas sintéticas) llamado por `runner.ts` al inicio de cada caso; `seed` en `Persona`; persona `cliente_que_regresa`; juez con descripción + semilla. Actualizado `specs/001-vocero-core/contracts/ai.md` (7 personas).
 - [x] T-03-11 Rama "qué sabes de mí" en el ai-mock.
-- [x] T-03-12 E2E `scripts/e2e-contexto-agente.mjs` (nuevo) + guion `tests/e2e/us-contexto-agente.md` (nuevo). Standalone como los demás `e2e-*.mjs` (no enganchado en `scripts/e2e-selftest.mjs`). Sin correr aún contra la app viva.
+- [x] T-03-12 E2E `scripts/e2e-contexto-agente.mjs` (nuevo) + guion `tests/e2e/us-contexto-agente.md` (nuevo). Standalone como los demás `e2e-*.mjs` (no enganchado en `scripts/e2e-selftest.mjs`). Corrido contra la app viva: 20/20 (ON) y 19/19 (OFF).
 - [ ] T-03-13 (opcional) Vista previa "Lo que ve el agente" en `/agent` + `GET /api/agent/context-preview` (solo Propietario).
 - [ ] T-03-14 Corrida del Laboratorio ANTES (en `main`, modelo real) y DESPUÉS; registrar score por persona y hallazgos en `specs/` (tabla en el spec de la feature).
-- [ ] T-03-15 Gate: `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` en BD aislada (`.env.e2e`), con `AGENDA`/`ATRIBUCION` apagadas y encendidas.
+- [x] T-03-15 Gate: `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` en BD aislada (`.env.e2e`), con `AGENDA`/`ATRIBUCION` apagadas y encendidas. — Hecho: gate verde (614 tests); e2e-contexto-agente 20/20 ON y 19/19 OFF; selftest 244/244 ON y 120/120 OFF; 0 "contexto parcial" en los logs del servidor.
 
 ### Pruebas
 
