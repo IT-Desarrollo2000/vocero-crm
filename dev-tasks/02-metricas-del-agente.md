@@ -421,8 +421,10 @@ ON CONFLICT ("id") DO NOTHING;
   unit tests. *(T-02-01)*
 - [ ] **T-02-05** `src/server/reports/agent.ts` M1–M8 + `src/lib/reports.ts`. *(T-02-02, T-02-04)*
 - [ ] **T-02-06** `GET /api/reports/agent` con gate de Propietario. *(00, T-02-05)*
-- [ ] **T-02-07** Ítem de menú `ownerOnly` + páginas en `(app)/(owner)/reports/`. *(00: T-00-13)*
-- [ ] **T-02-08** Componentes de `src/components/reports/` + cliente. *(T-02-06, T-02-07)*
+- [x] **T-02-07** Ítem de menú `ownerOnly` + páginas en `(app)/(owner)/reports/`. *(00: T-00-13)*
+- [x] **T-02-08** Componentes de `src/components/reports/` + cliente. *(T-02-06, T-02-07)*
+  — DTO provisional en `src/components/reports/types.ts` hasta integrar
+  `src/lib/reports.ts` (02-A); unit `tests/unit/reports-ui.test.ts`.
 - [ ] **T-02-09** `EXPLAIN ANALYZE` con 100 000 mensajes sembrados en la BD de
   E2E; ajustar índices si algún bloque pasa de 500 ms. *(T-02-05)*
 - [ ] **T-02-10** Pruebas (abajo), contrato `api.md`, gate `pnpm typecheck &&
