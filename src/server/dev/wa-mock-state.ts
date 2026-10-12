@@ -90,3 +90,16 @@ const boot = Math.random().toString(36).slice(2, 8);
 export function nextOutboundWamid(): string {
   return `wamid.mock.out.${boot}.${nextN()}`;
 }
+
+/**
+ * Lo mismo vale para el entrante y el eco simulados: con `wamid.mock.in.1`
+ * repetido, el ingest lo descarta como duplicado y la conversación queda vacía
+ * (sin mensaje ni ventana de 24 h abierta).
+ */
+export function nextInboundWamid(): string {
+  return `wamid.mock.in.${boot}.${nextN()}`;
+}
+
+export function nextEchoWamid(): string {
+  return `wamid.mock.echo.${boot}.${nextN()}`;
+}
