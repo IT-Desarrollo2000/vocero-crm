@@ -44,6 +44,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/contacts/[id]": "any",
   "PATCH /api/contacts/[id]": "any",
   "POST /api/contacts/[id]/start-conversation": "any*",
+  // 04: bitácora de la ficha; hereda la visibilidad del contacto (ambos roles).
+  "GET /api/contacts/[id]/ficha/history": "any",
 
   // ── Pipeline ───────────────────────────────────────────────────────────
   "GET /api/pipeline/board": "any",
@@ -69,6 +71,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Agente y base de conocimiento ──────────────────────────────────────
   "GET /api/agent/profile": "any*",
   "PUT /api/agent/profile": "owner",
+  // 04: el Vendedor recibe la definición por `GET /api/contacts/[id]`.
+  "GET /api/agent/ficha-fields": "owner",
+  "PUT /api/agent/ficha-fields": "owner",
   "GET /api/kb": "owner",
   "POST /api/kb": "owner",
   "PATCH /api/kb/[id]": "owner",

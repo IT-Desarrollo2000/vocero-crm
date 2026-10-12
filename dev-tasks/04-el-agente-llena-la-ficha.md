@@ -1,6 +1,6 @@
 # 04 — El agente llena la ficha
 
-> Estado: propuesto · Prioridad: alta · Esfuerzo: L · Migración: sí (0013, número final al generar) · Bandera: no de despliegue — el llenado se activa por campo al definir la ficha (sin campos definidos, el agente no llena nada)
+> Estado: en curso (contrato 04-0 fijado) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0014_ficha_campos`) · Bandera: no de despliegue — el llenado se activa por campo al definir la ficha (sin campos definidos, el agente no llena nada)
 
 ## 1. Especificación
 
@@ -246,9 +246,9 @@ los fija 00/09; la ficha hereda los del contacto.
 
 ### Cambios de datos (si aplica)
 
-Migración nueva (generada con `pnpm db:generate`; hoy la última es
-`drizzle/0012_handoff_nota.sql`, así que sería **0013** salvo que 00/09 entren
-antes). Aditiva, re-ejecutable, sin backfill:
+Migración nueva: **`drizzle/0014_ficha_campos.sql`** (0013 la tomó 00; ver
+"Contrato 04-0" para el SQL final, que además lleva FK de `actor_user_id`).
+Aditiva, re-ejecutable, sin backfill:
 
 ```sql
 ALTER TABLE agent_profile ADD COLUMN ficha_fields jsonb;      -- NULL = ficha libre
@@ -380,9 +380,11 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
 
 ### Tareas ordenadas
 
-- [ ] T-04-01 `src/lib/ficha-fields.ts` (nuevo): `FichaFieldDef`, plantilla, `coerceFichaPatch`.
-- [ ] T-04-02 Unit `tests/unit/ficha-coerce.test.ts` (nuevo): claves (exacta/acentos/label), número ("350 mil", "$1,200,000", "1.2 millones", "mucho"), si_no, opción (+allowOther), texto largo, null/"" ignorados, clave desconocida.
-- [ ] T-04-03 Esquema Drizzle (`agent_profile.fichaFields`, `contact.fichaMeta`, tabla `fichaEvent`, `agent_test_case.fichaCheck`) + `pnpm db:generate` + prefijo `fe` en `ids.ts`. Verificar re-ejecución sobre la BD aislada.
+- [x] T-04-00 Contrato 04-0 (ver sección abajo): DTOs en `src/lib/types.ts`, `ROUTE_POLICY` de las rutas nuevas y stubs 501 con su guarda.
+- [x] T-04-01 `src/lib/ficha-fields.ts` (nuevo): `FichaFieldDef`, plantilla, `coerceFichaPatch` (+ `fichaWriteBlocked`, regla de procedencia pura).
+- [x] T-04-02 Unit `tests/unit/ficha-coerce.test.ts` (nuevo): claves (exacta/acentos/label), número ("350 mil", "$1,200,000", "1.2 millones", "mucho"), si_no, opción (+allowOther), texto largo, null/"" ignorados, clave desconocida.
+- [x] T-04-03 Esquema Drizzle (`agent_profile.fichaFields`, `contact.fichaMeta`, tabla `fichaEvent`, `agent_test_case.fichaCheck`) + `pnpm db:generate` (`drizzle/0014_ficha_campos.sql`, editada a mano re-ejecutable) + prefijo `fe` en `ids.ts`.
+- [ ] T-04-03b Verificar re-ejecución (2×) de `0014` sobre la BD aislada (:5433).
 - [ ] T-04-04 `upsertFicha` con `source`/procedencia/transacción/bitácora/`unlock`; `resetTestContact` limpia meta y eventos. Actualizar llamadores (`contacts/[id]`, `bot/ficha`).
 - [ ] T-04-05 Unit `tests/unit/ficha-provenance.test.ts` (nuevo): humano gana, legado sin meta protegido, ia corrige lo suyo, unlock, sin cambios → sin evento; `ficha-guard.test.ts` sigue verde.
 - [ ] T-04-06 `actions.ts`: `withFicha`, `.catch`, `z.preprocess` de `update_ficha`, `degradeAction` conserva ficha. Unit en `tests/unit/agent-actions-ficha.test.ts` (nuevo): ficha basura no invalida la acción.
@@ -463,6 +465,123 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
   cualquier acción en vez de una acción `update_ficha` propia, porque el
   contrato es UNA acción por turno y una acción aparte le robaría la respuesta
   al cliente. `update_ficha` se tolera como alias.
+
+## Contrato 04-0 (fijado — servidor y UI trabajan contra esto)
+
+Fijado antes de partir el trabajo en servidor y UI. Fuente de verdad en
+código: `src/lib/ficha-fields.ts` (definición, procedencia, coerción) y
+`src/lib/types.ts` (DTOs). Si algo de aquí cambia, se cambia en los tres
+lugares en el mismo commit.
+
+**Decisiones aplicadas** (README, 2026-10-12): D-04-1 `ficha` como campo
+acompañante de toda acción + alias `update_ficha`; D-04-4 el cerebro externo
+respeta el candado humano; legado sin meta protegido **solo contra `ia`**
+(el `bot` sigue escribiendo sus claves legadas); el Vendedor puede agregar
+claves libres; la plantilla se aplica con botón (no automática);
+`update_lead` se conserva y también acepta `ficha`.
+
+### Datos
+
+- Migración `drizzle/0014_ficha_campos.sql` (no 0013: la tomó 00). Aditiva,
+  nullable, re-ejecutable: `agent_profile.ficha_fields`, `contact.ficha_meta`,
+  `agent_test_case.ficha_check`, tabla `ficha_event` (+ índice
+  `ficha_event_org_contact_idx (organization_id, contact_id, created_at)`).
+  `ficha_event` tiene FKs: `organization` y `contact` en cascade,
+  `conversation` y `actor_user_id → user` en set null. Ids `fe_…`.
+- `FichaFieldDef = { key, label, type: "texto"|"numero"|"si_no"|"opcion", options?, allowOther?, hint?, agentFills }`;
+  validación `fichaFieldsSchema` (máx. 25, clave `^[a-z][a-z0-9_]*$` ≤ 60
+  única, label ≤ 60, hint ≤ 200, `opcion` con 2–20 opciones únicas ≤ 60). El
+  esquema devuelve la forma canónica: `options`/`allowOther` solo en `opcion`;
+  `hint` vacío se omite.
+- `contact.ficha_meta: { [key]: { by: "ia"|"humano"|"bot", at: ISO, userId? } }`.
+  **No hay bandera `locked` ni valor `legado`**: candado = `by === "humano"`
+  (`isFichaLocked`); legado = clave con valor y sin entrada de meta.
+- Regla de escritura (`fichaWriteBlocked(source, entry, hasValue)`):
+
+  | escribe | meta `humano` | con valor y sin meta (legado) | meta `ia`/`bot` o sin valor |
+  |---|---|---|---|
+  | `humano` | escribe | escribe | escribe |
+  | `bot` | ignorado (`candado_humano`) | escribe | escribe |
+  | `ia` | ignorado (`candado_humano`) | ignorado (`candado_humano`) | escribe |
+
+- `ficha_event.outcome ∈ aplicado | ignorado_humano | invalido`;
+  `reason ∈ candado_humano | clave_desconocida | no_la_llena_el_agente | tipo | opcion | tope`
+  (NULL si se aplicó). `candado_humano` ↔ `ignorado_humano`; el resto ↔
+  `invalido`. Nunca lleva el valor.
+- Coerción (`coerceFichaPatch(raw, fields)`) SOLO para `source:"ia"`. El
+  agente no borra: `null`/`""` se ignoran sin evento. Humano y bot conservan
+  `null` = borrar.
+- `agent_test_case.ficha_check: FichaCheck = { esperados: string[], llenados, cumplidos: string[] }`.
+
+### HTTP
+
+Errores con la forma de siempre `{ error: { code, message } }`. Comunes con
+sesión: `401 unauthorized` sin sesión; `403 forbidden` ("Solo el Propietario
+puede hacer esto") en rutas `owner`; `422 invalid_body` con detalle
+`ruta: mensaje; …` (de `parseBody`).
+
+**`GET /api/agent/ficha-fields`** — `owner` (stub 501 hoy).
+- 200 `FichaFieldsResponse = { fields: FichaFieldDef[] | null }`.
+- 404 `not_found` si no hay `agent_profile`.
+
+**`PUT /api/agent/ficha-fields`** — `owner` (stub 501 hoy).
+- Cuerpo `FichaFieldsPutBody = { fields: FichaFieldDef[] | null }`, validado
+  con `fichaFieldsSchema` (estricto: es input humano). `[]` se guarda como
+  `NULL` (= sin definición).
+- 200 `{ fields }` canónico tal como quedó (`null` si se vació).
+- 422 `invalid_body` (p. ej. `fields.2.key: clave repetida: ciudad`).
+- 404 `not_found` si no hay `agent_profile`.
+- No convierte ni borra valores guardados (renombrar/borrar un campo deja sus
+  valores como claves libres).
+
+**`GET /api/contacts/[id]`** — `any` (existe; se extiende, aditivo).
+- 200 `ContactDetailResponse = { contact, stage, lead, fichaFields }`:
+  `contact.ficha` (como hoy, `{}` si vacía) + `contact.fichaMeta`
+  (`FichaMeta`, `{}` si NULL) y `fichaFields: FichaFieldDef[] | null` (la
+  definición, para que el Vendedor pinte el panel sin ver `/agent`).
+- 404 `not_found`.
+
+**`PATCH /api/contacts/[id]`** — `any` (existe; se extiende, aditivo).
+- Cuerpo `ContactPatchBody`: lo de hoy + `ficha?: Record<string, escalar|null>`
+  (parche; `null` borra) y `fichaUnlock?: string[]` (máx. 40 claves).
+- `ficha` pasa por `upsertFicha({ source:"humano", userId: session.userId })`:
+  cada clave escrita queda `by:"humano"` (candado); borrar una clave elimina
+  también su meta (el campo vuelve a estar libre para el agente).
+- `fichaUnlock`: por clave con valor, `by` pasa a `"ia"` y el valor se queda
+  (RF-04-08). Aplica a claves con candado (`by:"humano"`) y a las legadas
+  (con valor y sin meta); claves sin valor o ya `ia`/`bot`: no-op. No genera
+  evento (el valor no cambia). Si el mismo cuerpo trae
+  `ficha` y `fichaUnlock` para la misma clave, se aplica primero `ficha` y
+  después el desbloqueo.
+- 200 `{ contact }` con `ficha` y `fichaMeta` actualizados.
+- 404 `not_found` · 422 `invalid_body`.
+
+**`GET /api/contacts/[id]/ficha/history`** — `any` (nuevo, stub 501 hoy).
+- 200 `FichaHistoryResponse = { events: FichaEventDto[] }`: últimos 50 por
+  `created_at` descendente, vía `scoped()`. `FichaEventDto = { id, key,
+  oldValue, newValue, source, outcome, reason, actor: { id, name } | null,
+  conversationId, createdAt }`.
+- 404 `not_found` si el contacto no es de la organización.
+
+**`PUT /api/bot/ficha`** — `bot` (existe; cambia a propósito por D-04-4).
+- Cuerpo igual que hoy (`{ conversationId, ficha }`, claves libres, sin
+  coerción por tipo).
+- 200 `BotFichaResponse = { ficha, ignored: [{ key, reason }] }`: `ficha`
+  completa resultante (como hoy) + `ignored` (aditivo; `[]` si nada). Las
+  claves con candado humano no se escriben (`reason: "candado_humano"`); si no
+  caben por el tope de 40, `reason: "tope"`. Lo escrito queda `by:"bot"`.
+- 401 `unauthorized` · 404 `not_found` · 409 `no_org` · 422 `invalid_body`
+  (sin cambios).
+
+**`GET /api/bot/context`** — `bot` (existe; aditivo, RF-04-14).
+- `contact.fichaMeta: FichaMeta` (`{}` si NULL) y `fichaFields:
+  FichaFieldDef[] | null` en la raíz del payload.
+
+### Permisos (`src/lib/permissions.ts`)
+
+`GET`/`PUT /api/agent/ficha-fields` → `owner`;
+`GET /api/contacts/[id]/ficha/history` → `any`. Las demás no cambian de
+política. Los stubs ya llevan su guarda definitiva (`role-matrix` verde).
 
 ## 3. Dependencias con otras tareas
 
