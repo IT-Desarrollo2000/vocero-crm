@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BarChart3,
   CalendarDays,
   FlaskConical,
   Inbox,
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
+  { href: "/reports", label: "Reportes", icon: BarChart3, ownerOnly: true },
   { href: "/agent", label: "Agente", icon: Sparkles, ownerOnly: true },
   { href: "/lab", label: "Laboratorio", icon: FlaskConical, ownerOnly: true },
 ];
