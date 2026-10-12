@@ -2118,6 +2118,17 @@ async function labChecks() {
     await sleep(1000);
   }
 
+  // 08 — Una BD limpia siembra el set neutro; us4-lab.md describe el de autos.
+  const restore = await api("/api/lab/personas/restore-defaults", {
+    method: "POST",
+    body: JSON.stringify({ set: "autos" }),
+  });
+  ok(
+    "POST /api/lab/personas/restore-defaults {set:autos} → 200",
+    restore.res.status === 200 && restore.json?.set === "autos",
+    `status=${restore.res.status} ${JSON.stringify(restore.json)?.slice(0, 200)}`
+  );
+
   const launch = await api("/api/lab/runs", { method: "POST" });
   if (launch.json?.error?.code === "ai_not_configured") {
     ok(

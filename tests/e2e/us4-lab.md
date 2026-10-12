@@ -7,14 +7,20 @@
 
 1. `DELETE /api/dev/wa-mock/outbox` — el outbox debe seguir VACÍO al final.
 2. Agente configurado (US3) y proveedor de IA (mock) activo.
+2b. (08) Las personas viven por organización (`lab_persona`). Una BD limpia
+   siembra el set **neutro** (D-08-01); este guion describe el de **autos**:
+   `POST /api/lab/personas/restore-defaults {"set":"autos"}` → 200 (los
+   guiones automatizados lo hacen antes de correr). Las 7 activas.
 
 ## Corrida 1
 
 3. En `/lab`: pulsar "Correr evaluación".
    ✅ La UI muestra el subtítulo permanente "Sandbox interno — no envía
-   mensajes reales", progreso en vivo (n/6) sin bloquear la navegación.
+   mensajes reales", progreso en vivo (n/7) sin bloquear la navegación.
 4. Al terminar:
-   ✅ Reporte con score global (5 verdes + 1 rojo ≈ 83), tarjeta de la persona
+   ✅ Reporte con score global (6 verdes + 1 rojo = 600/7 ≈ **86**: el juez
+   simulado solo marca rojo a la persona con clave `fuera_de_kb` mientras el
+   KB no cubra garantías/devoluciones; las demás, verde), tarjeta de la persona
    "Pregunta fuera del conocimiento" con hallazgo `fuera_de_kb`, evidencia y
    sugerencia; transcript visible por persona.
    ✅ La persona "Pide un humano" terminó en handoff (guion cortado).
@@ -26,7 +32,10 @@
 5. En el hallazgo: "Agregar al conocimiento" → editar/confirmar → guardado en
    el KB (visible en `/agent`).
 6. Re-correr la evaluación.
-   ✅ El historial muestra 2 corridas; la nueva con score 100 y delta +17.
+   ✅ El historial muestra 2 corridas; la nueva con score 100 y delta +14
+   (mismo conjunto de personas: el delta solo se calcula contra una corrida
+   comparable; si no, "conjunto distinto"). Personas propias, selección,
+   aplicar al perfil, "qué cambió" y tendencia: `tests/e2e/us-lab-personas.md`.
 
 ## Caminos infelices
 

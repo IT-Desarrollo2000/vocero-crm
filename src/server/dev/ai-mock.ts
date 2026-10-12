@@ -1,7 +1,17 @@
 import { FICHA_FIELDS_MARKER, JUDGE_MARKER } from "@/server/ai/prompts";
 import { CONTEXT_CLOSE, CONTEXT_OPEN } from "@/server/ai/contact-context";
 
-const MOCK_MODELS = /\b(t03|macaron|bingo(?: plus)?|nammi(?: 01)?)\b/i;
+/** 08 — Marcador que el E2E pone en el objetivo de una persona creada. */
+export const AI_MOCK_TONE_MARKER = "[e2e-tono]";
+/** 08 — Texto del `ajuste` de tono que propone el juez simulado. */
+export const AI_MOCK_TONE_AJUSTE =
+  "Cierra cada respuesta ofreciendo ayuda adicional.";
+/** 08 — Pregunta de la sugerencia P/R (no toca garantías: no altera us4). */
+export const AI_MOCK_KB_PREGUNTA = "¿Atienden en fin de semana?";
+/** Primera línea del prompt del juez: `PERSONA SIMULADA: <key>[ — …]`. */
+const JUDGE_PERSONA_LINE = /^PERSONA SIMULADA: (\S+)(?:\s|$)/;
+
+const MOCK_MODELS =/\b(t03|macaron|bingo(?: plus)?|nammi(?: 01)?)\b/i;
 const MOCK_CITY =
   /\b(?:soy de|vivo en|aqu[ií] en)\s+([A-Za-zÁÉÍÓÚÑáéíóúñü]+)/i;
 
@@ -49,7 +59,41 @@ export function aiMockCompletion(messages: InMessage[]): string {
         .split("CONOCIMIENTO CONFIGURADO:")[1]
         ?.split("TRANSCRIPT COMPLETO:")[0] ?? "";
     const kbCoversWarranty = /garant|devoluc/i.test(kbSection);
-    if (lastUser.includes("fuera_de_kb") && !kbCoversWarranty) {
+    // 08 — Despacho por la CLAVE de la línea de la persona (exacta: no
+    // `fuera_de_kb_2`), no por el texto: una persona personalizada que
+    // mencione "fuera_de_kb" en su objetivo no se pinta de rojo.
+    const personaKey = JUDGE_PERSONA_LINE.exec(lastUser)?.[1] ?? "";
+    // 08 — Persona del E2E con `[e2e-tono]` en su objetivo: amarillo con un
+    // `ajuste` de tono hasta que el COMPORTAMIENTO ya lo trae (ajuste
+    // aplicado → verde). Trae además una sugerencia P/R para el KB.
+    if (lastUser.includes(AI_MOCK_TONE_MARKER)) {
+      const behavior =
+        lastUser
+          .split("COMPORTAMIENTO CONFIGURADO:")[1]
+          ?.split("CONOCIMIENTO CONFIGURADO:")[0] ?? "";
+      if (behavior.includes(AI_MOCK_TONE_AJUSTE)) {
+        return JSON.stringify({ veredicto: "verde", hallazgos: [] });
+      }
+      return JSON.stringify({
+        veredicto: "amarillo",
+        hallazgos: [
+          {
+            tipo: "tono",
+            evidencia: "El agente respondió seco, sin ofrecer más ayuda.",
+            ajuste: { campo: "tone", texto: AI_MOCK_TONE_AJUSTE },
+          },
+          {
+            tipo: "fuera_de_kb",
+            evidencia: "El cliente preguntó por el horario de fin de semana.",
+            sugerencia: {
+              pregunta: AI_MOCK_KB_PREGUNTA,
+              respuesta: "Sí, los sábados de 9:00 a 14:00.",
+            },
+          },
+        ],
+      });
+    }
+    if (personaKey === "fuera_de_kb" && !kbCoversWarranty) {
       return JSON.stringify({
         veredicto: "rojo",
         hallazgos: [

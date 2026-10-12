@@ -19,8 +19,9 @@
  *      candado → 200 con `ignored` y valor intacto
  *   8) historial con eventos; Vendedor: 403 en PUT ficha-fields, 200 en el
  *      historial y en el PATCH de ficha
- *  8b) Laboratorio (AC-12): sin corridas en curso, POST /api/lab/runs → poll
- *      hasta done/failed (≤180 s) → el caso `comprador_decidido` trae
+ *  8b) Laboratorio (AC-12): sin corridas en curso, restaura el set de autos
+ *      (08: una org nueva recibe el neutro), POST /api/lab/runs solo con
+ *      `comprador_decidido` → poll hasta done/failed (≤180 s) → el caso trae
  *      `fichaCheck.cumplidos` ⊇ [modelo_interes, ciudad]
  *   9) sin definición (PUT null) el agente ya no llena nada — y deja la BD
  *      compartida como estaba para los demás guiones
@@ -440,7 +441,22 @@ async function laboratorio() {
   }
   ok("sin corridas en curso antes de lanzar", (await corridasEnCurso()).length === 0);
 
-  const post = await owner("/api/lab/runs", { method: "POST" });
+  // 08 — Una org nueva recibe el set NEUTRO (sin expectFicha): este check
+  // necesita el de autos (T03 / Villahermosa). Solo corre esa persona.
+  const restore = await owner("/api/lab/personas/restore-defaults", {
+    method: "POST",
+    body: JSON.stringify({ set: "autos" }),
+  });
+  ok(
+    "POST /api/lab/personas/restore-defaults {set:autos} → 200",
+    restore.res.status === 200 && restore.json?.set === "autos",
+    `${restore.res.status} ${JSON.stringify(restore.json)?.slice(0, 200)}`
+  );
+
+  const post = await owner("/api/lab/runs", {
+    method: "POST",
+    body: JSON.stringify({ personaKeys: ["comprador_decidido"] }),
+  });
   ok(
     "POST /api/lab/runs → 202 con runId",
     post.res.status === 202 && !!post.json?.runId,

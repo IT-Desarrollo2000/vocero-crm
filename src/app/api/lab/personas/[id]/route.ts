@@ -11,7 +11,7 @@ type Params = { params: Promise<{ id: string }> };
  * 08 — Editar una persona («Contrato 08-0»). Solo Propietario. `key` y
  * `phone` no se editan (si llegan, se ignoran).
  *   → 200 `{ persona: LabPersonaDto }`
- *   · 404 `not_found` · 422 `invalid_body` · hoy 501 `not_implemented`.
+ *   · 404 `not_found` · 422 `invalid_body`.
  */
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
@@ -31,7 +31,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
  * DELETE = ARCHIVAR (RF-08-05): las corridas pasadas siguen legibles por su
  * `persona_snapshot`. Idempotente.
  *   → 200 `{ persona: LabPersonaDto }` (con `archivedAt`)
- *   · 404 `not_found` · hoy 501 `not_implemented`.
+ *   · 404 `not_found`.
  */
 export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;

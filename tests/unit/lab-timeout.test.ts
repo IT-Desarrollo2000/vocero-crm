@@ -12,7 +12,8 @@ type Ev =
   | { kind: "update"; table: string; set: Record<string, unknown> }
   | { kind: "publish"; status: string }
   | { kind: "turn" }
-  | { kind: "judge" };
+  | { kind: "judge" }
+  | { kind: "seed" };
 
 const events: Ev[] = [];
 const caseRows: unknown[] = [];
@@ -37,16 +38,38 @@ vi.mock("@/server/lab/judge", () => ({
   computeScore: () => 100,
 }));
 
-vi.mock("@/server/lab/personas", () => ({
-  PERSONAS: [
-    { key: "p1", label: "P1", description: "", phone: "5210000000001", contactName: "[Prueba] 1", script: ["hola", "precio?"] },
-    { key: "p2", label: "P2", description: "", phone: "5210000000002", contactName: "[Prueba] 2", script: ["hola"] },
+// 08 — Las personas salen de la BD (`persona-store`); aquí, dos de prueba.
+// `personas.ts` corre REAL (snapshot y hash).
+const labPersona = (key: string, phone: string, guion: string[]) => ({
+  id: `lpe_${key}`,
+  key,
+  name: key.toUpperCase(),
+  objetivo: "",
+  rasgos: null,
+  guion,
+  criteriosExito: null,
+  contactName: `[Prueba] ${key}`,
+  phone,
+  active: true,
+  position: 0,
+});
+const ensureSeedPersonas = vi.fn();
+vi.mock("@/server/lab/persona-store", () => ({
+  ensureSeedPersonas: (org: string) => ensureSeedPersonas(org),
+  loadRunPersonas: async () => [
+    labPersona("p1", "5210000000001", ["hola", "precio?"]),
+    labPersona("p2", "5210000000002", ["hola"]),
   ],
 }));
 
+const totals: { status: string; total: number }[] = [];
 vi.mock("@/server/events/bus", () => ({
-  publish: (_org: string, event: { data: { status: string } }) => {
+  publish: (
+    _org: string,
+    event: { data: { status: string; progress: { total: number } } }
+  ) => {
     events.push({ kind: "publish", status: event.data.status });
+    totals.push({ status: event.data.status, total: event.data.progress.total });
   },
 }));
 
@@ -118,6 +141,12 @@ describe("timeout del Laboratorio", () => {
     vi.useFakeTimers();
     events.length = 0;
     caseRows.length = 0;
+    totals.length = 0;
+    ensureSeedPersonas.mockReset();
+    ensureSeedPersonas.mockImplementation(async () => {
+      events.push({ kind: "seed" });
+      return null;
+    });
     runAgentTurn.mockReset();
     judgeCase.mockReset();
     judgeCase.mockResolvedValue({
@@ -186,6 +215,8 @@ describe("timeout del Laboratorio", () => {
     ]);
     expect(runAgentTurn).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+    // 08 — `failRun` publica el total = nº de casos de la corrida (2).
+    expect(totals.find((t) => t.status === "failed")?.total).toBe(2);
   });
 
   it("turno colgado más allá de la gracia → failRun igual, y la zombi no escribe al volver", async () => {
@@ -232,6 +263,60 @@ describe("timeout del Laboratorio", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(events.some(isRunFailed)).toBe(false);
   });
+
+  it("08 — siembra antes del run; snapshot y claves en el INSERT; un caso por persona con su snapshot", async () => {
+    vi.stubEnv("LAB_RUN_TIMEOUT_MS", "1000");
+    vi.stubEnv("OPENROUTER_MODEL", "modelo/agente");
+    runAgentTurn.mockResolvedValue(undefined);
+
+    const { startRun } = await import("@/server/lab/runner");
+    await startRun("org_1");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const seedIdx = events.findIndex((e) => e.kind === "seed");
+    const runIdx = events.findIndex((e) => e.kind === "insert" && e.table === "agentTestRun");
+    expect(seedIdx).toBeGreaterThan(-1);
+    expect(seedIdx).toBeLessThan(runIdx);
+
+    const runInsert = events[runIdx] as Extract<Ev, { kind: "insert" }>;
+    const values = runInsert.values as {
+      personaKeys: string[];
+      configSnapshot: { version: number; kb: { mode: string }; personas: { key: string; hash: string }[]; models: { agent: string | null } };
+    };
+    expect(values.personaKeys).toEqual(["p1", "p2"]);
+    expect(values.configSnapshot.version).toBe(1);
+    expect(values.configSnapshot.kb.mode).toBe("full");
+    expect(values.configSnapshot.personas.map((p) => p.key)).toEqual(["p1", "p2"]);
+    expect(values.configSnapshot.personas[0]!.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(values.configSnapshot.models.agent).toBe("modelo/agente");
+
+    const cases = caseRows as { persona: string; personaSnapshot: { key: string; name: string; guion: string[] } }[];
+    expect(cases.map((c) => c.persona)).toEqual(["p1", "p2"]);
+    expect(cases[0]!.personaSnapshot).toMatchObject({ key: "p1", name: "P1", guion: ["hola", "precio?"] });
+
+    // El juez recibió la persona del snapshot.
+    expect(judgeCase.mock.calls[0]![0]).toMatchObject({
+      personaKey: "p1",
+      persona: { name: "P1", objetivo: "" },
+    });
+    expect(totals.at(-1)).toEqual({ status: "done", total: 2 });
+
+    // Sandbox (RF-08-09): personas de BD (personalizadas) → conversación
+    // is_test y contacto sintético archivado con el teléfono del snapshot.
+    const convs = events.filter(
+      (e): e is Extract<Ev, { kind: "insert" }> => e.kind === "insert" && e.table === "conversation"
+    );
+    expect(convs).toHaveLength(2);
+    expect(convs.every((c) => (c.values as { isTest: boolean }).isTest === true)).toBe(true);
+    const contacts = events.filter(
+      (e): e is Extract<Ev, { kind: "insert" }> => e.kind === "insert" && e.table === "contact"
+    );
+    expect(contacts.map((c) => (c.values as { phone: string }).phone)).toEqual([
+      "5210000000001",
+      "5210000000002",
+    ]);
+    expect(contacts.every((c) => (c.values as { archivedAt: unknown }).archivedAt instanceof Date)).toBe(true);
+  });
 });
 
 describe("fallo propio de la corrida", () => {
@@ -239,6 +324,8 @@ describe("fallo propio de la corrida", () => {
     vi.useFakeTimers();
     events.length = 0;
     caseRows.length = 0;
+    totals.length = 0;
+    ensureSeedPersonas.mockReset();
     runAgentTurn.mockReset();
     judgeCase.mockReset();
   });
