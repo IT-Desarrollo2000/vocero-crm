@@ -100,6 +100,14 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/lab/runs/[id]": "owner",
   "DELETE /api/lab/runs/[id]": "owner",
   "POST /api/lab/suggestions/apply": "owner",
+  // 08: personas por organización, tendencia y "qué cambió".
+  "GET /api/lab/personas": "owner",
+  "POST /api/lab/personas": "owner",
+  "PATCH /api/lab/personas/[id]": "owner",
+  "DELETE /api/lab/personas/[id]": "owner",
+  "POST /api/lab/personas/restore-defaults": "owner",
+  "GET /api/lab/trends": "owner",
+  "GET /api/lab/runs/[id]/diff": "owner",
 
   // ── Demo ───────────────────────────────────────────────────────────────
   "POST /api/seed/demo": "owner",

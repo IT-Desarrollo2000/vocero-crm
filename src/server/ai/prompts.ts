@@ -150,10 +150,24 @@ export function buildAgentSystemPrompt(input: {
 }
 
 /** Prompt del juez del Laboratorio: UNA llamada por conversación (FR-032). */
+/**
+ * 08 — Lo que el juez sabe de una persona de BD (RF-08-08). Con esto la línea
+ * de la persona pasa a `PERSONA SIMULADA: <key> — <nombre>` y el objetivo,
+ * los rasgos y los criterios van en bloques propios.
+ */
+export type JudgePersona = {
+  name: string;
+  objetivo?: string | null;
+  rasgos?: string | null;
+  criteriosExito?: string | null;
+};
+
 export function buildJudgePrompt(input: {
   persona: string;
   /** 03 — Qué se espera de la persona (para juzgar si el agente lo cumplió). */
   personaDescription?: string;
+  /** 08 — Persona de BD; si llega, manda sobre `personaDescription`. */
+  personaDetail?: JudgePersona;
   /** 03 — Datos que el agente tenía del cliente (semilla de la persona). */
   seedText?: string;
   transcript: { role: "cliente" | "agente"; text: string }[];
@@ -174,9 +188,19 @@ export function buildJudgePrompt(input: {
     .map((t) => `${t.role === "cliente" ? "CLIENTE" : "AGENTE"}: ${t.text}`)
     .join("\n");
 
+  const detail = input.personaDetail;
+  const personaLine = detail
+    ? `PERSONA SIMULADA: ${input.persona} — ${detail.name}`
+    : `PERSONA SIMULADA: ${input.persona}${input.personaDescription ? ` — ${input.personaDescription}` : ""}`;
+
   const user = [
     // La clave de la persona va primero y tal cual: el ai-mock la busca.
-    `PERSONA SIMULADA: ${input.persona}${input.personaDescription ? ` — ${input.personaDescription}` : ""}`,
+    personaLine,
+    detail?.objetivo ? `OBJETIVO DE LA PERSONA:\n${detail.objetivo}` : null,
+    detail?.rasgos ? `RASGOS DE LA PERSONA:\n${detail.rasgos}` : null,
+    detail?.criteriosExito
+      ? `CRITERIOS DE ÉXITO (evalúa contra estos):\n${detail.criteriosExito}`
+      : null,
     input.seedText
       ? `El agente tenía estos datos del cliente (debe usarlos sin volver a preguntarlos):\n${input.seedText}`
       : null,

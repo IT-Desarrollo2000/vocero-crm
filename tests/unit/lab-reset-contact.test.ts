@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * 03 — `resetTestContact` borra notas y ficha: su guarda no confía en el
  * llamador. Solo actúa sobre un contacto ARCHIVADO cuya identidad o teléfono
- * es de una persona sintética del Laboratorio.
+ * es sintético del Laboratorio (08: por prefijo `52100000`, sin leer la BD).
  */
 
 let contactRows: unknown[] = [];
@@ -90,6 +90,21 @@ describe("resetTestContact — guarda", () => {
     const ok = await resetTestContact({ organizationId: "org_1", contactId: "ct_x" });
     expect(ok).toBe(false);
     expect(updates).toHaveLength(0);
+  });
+
+  it("08 — persona personalizada o archivada (fuera del set en código) con teléfono sintético → reinicia", async () => {
+    const custom = "5210000000099";
+    expect(PERSONAS.some((p) => p.phone === custom)).toBe(false);
+    contactRows = [{ archivedAt: new Date(), waIdentity: custom, phone: custom }];
+    const ok = await resetTestContact({ organizationId: "org_1", contactId: "ct_lab2" });
+    expect(ok).toBe(true);
+    expect(updates).toHaveLength(1);
+  });
+
+  it("08 — basta con que el teléfono sea sintético aunque la identidad sea bsuid", async () => {
+    contactRows = [{ archivedAt: new Date(), waIdentity: "bsuid:abc", phone: "5210000000012" }];
+    const ok = await resetTestContact({ organizationId: "org_1", contactId: "ct_lab3" });
+    expect(ok).toBe(true);
   });
 
   it("contacto inexistente en la organización → no toca nada", async () => {

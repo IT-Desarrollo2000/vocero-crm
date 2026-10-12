@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
-import { buildJudgePrompt } from "@/server/ai/prompts";
+import { LAB_AJUSTE_CAMPOS } from "@/lib/lab";
+import { buildJudgePrompt, type JudgePersona } from "@/server/ai/prompts";
 
 /** Veredicto estructurado del juez (FR-032, contrato ai.md). */
 export const Verdict = z.object({
@@ -12,6 +13,17 @@ export const Verdict = z.object({
       sugerencia: z
         .object({ pregunta: z.string(), respuesta: z.string() })
         .optional(),
+      /**
+       * 08 — Ajuste opcional del perfil (RF-08-11). Inválido → se descarta
+       * solo el ajuste; el hallazgo y el veredicto se conservan.
+       */
+      ajuste: z
+        .object({
+          campo: z.enum(LAB_AJUSTE_CAMPOS),
+          texto: z.string().trim().min(1),
+        })
+        .optional()
+        .catch(undefined),
     })
   ),
 });
@@ -33,6 +45,8 @@ export async function judgeCase(input: {
   personaDescription?: string;
   /** 03 — Semilla de ficha/notas que el agente tenía del cliente. */
   seedText?: string;
+  /** 08 — Persona de BD: nombre, objetivo, rasgos y criterios de éxito. */
+  persona?: JudgePersona;
   transcript: { role: "cliente" | "agente"; text: string }[];
   kbText: string;
   behaviorText: string;
@@ -40,6 +54,7 @@ export async function judgeCase(input: {
   const { system, user } = buildJudgePrompt({
     persona: input.personaKey,
     personaDescription: input.personaDescription,
+    personaDetail: input.persona,
     seedText: input.seedText,
     transcript: input.transcript,
     kbText: input.kbText,

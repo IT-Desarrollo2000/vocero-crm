@@ -81,6 +81,35 @@ export async function parseBody<T>(
       response: apiError(422, "invalid_body", "El body debe ser JSON válido"),
     };
   }
+  return validateBody(raw, schema);
+}
+
+/**
+ * Como `parseBody`, pero un body vacío (o solo espacios) cuenta como `{}`:
+ * para POST cuyo cuerpo es opcional y que hoy se llaman sin body.
+ */
+export async function parseOptionalBody<T>(
+  req: Request,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): Promise<{ ok: true; data: T } | { ok: false; response: Response }> {
+  const text = await req.text().catch(() => "");
+  if (!text.trim()) return validateBody({}, schema);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      response: apiError(422, "invalid_body", "El body debe ser JSON válido"),
+    };
+  }
+  return validateBody(raw, schema);
+}
+
+function validateBody<T>(
+  raw: unknown,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): { ok: true; data: T } | { ok: false; response: Response } {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const detail = parsed.error.issues

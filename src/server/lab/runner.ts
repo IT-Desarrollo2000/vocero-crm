@@ -49,6 +49,34 @@ export function parseRunTimeoutMs(raw: string | undefined): number {
   return ms;
 }
 
+/** 08 (D-08-03) — Presupuesto por mensaje del guion (turno del agente). */
+export const RUN_TIMEOUT_PER_MESSAGE_MS = 15_000;
+/** 08 (D-08-03) — Presupuesto fijo por caso (juez + contacto + ficha). */
+export const RUN_TIMEOUT_PER_CASE_MS = 30_000;
+
+/**
+ * 08 (D-08-03) — Timeout de una corrida: `LAB_RUN_TIMEOUT_MS` si es válido
+ * (manda siempre); si no, escala con la corrida:
+ * `max(10 min, casos × (mensajes_max × 15 s + 30 s))`. Tope 10 personas × 8
+ * mensajes ⇒ 25 min. Hoy (7 personas, ≤ 5 mensajes) ⇒ 12 min 15 s.
+ * 08-A lo cablea en `executeRun`; hasta entonces rige `parseRunTimeoutMs`.
+ */
+export function runTimeoutMsFor(
+  raw: string | undefined,
+  run: { cases: number; maxMessages: number }
+): number {
+  const value = raw?.trim();
+  if (value && /^\d+$/.test(value)) {
+    const ms = Number(value);
+    if (Number.isSafeInteger(ms) && ms > 0 && ms <= MAX_TIMER_MS) return ms;
+  }
+  const scaled =
+    Math.max(0, run.cases) *
+    (Math.max(0, run.maxMessages) * RUN_TIMEOUT_PER_MESSAGE_MS +
+      RUN_TIMEOUT_PER_CASE_MS);
+  return Math.min(MAX_TIMER_MS, Math.max(DEFAULT_RUN_TIMEOUT_MS, scaled));
+}
+
 export class RunConflictError extends Error {}
 
 export async function startRun(organizationId: string): Promise<string> {
