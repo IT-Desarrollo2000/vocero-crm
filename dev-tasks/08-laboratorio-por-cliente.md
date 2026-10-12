@@ -408,10 +408,11 @@ La tendencia (b) **no necesita migración**: se agrega sobre
       en `GET /api/lab/runs/[id]`.
 - [ ] T-08-06 `history.ts`: tendencia y diff; rutas `trends` y `diff`; delta
       comparable en `GET /api/lab/runs`.
-- [ ] T-08-07 UI Personas + selector de corrida.
-- [ ] T-08-08 UI tendencia, "Qué cambió", `HallazgoCard` con perfil y estado
+- [x] T-08-07 UI Personas + selector de corrida.
+- [x] T-08-08 UI tendencia, "Qué cambió", `HallazgoCard` con perfil y estado
       persistente.
-- [ ] T-08-09 Unit tests.
+- [x] T-08-09 Unit tests (UI: `tests/unit/lab-ui.test.ts`; los de servidor
+      van con 08-A).
 - [ ] T-08-10 E2E: extender `labChecks` o nuevo `scripts/e2e-lab-personas.mjs` +
       guion `tests/e2e/us-lab-por-cliente.md`; actualizar `tests/e2e/us4-lab.md`.
 - [ ] T-08-11 Actualizar `specs/001-vocero-core/spec.md` FR-030/FR-032/FR-033
