@@ -41,6 +41,50 @@ export async function replaceOffers(
       }))
     );
   });
+
+  // 10 — Bitácora de rondas (denominador de "oferta → cita"). DESPUÉS de la
+  // transacción y sin relanzar: un fallo del registro jamás revierte ni
+  // bloquea la oferta. Una ronda vacía no es una oferta.
+  if (slots.length > 0) {
+    await logOfferRound(organizationId, conversationId, slots);
+  }
+}
+
+/** Agrega una fila a `agenda_offer_log`. Nunca lanza. */
+export async function logOfferRound(
+  organizationId: string,
+  conversationId: string,
+  slots: OfferedSlot[],
+  now: Date = new Date()
+): Promise<void> {
+  if (slots.length === 0) return;
+  try {
+    const db = getDb();
+    const conv = await db
+      .select({ isTest: schema.conversation.isTest })
+      .from(schema.conversation)
+      .where(
+        scoped(
+          schema.conversation.organizationId,
+          organizationId,
+          eq(schema.conversation.id, conversationId)
+        )
+      )
+      .limit(1);
+    await db.insert(schema.agendaOfferLog).values({
+      id: newId("agendaOfferLog"),
+      organizationId,
+      conversationId,
+      // Sin conversación legible se asume prueba: mejor no contarla que
+      // inflar la métrica con una ronda que no sabemos si fue real.
+      isTest: conv[0]?.isTest ?? true,
+      slots: slots.map((s) => new Date(s.startUtc).toISOString()),
+      slotCount: slots.length,
+      createdAt: now,
+    });
+  } catch (err) {
+    console.warn("[agenda] no se pudo registrar la ronda de oferta:", err);
+  }
 }
 
 export async function getOffers(

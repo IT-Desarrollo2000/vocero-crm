@@ -138,3 +138,28 @@ levanta un issue antes de forzarlo.
 misma para todos. Agrega tu conector ahí y haz que pase — es la definición de
 "está bien escrito", y evita descubrir en producción que tu `deleteMeeting`
 revienta con un 404 o que tu enlace no sobrevive a un reprogramado.
+
+## Recordatorios de cita (tarea 10, post-v1)
+
+La spec 015 dejó los recordatorios fuera de v1 por falta de un reloj. La
+tarea 10 los agrega **sin infraestructura nueva** (decisión D-10-01):
+
+- **Reloj in-process.** `instrumentation.ts` arranca un `setInterval`
+  (`src/server/agenda/reminder-ticker.ts`) solo con `AGENDA` encendida.
+  Periodo: `AGENDA_REMINDER_TICK_MS` (default 60000; `0` = no arranca). Sin
+  cola, sin cron del host, sin endpoint para un cron externo.
+- **A lo sumo una vez.** El claim es un `INSERT … ON CONFLICT DO NOTHING
+  RETURNING` contra `UNIQUE (booking_id, offset_minutes, scheduled_for)`:
+  dos réplicas o dos ticks solapados nunca mandan dos veces. Un envío
+  interrumpido (más de 10 min en `sending`) queda `failed / interrumpido` y
+  solo se reintenta a mano, una vez (D-10-02).
+- **Siempre plantilla aprobada de WhatsApp**, elegida en Ajustes → Agenda,
+  con sus variables mapeadas a un catálogo cerrado (nombre, fecha y hora en
+  la zona del negocio, enlace de la reunión con texto de respaldo, nombre del
+  negocio). Encender no dispara ráfagas: solo salen recordatorios cuyo
+  momento de envío es posterior a `reminder_enabled_at`.
+- **Los conectores no cambian.** El recordatorio lee `booking.meeting_link`,
+  que tu conector ya llenó al crear o reprogramar; una cita sin enlace manda
+  el texto de respaldo. Las citas del Laboratorio (`is_test`) jamás generan
+  recordatorio — ni fila, ni envío.
+- Detalle y contrato: `dev-tasks/10-recordatorio-de-citas-y-no-shows.md`.

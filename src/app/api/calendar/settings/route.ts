@@ -8,7 +8,11 @@ import {
   REMINDER_SETTINGS_INPUT_KEYS,
 } from "@/lib/reminders";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
-import { getReminderSettings } from "@/server/agenda/reminders";
+import {
+  getReminderSettings,
+  planReminderSettings,
+  saveReminderSettings,
+} from "@/server/agenda/reminders";
 import {
   CalendarSettingsError,
   getSettings,
@@ -105,24 +109,28 @@ export const PUT = withAuth(async (session, req: Request) => {
     reminderOffsetsMinutes,
     reminderVariables,
   };
-  // 10-0: guardar recordatorios aún no existe. Un 200 que no persistió le
-  // mentiría a la UI: 501 explícito hasta 10-A (que lo cambia por
-  // `upsertReminderSettings` con `reminder_enabled_at = now` al encender).
-  if (REMINDER_SETTINGS_INPUT_KEYS.some((k) => reminderInput[k] !== undefined)) {
-    return apiError(
-      501,
-      "not_implemented",
-      "Guardar recordatorios llega con la tarea 10-A"
-    );
-  }
+  const touchesReminders = REMINDER_SETTINGS_INPUT_KEYS.some(
+    (k) => reminderInput[k] !== undefined
+  );
+  // Reloj de JS: `reminder_enabled_at` = este instante si se enciende ahora.
+  const now = new Date();
 
   try {
+    // 10 — Se valida ANTES de guardar nada: un 422 de recordatorios no deja
+    // la agenda a medio guardar.
+    const reminderPlan = touchesReminders
+      ? await planReminderSettings(session.organizationId, reminderInput, now)
+      : null;
     const settings = await upsertSettings(session.organizationId, {
       ...agenda,
       // `undefined` = no lo tocaron; `null` = lo vaciaron a propósito.
       meetingLink:
         agenda.meetingLink === undefined ? undefined : agenda.meetingLink,
     });
+    // `upsertSettings` garantiza la fila; los recordatorios van encima.
+    if (reminderPlan) {
+      await saveReminderSettings(session.organizationId, reminderPlan, now);
+    }
     const reminders = await getReminderSettings(session.organizationId);
     return Response.json({ settings, reminders });
   } catch (err) {

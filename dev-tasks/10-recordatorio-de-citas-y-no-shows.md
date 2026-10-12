@@ -383,7 +383,7 @@ justificada: el ticker obtiene primero la lista de organizaciones con
 
 ### Tareas ordenadas
 
-- [ ] T-10-01 Enmendar `specs/015-motor-agenda-universal/spec.md:544`,
+- [x] T-10-01 Enmendar `specs/015-motor-agenda-universal/spec.md:544`,
       `plan.md:79` y `tasks.md:188` (recordatorios pasan a post-v1 "10") y
       registrar decisión en un ADR corto o en `docs/agenda-conectores.md`.
 - [x] T-10-02 Schema + migración **0018** (3 cambios de datos) + prefijos en `ids.ts`;
@@ -392,27 +392,29 @@ justificada: el ticker obtiene primero la lista de organizaciones con
       firmas con reloj inyectable (`src/server/agenda/reminders.ts`), rutas con
       guarda definitiva y cuerpo 501, `ROUTE_POLICY`, `failSends` del wa-mock.
       Ver «Contrato 10-0» abajo.
-- [ ] T-10-03 `settings.ts` + ruta de settings: campos, validación, guard de
+- [x] T-10-03 `settings.ts` + ruta de settings: campos, validación, guard de
       Propietario (de 00).
-- [ ] T-10-04 `agenda_offer_log` en `replaceOffers` (después de la transacción,
+- [x] T-10-04 `agenda_offer_log` en `replaceOffers` (después de la transacción,
       sin romper la oferta si falla).
-- [ ] T-10-05 `reminders.ts`: elegibilidad, variables, claim, envío, recover,
+- [x] T-10-05 `reminders.ts`: elegibilidad, variables, claim, envío, recover,
       retry.
-- [ ] T-10-06 `reminder-ticker.ts` + enganche en `instrumentation*.ts` + env.
-- [ ] T-10-07 `listBookings` con recordatorios; reintento manual.
+- [x] T-10-06 `reminder-ticker.ts` + enganche en `instrumentation*.ts` + env.
+- [x] T-10-07 `listBookings` con recordatorios; reintento manual.
       *(10-0: DTO `reminders[]` aditivo — vacío hasta 10-A — y ruta
       `POST /api/bookings/[id]/reminders/[reminderId]/retry` en 501.)*
-- [ ] T-10-08 Métricas en `GET /api/reports/bookings` (Propietario).
+- [x] T-10-08 Métricas en `GET /api/reports/bookings` (Propietario).
       *(10-0: DTO `BookingReportDto` y ruta con guardas en 501.)*
-- [ ] T-10-09 Dev: `POST /api/dev/reminders/tick` + disparador de falla en wa-mock.
+- [x] T-10-09 Dev: `POST /api/dev/reminders/tick` + disparador de falla en wa-mock.
       *(10-0: el disparador `fail-sends` ya funciona; el tick responde 501
       hasta que 10-A implemente `runReminderTick`.)*
 - [ ] T-10-10 UI Ajustes (card Recordatorios).
 - [ ] T-10-11 UI Citas (chips + reintentar) y métricas (Reportes o card).
-- [ ] T-10-12 Unit tests (abajo).
-- [ ] T-10-13 E2E `scripts/e2e-recordatorios.mjs` + guion
+- [x] T-10-12 Unit tests (abajo).
+- [x] T-10-13 E2E `scripts/e2e-recordatorios.mjs` + guion
       `tests/e2e/us-recordatorios.md`; enganchar en `pnpm test:e2e`.
-- [ ] T-10-14 Doc: `docs/agenda-conectores.md` (sección recordatorios) y
+      *(10-A: escrito y `node --check`; `pnpm test:e2e` cubre bandera y
+      superficies (`recordatoriosChecks`). Falta correrlo en vivo.)*
+- [x] T-10-14 Doc: `docs/agenda-conectores.md` (sección recordatorios) y
       `.env.example`.
 
 ### Pruebas
@@ -616,7 +618,7 @@ bookingReport(orgId, range: ReportRange, now: Date): Promise<BookingReportDto>
 |---|---|---|---|---|
 | `GET /api/calendar/settings` | owner | — | `{ settings, reminders: ReminderSettingsDto }` | 404 AGENDA off |
 | `PUT /api/calendar/settings` | owner | lo de siempre + `reminderEnabled?`, `reminderTemplateId?` (string\|null), `reminderOffsetsMinutes?` (1–2 enteros únicos, 60..4320), `reminderVariables?` (`ReminderField[]`) | `{ settings, reminders }` | 422 `invalid_body` (forma; y en 10-A: plantilla no `approved`/no WhatsApp o mapeo incompleto, con mensaje) · **hoy 501 `not_implemented` si llega cualquier campo de recordatorio** |
-| `GET /api/bookings` | any | — | cada cita con `reminders: BookingReminderDto[]` (aditivo; hoy `[]`) | 404 AGENDA off |
+| `GET /api/bookings` | any | — | cada cita con `reminders: BookingReminderDto[]` (aditivo) + `businessTimezone: string` (zona del negocio, aditivo 10-A: el Vendedor no lee los ajustes) | 404 AGENDA off |
 | `POST /api/bookings/[id]/reminders/[reminderId]/retry` | any | sin cuerpo | `{ ok: true, reminder: BookingReminderDto }` (ya resuelto tras el envío síncrono) | 404 `not_found` · 409 `not_retryable` · 409 `retry_exhausted` · 409 `booking_not_active` · 404 AGENDA off · hoy 501 |
 | `GET /api/reports/bookings` | owner | rango de Reportes (`range`, `from`, `to`) | `BookingReportDto` (`src/lib/reports.ts`): `range` + bloques `offers`, `attendance`, `byReminder` | 403 Vendedor · 422 `invalid_range` · 503 `report_timeout` · 404 AGENDA off · hoy 501 |
 | `POST /api/dev/reminders/tick` | dev | `{ now?: ISO }` (JSON obligatorio, `{}` vale) | `ReminderTickResultDto` `{ now, organizations, recovered, claimed, sent, failed, skipped }` | 404 sin mocks o AGENDA off · 422 · hoy 501 |

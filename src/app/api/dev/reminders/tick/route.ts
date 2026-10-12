@@ -1,11 +1,8 @@
 import { z } from "zod";
 import { mockGuard } from "@/lib/dev-guard";
-import { apiError, parseBody } from "@/lib/api";
+import { parseBody } from "@/lib/api";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
-import {
-  ReminderNotImplementedError,
-  runReminderTick,
-} from "@/server/agenda/reminders";
+import { runReminderTick } from "@/server/agenda/reminders";
 
 export const dynamic = "force-dynamic";
 
@@ -38,12 +35,5 @@ export async function POST(req: Request) {
   if (!body.ok) return body.response;
 
   const now = body.data.now ? new Date(body.data.now) : new Date();
-  try {
-    return Response.json(await runReminderTick(now));
-  } catch (err) {
-    if (err instanceof ReminderNotImplementedError) {
-      return apiError(501, "not_implemented", err.message);
-    }
-    throw err;
-  }
+  return Response.json(await runReminderTick(now));
 }

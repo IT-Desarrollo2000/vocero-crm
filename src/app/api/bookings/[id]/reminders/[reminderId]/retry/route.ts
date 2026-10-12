@@ -2,7 +2,6 @@ import { apiError, withAuth } from "@/lib/api";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
 import {
   ReminderError,
-  ReminderNotImplementedError,
   reminderErrorStatus,
   retryReminder,
 } from "@/server/agenda/reminders";
@@ -39,9 +38,6 @@ export const POST = withAuth(async (session, _req: Request, ctx: Params) => {
   } catch (err) {
     if (err instanceof ReminderError) {
       return apiError(reminderErrorStatus(err.code), err.code, err.message);
-    }
-    if (err instanceof ReminderNotImplementedError) {
-      return apiError(501, "not_implemented", err.message);
     }
     throw err;
   }

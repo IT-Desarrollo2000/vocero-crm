@@ -1,7 +1,6 @@
 import { apiError, withAuth } from "@/lib/api";
 import { REPORT_TIMEOUT_MESSAGE } from "@/lib/reports";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
-import { ReminderNotImplementedError } from "@/server/agenda/reminders";
 import { bookingReport } from "@/server/reports/bookings";
 import { parseReportRange } from "@/server/reports/range";
 import { ReportTimeoutError } from "@/server/reports/run";
@@ -39,9 +38,6 @@ export const GET = withAuth(
     } catch (err) {
       if (err instanceof ReportTimeoutError) {
         return apiError(503, "report_timeout", REPORT_TIMEOUT_MESSAGE);
-      }
-      if (err instanceof ReminderNotImplementedError) {
-        return apiError(501, "not_implemented", err.message);
       }
       throw err;
     }
