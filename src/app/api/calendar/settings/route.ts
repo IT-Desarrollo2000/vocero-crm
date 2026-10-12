@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { CONNECTOR_ORDER } from "@/lib/agenda-connectors";
+import {
+  REMINDER_FIELDS,
+  REMINDER_MAX_OFFSETS,
+  REMINDER_OFFSET_LIMITS,
+  REMINDER_SETTINGS_INPUT_KEYS,
+} from "@/lib/reminders";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
+import { getReminderSettings } from "@/server/agenda/reminders";
 import {
   CalendarSettingsError,
   getSettings,
@@ -18,11 +25,17 @@ export const dynamic = "force-dynamic";
  *
  * Jamás devuelve credenciales de un conector — esas viven en su propio
  * endpoint y solo salen como últimos 4 dígitos.
+ *
+ * 10 — Responde además `reminders` (`ReminderSettingsDto`,
+ * `src/lib/reminders.ts`) como HERMANO de `settings`.
  */
 export const GET = withAuth(async (session) => {
   if (!agendaEnabled()) return agendaDisabledResponse();
-  const settings = await getSettings(session.organizationId);
-  return Response.json({ settings });
+  const [settings, reminders] = await Promise.all([
+    getSettings(session.organizationId),
+    getReminderSettings(session.organizationId),
+  ]);
+  return Response.json({ settings, reminders });
 }, { role: "owner" });
 
 const intervalSchema = z.object({
@@ -46,6 +59,26 @@ const putSchema = z.object({
     })
     .optional(),
   meetingLink: z.string().nullish(),
+  // 10 — Recordatorios (contrato 10-0). La FORMA se valida aquí; plantilla
+  // aprobada de WhatsApp y un campo por cada {{n}} los valida el servicio
+  // (422 `invalid_body` con mensaje).
+  reminderEnabled: z.boolean().optional(),
+  reminderTemplateId: z.string().min(1).nullish(),
+  reminderOffsetsMinutes: z
+    .array(
+      z
+        .number()
+        .int()
+        .min(REMINDER_OFFSET_LIMITS.min)
+        .max(REMINDER_OFFSET_LIMITS.max)
+    )
+    .min(1)
+    .max(REMINDER_MAX_OFFSETS)
+    .refine((a) => new Set(a).size === a.length, {
+      message: "Anticipaciones repetidas",
+    })
+    .optional(),
+  reminderVariables: z.array(z.enum(REMINDER_FIELDS)).optional(),
 });
 
 /**
@@ -59,14 +92,39 @@ export const PUT = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, putSchema);
   if (!body.ok) return body.response;
 
+  const {
+    reminderEnabled,
+    reminderTemplateId,
+    reminderOffsetsMinutes,
+    reminderVariables,
+    ...agenda
+  } = body.data;
+  const reminderInput = {
+    reminderEnabled,
+    reminderTemplateId,
+    reminderOffsetsMinutes,
+    reminderVariables,
+  };
+  // 10-0: guardar recordatorios aún no existe. Un 200 que no persistió le
+  // mentiría a la UI: 501 explícito hasta 10-A (que lo cambia por
+  // `upsertReminderSettings` con `reminder_enabled_at = now` al encender).
+  if (REMINDER_SETTINGS_INPUT_KEYS.some((k) => reminderInput[k] !== undefined)) {
+    return apiError(
+      501,
+      "not_implemented",
+      "Guardar recordatorios llega con la tarea 10-A"
+    );
+  }
+
   try {
     const settings = await upsertSettings(session.organizationId, {
-      ...body.data,
+      ...agenda,
       // `undefined` = no lo tocaron; `null` = lo vaciaron a propósito.
       meetingLink:
-        body.data.meetingLink === undefined ? undefined : body.data.meetingLink,
+        agenda.meetingLink === undefined ? undefined : agenda.meetingLink,
     });
-    return Response.json({ settings });
+    const reminders = await getReminderSettings(session.organizationId);
+    return Response.json({ settings, reminders });
   } catch (err) {
     if (err instanceof CalendarSettingsError) {
       return apiError(422, "invalid_body", err.message);

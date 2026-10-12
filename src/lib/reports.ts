@@ -191,6 +191,62 @@ export type AgentReportDto = {
   volume: ReportBlock<VolumeDto>;
 };
 
+// ── Reportes → Citas (tarea 10, «Contrato 10-0») ────────────────────────
+
+/**
+ * Oferta → cita (RF-10-15). Conversaciones REALES (no `is_test`) con ≥ 1
+ * ronda en `agenda_offer_log` dentro del rango; convertidas = las que tienen
+ * una cita `source='ai'` (no prueba) creada DESPUÉS de su primera oferta del
+ * rango.
+ */
+export type OfferConversionDto = {
+  conversationsWithOffer: number;
+  converted: number;
+  /** `converted / conversationsWithOffer`; null sin ofertas. */
+  rate: number | null;
+  /** Rondas registradas en el rango (informativo). */
+  offerRounds: number;
+  /**
+   * Primera fila de `agenda_offer_log` de la organización (ISO-8601), o null
+   * si no hay ninguna: la UI avisa que antes de la migración 0018 no hay
+   * datos de oferta.
+   */
+  dataSince: string | null;
+};
+
+/** Asistencia de un conjunto de citas `session` no prueba. */
+export type AttendanceSliceDto = {
+  realizada: number;
+  noShow: number;
+  /** `realizada / (realizada + noShow)`; null si ninguna está marcada. */
+  rate: number | null;
+};
+
+/** Cita → asistencia, por `scheduled_at` en el rango. */
+export type BookingAttendanceDto = AttendanceSliceDto & {
+  /** `agendada` con `scheduled_at < now`: aún sin marcar (aparte). */
+  pendingToMark: number;
+  cancelada: number;
+};
+
+/**
+ * Asistencia con vs sin recordatorio: «con» = la cita tiene ≥ 1
+ * `booking_reminder` `sent` para su hora vigente (`scheduled_for =
+ * scheduled_at`); «sin» = el resto.
+ */
+export type AttendanceByReminderDto = {
+  withReminder: AttendanceSliceDto;
+  withoutReminder: AttendanceSliceDto;
+};
+
+/** Respuesta 200 de `GET /api/reports/bookings` (solo Propietario, AGENDA). */
+export type BookingReportDto = {
+  range: ReportRangeDto;
+  offers: ReportBlock<OfferConversionDto>;
+  attendance: ReportBlock<BookingAttendanceDto>;
+  byReminder: ReportBlock<AttendanceByReminderDto>;
+};
+
 /** Mensaje del 503 `report_timeout` (RF-02-08). */
 export const REPORT_TIMEOUT_MESSAGE = "Prueba un rango más corto";
 

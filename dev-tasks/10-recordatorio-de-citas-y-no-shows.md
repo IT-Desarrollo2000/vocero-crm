@@ -386,8 +386,12 @@ justificada: el ticker obtiene primero la lista de organizaciones con
 - [ ] T-10-01 Enmendar `specs/015-motor-agenda-universal/spec.md:544`,
       `plan.md:79` y `tasks.md:188` (recordatorios pasan a post-v1 "10") y
       registrar decisión en un ADR corto o en `docs/agenda-conectores.md`.
-- [ ] T-10-02 Schema + migración NNNN (3 cambios de datos) + prefijos en `ids.ts`;
-      `pnpm db:generate`, revisar SQL re-ejecutable.
+- [x] T-10-02 Schema + migración **0018** (3 cambios de datos) + prefijos en `ids.ts`;
+      `pnpm db:generate`, revisar SQL re-ejecutable. *(10-0: contrato)*
+- [x] T-10-00 Contrato 10-0: DTOs (`src/lib/reminders.ts`, `src/lib/reports.ts`),
+      firmas con reloj inyectable (`src/server/agenda/reminders.ts`), rutas con
+      guarda definitiva y cuerpo 501, `ROUTE_POLICY`, `failSends` del wa-mock.
+      Ver «Contrato 10-0» abajo.
 - [ ] T-10-03 `settings.ts` + ruta de settings: campos, validación, guard de
       Propietario (de 00).
 - [ ] T-10-04 `agenda_offer_log` en `replaceOffers` (después de la transacción,
@@ -395,9 +399,14 @@ justificada: el ticker obtiene primero la lista de organizaciones con
 - [ ] T-10-05 `reminders.ts`: elegibilidad, variables, claim, envío, recover,
       retry.
 - [ ] T-10-06 `reminder-ticker.ts` + enganche en `instrumentation*.ts` + env.
-- [ ] T-10-07 `listBookings` con recordatorios; acción `retry_reminder`.
-- [ ] T-10-08 `metrics.ts` + `GET /api/bookings/metrics` (Propietario).
+- [ ] T-10-07 `listBookings` con recordatorios; reintento manual.
+      *(10-0: DTO `reminders[]` aditivo — vacío hasta 10-A — y ruta
+      `POST /api/bookings/[id]/reminders/[reminderId]/retry` en 501.)*
+- [ ] T-10-08 Métricas en `GET /api/reports/bookings` (Propietario).
+      *(10-0: DTO `BookingReportDto` y ruta con guardas en 501.)*
 - [ ] T-10-09 Dev: `POST /api/dev/reminders/tick` + disparador de falla en wa-mock.
+      *(10-0: el disparador `fail-sends` ya funciona; el tick responde 501
+      hasta que 10-A implemente `runReminderTick`.)*
 - [ ] T-10-10 UI Ajustes (card Recordatorios).
 - [ ] T-10-11 UI Citas (chips + reintentar) y métricas (Reportes o card).
 - [ ] T-10-12 Unit tests (abajo).
@@ -490,6 +499,146 @@ aislada (`.env.e2e`), `WA_MOCK_ENABLED=true`, `AGENDA=on`,
   negocio cambia de zona, los recordatorios ya enviados no cambian (correcto).
 - **Riesgo calidad de plantilla**: muchos recordatorios ignorados pueden bajar
   la calidad del número en Meta; mantener 1–2 por cita como tope duro.
+
+## Contrato 10-0
+
+Fijado para que servidor (10-A) y UI (10-B) avancen en paralelo. **Manda sobre
+el plan técnico** donde difieran (rutas de métricas y reintento, estados,
+`reminder_enabled_at`, tope de reintentos).
+
+### Decisiones cerradas
+
+| # | Decisión |
+|---|---|
+| D-10-01 | Reloj in-process: `setInterval` arrancado desde `instrumentation` (10-A), más `POST /api/dev/reminders/tick` para forzar una vuelta con reloj simulado. Sin endpoint para cron externo. |
+| D-10-02 | Envío interrumpido (`sending` > 10 min) → `failed / interrumpido`; jamás se reenvía solo. Reintento manual **a lo sumo una vez** (`attempts` 1 → 2). |
+| D-10-03 | Variables de plantilla mapeadas por posición en Ajustes (catálogo cerrado). |
+| D-10-04 | Botones Confirmar/Cancelar: fase 2, fuera. |
+| D-10-05 | Siempre plantilla aprobada (aunque la ventana de 24 h esté abierta). |
+| D-10-06 | Métricas en Reportes: `GET /api/reports/bookings`, con `parseReportRange`, `reportTimezone` y `runBlocks`/`runReadOnly` de `src/server/reports/run.ts`. Solo Propietario. |
+| D-10-07 | Tabla append-only `agenda_offer_log`. |
+| nueva | **`reminder_enabled_at`**: al encender, solo se avisan recordatorios con momento de envío (`scheduled_at − offset`) ≥ esa fecha. Sin ráfaga sobre citas ya agendadas. Se escribe (con el `now` de JS) en cada transición apagado → encendido; apagar no lo borra. |
+
+Todo detrás de `AGENDA`: apagada ⇒ el ticker no arranca y toda superficie de
+esta tarea responde **404 sin cuerpo** (también la ruta dev y el reporte).
+
+### Datos — migración `0018_recordatorios_citas.sql`
+
+- `calendar_settings` + `reminder_enabled boolean NOT NULL DEFAULT false`,
+  `reminder_enabled_at timestamp NULL`, `reminder_template_id text NULL →
+  template ON DELETE SET NULL`, `reminder_offsets_minutes jsonb NOT NULL
+  DEFAULT '[1440]'`, `reminder_variables jsonb NOT NULL DEFAULT '[]'` (índice =
+  `{{n}} − 1`).
+- `booking_reminder` (prefijo `brm`): `organization_id` (FK cascade),
+  `booking_id` (FK cascade), `offset_minutes`, `scheduled_for` (= hora de la
+  cita, `timestamp` sin zona como `booking.scheduled_at`), `status`, `reason`,
+  `error`, `template_id` (FK set null), `message_id` (FK → `message`, set
+  null; de aquí sale la entrega), `wa_message_id` (copia cruda), `attempts`
+  (default 1), `claimed_at` **NOT NULL sin default** (lo pone JS), `sent_at`,
+  `created_at`, `updated_at`. `UNIQUE booking_reminder_claim_uq (booking_id,
+  offset_minutes, scheduled_for)` = claim atómico. Índice `(organization_id,
+  status, claimed_at)`.
+- `agenda_offer_log` (prefijo `aol`): `organization_id` (FK cascade),
+  `conversation_id` (FK cascade), `is_test`, `slots jsonb` (ISO-8601 UTC en el
+  orden mostrado), `slot_count`, `created_at` (= hora de la ronda; la pone JS).
+  Índices `(organization_id, created_at)` y `(conversation_id)`. Nadie
+  actualiza ni borra.
+
+### Estados de `booking_reminder.status`
+
+| Estado | Quién lo escribe | Significado |
+|---|---|---|
+| `pending` | **nadie en BD** (fase 1) | El DTO lo sintetiza para una anticipación sin fila; `id = null`, con `dueAt`. |
+| `sending` | claim del tick (`INSERT … ON CONFLICT DO NOTHING RETURNING`) o del reintento (`UPDATE … WHERE status='failed' AND attempts <= 1 RETURNING`) | Envío en curso. |
+| `sent` | tras `sendTemplate` OK | `message_id`, `wa_message_id`, `sent_at`. Entrega por join a `message.status/error`. |
+| `failed` | `SendError`/`MetaApiError` (`error` = mensaje legible) o `recoverStuckReminders` (`error = 'interrumpido'`) | Reintentable a mano una vez. |
+| `skipped` | config. inválida al vencer | `reason` ∈ `template_not_approved`, `template_missing`, `channel_not_whatsapp`, `not_connected`, `reconnect_required`, `no_recipient`. No se reintenta. |
+
+### Reglas (10-A)
+
+1. **Elegibilidad** = consulta (`kind='session'`, `status='agendada'`,
+   `is_test=false`, org con `reminder_enabled=true`, sin fila para la terna) +
+   `reminderTiming(input, now) === null` (`src/lib/reminders.ts`, pura, ya
+   implementada): `due ≥ reminder_enabled_at`, `due ≥ booking.created_at`,
+   `due ≤ now ≤ due + gracia`, `now ≤ scheduled_at − 15 min`.
+   Gracia `= min(offset/4, 6 h)`. Tope duro: si la cita ya tiene tantos `sent`
+   para su `scheduled_for` como anticipaciones configuradas, no se reclama más.
+2. **Sandbox**: filtro `is_test=false` en la consulta (jamás fila) + `sendTemplate`
+   lanza `SendError("sandbox_violation")` como segunda barrera. No se toca.
+3. **Cancelar / `realizada` / `no_show`** sacan la cita de la consulta: no sale
+   nada después. **Reprogramar** cambia `scheduled_at` ⇒ clave nueva ⇒
+   recordatorios nuevos; los anteriores quedan como historial (el DTO solo
+   muestra los de la hora vigente).
+4. **Conversación destino**: `booking.conversation_id`; si es null, la
+   conversación real del contacto o `getOrCreateConversation`.
+5. **Variables**: `contact_name`, `booking_datetime` (`labelInTz` en la zona
+   del negocio), `meeting_link` (vacío → `MEETING_LINK_FALLBACK`),
+   `business_name`. Nunca un parámetro vacío.
+6. **Reloj inyectable**: ninguna función de la lógica usa `now()` de SQL;
+   `claimed_at`, `sent_at`, `updated_at` y `reminder_enabled_at` salen del
+   `now: Date` recibido.
+7. Cada cambio de fila publica `booking.updated` (SSE). Nada de esto lanza
+   hacia la agenda (RF-10-16). Ticker: lote `REMINDER_TICK_BATCH = 50` por org,
+   en serie; `AGENDA_REMINDER_TICK_MS` (default 60 000; `0` = no arranca);
+   guard en `globalThis` contra hot reload.
+8. `agenda_offer_log`: insertar después de la transacción de `replaceOffers`,
+   en try/catch; con 0 slots no se registra.
+
+### Firmas (`src/server/agenda/reminders.ts`)
+
+```ts
+// re-exportadas de src/lib/reminders.ts (reales)
+REMINDER_STUCK_AFTER_MS = 10 min · REMINDER_MIN_LEAD_MS = 15 min
+REMINDER_MAX_GRACE_MS = 6 h · REMINDER_TICK_BATCH = 50
+REMINDER_TICK_DEFAULT_MS = 60_000 · REMINDER_MAX_MANUAL_RETRIES = 1
+reminderGraceMs(offsetMinutes): number
+reminderDueAt(scheduledAt: Date, offsetMinutes): Date
+reminderTiming(input: ReminderTimingInput, now: Date): null | "not_enabled"
+  | "before_enabled" | "before_created" | "not_due" | "grace_expired" | "too_close"
+
+// stubs (lanzan ReminderNotImplementedError → las rutas responden 501)
+runReminderTick(now: Date): Promise<ReminderTickResultDto>
+recoverStuckReminders(now: Date, organizationId?: string): Promise<number>
+retryReminder({ organizationId, bookingId, reminderId, now }): Promise<BookingReminderDto>
+  // lanza ReminderError: not_found 404 · not_retryable / retry_exhausted / booking_not_active 409
+remindersForBookings(orgId, bookingIds, now): Promise<Map<string, BookingReminderDto[]>>  // hoy: Map vacío
+
+// real
+getReminderSettings(orgId): Promise<ReminderSettingsDto>
+
+// src/server/reports/bookings.ts (stub)
+bookingReport(orgId, range: ReportRange, now: Date): Promise<BookingReportDto>
+```
+
+### Rutas
+
+| Ruta | Política | Cuerpo / query | 200 | Errores |
+|---|---|---|---|---|
+| `GET /api/calendar/settings` | owner | — | `{ settings, reminders: ReminderSettingsDto }` | 404 AGENDA off |
+| `PUT /api/calendar/settings` | owner | lo de siempre + `reminderEnabled?`, `reminderTemplateId?` (string\|null), `reminderOffsetsMinutes?` (1–2 enteros únicos, 60..4320), `reminderVariables?` (`ReminderField[]`) | `{ settings, reminders }` | 422 `invalid_body` (forma; y en 10-A: plantilla no `approved`/no WhatsApp o mapeo incompleto, con mensaje) · **hoy 501 `not_implemented` si llega cualquier campo de recordatorio** |
+| `GET /api/bookings` | any | — | cada cita con `reminders: BookingReminderDto[]` (aditivo; hoy `[]`) | 404 AGENDA off |
+| `POST /api/bookings/[id]/reminders/[reminderId]/retry` | any | sin cuerpo | `{ ok: true, reminder: BookingReminderDto }` (ya resuelto tras el envío síncrono) | 404 `not_found` · 409 `not_retryable` · 409 `retry_exhausted` · 409 `booking_not_active` · 404 AGENDA off · hoy 501 |
+| `GET /api/reports/bookings` | owner | rango de Reportes (`range`, `from`, `to`) | `BookingReportDto` (`src/lib/reports.ts`): `range` + bloques `offers`, `attendance`, `byReminder` | 403 Vendedor · 422 `invalid_range` · 503 `report_timeout` · 404 AGENDA off · hoy 501 |
+| `POST /api/dev/reminders/tick` | dev | `{ now?: ISO }` (JSON obligatorio, `{}` vale) | `ReminderTickResultDto` `{ now, organizations, recovered, claimed, sent, failed, skipped }` | 404 sin mocks o AGENDA off · 422 · hoy 501 |
+| `GET/POST /api/dev/wa-mock/fail-sends` | dev | `{ mode: "off" \| "error" \| "down" }` | `{ failSends }` | — · **ya funciona**: `error` = 400 Meta 131026 → `meta_error`; `down` = 503 → `meta_unavailable`. Solo envíos de WhatsApp; `DELETE /api/dev/wa-mock/outbox` lo apaga. |
+
+### DTOs
+
+- `src/lib/reminders.ts` (re-exportados en `src/lib/types.ts`):
+  `BookingReminderDto { id|null, offsetMinutes, scheduledFor, dueAt, status,
+  reason, error, sentAt, attempts, canRetry, delivery, deliveryError }`,
+  `ReminderSettingsDto { enabled, enabledAt, templateId, template:
+  ReminderTemplateSummaryDto|null, offsetsMinutes, variables, warning:
+  "template_missing"|"template_not_approved"|null }`,
+  `ReminderSettingsInput`, `ReminderRetryResultDto`, `ReminderTickResultDto`,
+  catálogos `BOOKING_REMINDER_STATUSES`, `BOOKING_REMINDER_SKIP_REASONS`,
+  `REMINDER_FIELDS` (+ `REMINDER_FIELD_LABEL`), `MEETING_LINK_FALLBACK`,
+  `REMINDER_OFFSET_LIMITS`, `REMINDER_MAX_OFFSETS`.
+- `src/lib/reports.ts`: `BookingReportDto`, `OfferConversionDto
+  { conversationsWithOffer, converted, rate, offerRounds, dataSince }`,
+  `BookingAttendanceDto { realizada, noShow, rate, pendingToMark, cancelada }`,
+  `AttendanceByReminderDto { withReminder, withoutReminder }` («con» = ≥ 1
+  `sent` para la hora vigente). Proporciones 0..1, `null` con denominador 0.
 
 ## 3. Dependencias con otras tareas
 

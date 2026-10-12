@@ -45,34 +45,48 @@ export type CapiMockEvent = {
   at: string;
 };
 
+/**
+ * 10 — Disparador de falla para los envíos de WhatsApp (`{phoneNumberId}/
+ * messages` sin `recipient.id`; no afecta el "leído/escribiendo…" ni a
+ * Instagram/Messenger, que tienen su `-down` por token). Conmutable por
+ * `POST /api/dev/wa-mock/fail-sends`.
+ *
+ * - `error` → 400 de Meta (131026, mensaje no entregable): el CRM lo ve como
+ *   `SendError("meta_error")` con el texto de Meta como motivo.
+ * - `down`  → 503: `SendError("meta_unavailable")`.
+ */
+export type FailSendsMode = "off" | "error" | "down";
+
 type WaMockState = {
   outbox: OutboxEntry[];
   templates: MockTemplate[];
   capiEvents: CapiMockEvent[];
   counter: number;
+  /** Se apaga también con `DELETE /api/dev/wa-mock/outbox` (reset total). */
+  failSends: FailSendsMode;
 };
 
 const globalForMock = globalThis as unknown as { __waMockState?: WaMockState };
 
+function freshState(): WaMockState {
+  return {
+    outbox: [],
+    templates: [],
+    capiEvents: [],
+    counter: 0,
+    failSends: "off",
+  };
+}
+
 export function getWaMockState(): WaMockState {
   if (!globalForMock.__waMockState) {
-    globalForMock.__waMockState = {
-      outbox: [],
-      templates: [],
-      capiEvents: [],
-      counter: 0,
-    };
+    globalForMock.__waMockState = freshState();
   }
   return globalForMock.__waMockState;
 }
 
 export function resetWaMockState(): void {
-  globalForMock.__waMockState = {
-    outbox: [],
-    templates: [],
-    capiEvents: [],
-    counter: 0,
-  };
+  globalForMock.__waMockState = freshState();
 }
 
 export function nextN(): number {
