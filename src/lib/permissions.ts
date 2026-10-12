@@ -152,6 +152,10 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/webhooks/fb/[webhookToken]": "public",
   "POST /api/webhooks/fb/[webhookToken]": "public",
 
+  // ── Reportes (02) ──────────────────────────────────────────────────────
+  // Solo Propietario (prefijo reservado en OWNER_ROUTE_PREFIXES).
+  "GET /api/reports/agent": "owner",
+
   // ── Cerebro externo (BOT_API_KEY) ──────────────────────────────────────
   "GET /api/bot/availability": "bot",
   "POST /api/bot/bookings": "bot",

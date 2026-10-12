@@ -417,16 +417,19 @@ ON CONFLICT ("id") DO NOTHING;
   `clearHandoff` con inserción del evento; reemplazar las 5 escrituras/cierres;
   test de vigilancia append-only. *(T-02-02; si 05 ya creó el helper, solo se
   agrega la inserción)*
-- [ ] **T-02-04** `src/server/reports/range.ts` + `timezone.ts` + `run.ts` con
+- [x] **T-02-04** `src/server/reports/range.ts` + `timezone.ts` + `run.ts` con
   unit tests. *(T-02-01)*
-- [ ] **T-02-05** `src/server/reports/agent.ts` M1–M8 + `src/lib/reports.ts`. *(T-02-02, T-02-04)*
-- [ ] **T-02-06** `GET /api/reports/agent` con gate de Propietario. *(00, T-02-05)*
+- [x] **T-02-05** `src/server/reports/agent.ts` M1–M8 + `src/lib/reports.ts`. *(T-02-02, T-02-04)*
+- [x] **T-02-06** `GET /api/reports/agent` con gate de Propietario. *(00, T-02-05)*
 - [ ] **T-02-07** Ítem de menú `ownerOnly` + páginas en `(app)/(owner)/reports/`. *(00: T-00-13)*
 - [ ] **T-02-08** Componentes de `src/components/reports/` + cliente. *(T-02-06, T-02-07)*
 - [ ] **T-02-09** `EXPLAIN ANALYZE` con 100 000 mensajes sembrados en la BD de
   E2E; ajustar índices si algún bloque pasa de 500 ms. *(T-02-05)*
 - [ ] **T-02-10** Pruebas (abajo), contrato `api.md`, gate `pnpm typecheck &&
   pnpm lint && pnpm build && pnpm test` + E2E en BD aislada. *(todo)*
+  - [x] 02-A: unit (`report-range`, `agent-report-sql`, `agent-report-format`,
+    `report-run`), contrato `api.md`, `scripts/e2e-metricas.mjs` +
+    `tests/e2e/us-metricas.md` (solo `node --check`; falta correrlo en vivo).
 
 ### Pruebas
 
