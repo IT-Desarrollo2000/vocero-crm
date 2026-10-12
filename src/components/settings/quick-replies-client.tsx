@@ -8,17 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useViewer } from "@/components/viewer-context";
-import { QUICK_REPLY_LIMITS, QUICK_REPLY_VARS } from "@/lib/quick-replies";
+import {
+  QUICK_REPLY_LIMITS,
+  QUICK_REPLY_VARS,
+  findUnknownVars,
+  renderQuickReply,
+} from "@/lib/quick-replies";
 import type {
   QuickReplyCreateBody,
   QuickReplyDto,
   QuickReplyPatchBody,
 } from "@/lib/types";
-import {
-  findUnknownVars,
-  movePositions,
-  renderQuickReply,
-} from "@/components/inbox/quick-reply-render";
+import { movePositions } from "@/components/inbox/quick-reply-render";
 
 type ApiError = { error?: { code?: string; message?: string } } | null;
 

@@ -471,7 +471,7 @@ CREATE INDEX IF NOT EXISTS "quick_reply_org_pos_idx"
 
 - [x] T-09-00 Contrato 09-0 (ver sección "Contrato 09-0" abajo): DTOs, firmas, `ROUTE_POLICY` + stubs 501 con su guarda, decisión SSE, hook de baja.
 - [x] T-09-01 Schema (`conversation.assignedUserId/assignedAt` + índice, tabla `quickReply`), `ids.ts` `qr`, `pnpm db:generate` y migración re-ejecutable a mano (`drizzle/0015_asignacion_respuestas_rapidas.sql`).
-- [ ] T-09-01b Aplicar `0015` 2× en la BD aislada (:5433) — pendiente (09-A).
+- [x] T-09-01b Aplicar `0015` 2× en la BD aislada (:5433) — reset + migrate; borrada la fila de 0015 en `drizzle.__drizzle_migrations` y re-ejecutado migrate sin error; columnas `assigned_user_id`/`assigned_at`, tabla `quick_reply`, sus 2 índices + `conversation_org_assignee_idx` y las 3 FK presentes una sola vez.
 - [x] T-09-02 `src/server/inbox/visibility.ts` + unit (`tests/unit/assignment-visibility.test.ts`). Dep: 01, 00 (`Role`).
 - [x] T-09-03 `listConversations`/`getConversation` con `viewer` + `?assigned=` + `assignedTo` en DTO/tipos; actualizar llamadores. Dep: 02. — 09-0 + 09-A: todas las rutas de sesión pasan `session` (messages GET/POST, media, template, PATCH, assign); lo vigila `tests/unit/assignment-guard.test.ts`.
 - [x] T-09-04 404 por visibilidad en `messages` GET/POST, `media` POST, `template` POST, `PATCH conversations/:id`. Dep: 03. — `template` añade `getConversation(..., session)`; guardarraíl `assignment-guard.test.ts`.
@@ -485,8 +485,8 @@ CREATE INDEX IF NOT EXISTS "quick_reply_org_pos_idx"
 - [x] T-09-12 `src/server/quick-replies.ts` + rutas `/api/quick-replies` (+ `ROUTE_POLICY`). Dep: 01, 11, 00 (T-00-03, T-00-06).
 - [x] T-09-13 Ajustes → Respuestas rápidas (página + client + pestaña). Dep: 12, 00 (T-00-13). — (09-B) `settings/(owner)/quick-replies/page.tsx` + `quick-replies-client.tsx` + pestaña en `settings-tabs.ts` (tras Plantillas). Programado contra el contrato; hasta T-09-12 el stub 501 se muestra como "aún no disponible".
 - [x] T-09-14 Compositor: selector `/`, chips, render de variables. Dep: 12. — (09-B) `use-quick-replies.ts` + `quick-reply-picker.tsx` + `composer.tsx` (Enter/Tab insertan, Esc cierra, chips = 4 primeras por `position` con fallback a plantillas; envíos con 404 cierran el hilo).
-- [ ] T-09-15 E2E `scripts/e2e-asignacion.mjs` + `scripts/e2e-respuestas-rapidas.mjs` (nuevos) + guiones `tests/e2e/us-asignacion.md` y `tests/e2e/us-respuestas-rapidas.md` (nuevos). Dep: todas.
-- [ ] T-09-16 Gate completo + `pnpm test:e2e` (selftest como owner: debe seguir verde; las conversaciones quedan "sin asignar" y el owner las ve todas) + los dos E2E nuevos contra `.env.e2e`. Marcar en `dev-tasks/README.md`.
+- [x] T-09-15 E2E `scripts/e2e-asignacion.mjs` + `scripts/e2e-respuestas-rapidas.mjs` (nuevos) + guiones `tests/e2e/us-asignacion.md` y `tests/e2e/us-respuestas-rapidas.md` (nuevos). Dep: todas. — Verdes contra `.env.e2e` (76/76 y 40/40).
+- [x] T-09-16 Gate completo + `pnpm test:e2e` (selftest como owner: debe seguir verde; las conversaciones quedan "sin asignar" y el owner las ve todas) + los dos E2E nuevos contra `.env.e2e`. Marcar en `dev-tasks/README.md`. — Gate verde (783 unit); selftest 253/253 con sección "09: asignación"; roles, search-filters, responsive, envio-instantaneo y contexto-agente verdes.
 
 ### Pruebas
 

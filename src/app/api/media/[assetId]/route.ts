@@ -35,7 +35,8 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
         session.organizationId,
         eq(schema.mediaAsset.id, assetId),
         // 09 (D-09-5): al Vendedor solo si el adjunto cuelga de un mensaje
-        // de una conversación que ve; si no (o sin mensaje) → 404.
+        // de una conversación que ve y que no es del Laboratorio (`is_test`);
+        // si no (o sin mensaje) → 404.
         isOwner(session)
           ? undefined
           : exists(
@@ -52,6 +53,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
                     session.organizationId,
                     eq(schema.message.mediaAssetId, schema.mediaAsset.id),
                     eq(schema.conversation.organizationId, session.organizationId),
+                    eq(schema.conversation.isTest, false),
                     conversationVisibleTo(session)
                   )
                 )

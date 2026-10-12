@@ -127,6 +127,14 @@ describe("guardarraíl: toda ruta de sesión lee conversaciones con viewer", () 
     expect(sinCompuerta).toEqual([]);
   });
 
+  it("/api/media filtra por visibilidad y excluye el Laboratorio (is_test)", () => {
+    const code = sinComentarios(
+      readFileSync(path.join(API, "media", "[assetId]", "route.ts"), "utf8")
+    );
+    expect(code).toMatch(/conversationVisibleTo\(session\)/);
+    expect(code).toMatch(/eq\(schema\.conversation\.isTest,\s*false\)/);
+  });
+
   it("el detector sí ve una llamada sin viewer (no quedó ciego)", () => {
     expect(llamadasSinViewer("await getConversation(session.organizationId, id);")).toHaveLength(1);
     expect(

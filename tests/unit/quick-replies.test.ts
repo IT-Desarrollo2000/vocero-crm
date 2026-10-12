@@ -54,6 +54,16 @@ describe("renderQuickReply", () => {
   it("una variable desconocida se deja tal cual", () => {
     expect(renderQuickReply("Tel: {{telefono}}", ctx)).toBe("Tel: {{telefono}}");
   });
+
+  it("variable final sin valor → sin espacio colgando", () => {
+    expect(renderQuickReply("Hola {{nombre}}", { vendedor: "x" })).toBe("Hola");
+  });
+
+  it("es estable entre llamadas (el patrón global no arrastra lastIndex)", () => {
+    for (let i = 0; i < 3; i++) {
+      expect(renderQuickReply("{{nombre}}", ctx)).toBe("María");
+    }
+  });
 });
 
 describe("findUnknownVars / unknownVariableMessage", () => {
@@ -65,6 +75,10 @@ describe("findUnknownVars / unknownVariableMessage", () => {
   it("sin repetir, en orden; las válidas no cuentan", () => {
     expect(findUnknownVars("{{a}} {{nombre}} {{b}} {{a}} {{ negocio }}")).toEqual(["a", "b"]);
     expect(unknownVariableMessage(["a", "b"])).toBe("Variables desconocidas: {{a}}, {{b}}");
+  });
+
+  it("con espacios dentro de las llaves cuenta como la misma variable", () => {
+    expect(findUnknownVars("{{telefono}} {{ telefono }} {{email}}")).toEqual(["telefono", "email"]);
   });
 
   it("cuerpo sin variables → []", () => {
@@ -91,6 +105,10 @@ describe("slashQuery", () => {
   it("caret en medio: solo cuenta lo que hay antes del caret", () => {
     expect(slashQuery("/horario y más", 4)).toEqual({ query: "hor", start: 0 });
     expect(slashQuery("/horario y más", 10)).toBeNull();
+  });
+
+  it("no dispara con caracteres fuera del atajo", () => {
+    expect(slashQuery("/hola!", 6)).toBeNull();
   });
 });
 

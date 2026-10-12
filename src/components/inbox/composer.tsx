@@ -22,12 +22,14 @@ import {
   quickReplyOptionId,
 } from "./quick-reply-picker";
 import {
-  insertQuickReply,
   matchQuickReplies,
-  quickReplyContext,
   renderQuickReply,
   slashQuery,
-} from "./quick-reply-render";
+} from "@/lib/quick-replies";
+import { insertQuickReply, quickReplyContext } from "./quick-reply-render";
+
+/** Máximo de opciones visibles en el selector `/`. */
+const QUICK_REPLY_PICKER_MAX = 8;
 
 /** 008 — Panel secundario del clip: formulario de ubicación o contacto. */
 type AttachPanel = "location" | "contact" | null;
@@ -79,7 +81,10 @@ export function Composer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const slash = slashQuery(text, caret);
-  const matches = slash ? matchQuickReplies(quickReplies, slash.query) : [];
+  // El GET ya viene por `position`; el selector muestra las primeras.
+  const matches = slash
+    ? matchQuickReplies(quickReplies, slash.query).slice(0, QUICK_REPLY_PICKER_MAX)
+    : [];
   const pickerOpen =
     slash !== null && matches.length > 0 && dismissedAt !== slash.start;
   const active = Math.min(activeIndex, Math.max(matches.length - 1, 0));

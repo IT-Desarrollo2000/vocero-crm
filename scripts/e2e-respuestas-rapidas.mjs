@@ -193,6 +193,10 @@ async function main() {
   const ubi = r.json?.quickReply;
   r = await owner.api(`/api/quick-replies/${ubi?.id}`, { method: "PATCH", body: body({ position: 0 }) });
   ok("PATCH reordenar → 200", r.res.status === 200 && r.json?.quickReply?.position === 0, short(r));
+  // Como "subir" en Ajustes (`movePositions`): también se manda la del que
+  // baja; con empate de position el GET desempata por createdAt asc.
+  r = await owner.api(`/api/quick-replies/${horario?.id}`, { method: "PATCH", body: body({ position: 1 }) });
+  ok("PATCH del que baja → 200", r.res.status === 200 && r.json?.quickReply?.position === 1, short(r));
   r = await owner.api(`/api/quick-replies/${ubi?.id}`, { method: "PATCH", body: body({ body: "{{direccion}}" }) });
   ok("PATCH con variable desconocida → 422", r.res.status === 422 && r.json?.error?.code === "unknown_variable", short(r));
   r = await owner.api(`/api/quick-replies/${ubi?.id}`, { method: "PATCH", body: body({ shortcut: "Horario" }) });

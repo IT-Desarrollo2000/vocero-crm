@@ -979,8 +979,9 @@ async function main() {
   await atribucionChecks();
   await canalesChecks();
   await labChecks();
+  await asignacionChecks();
 
-  console.log(`\n===== ${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
+  console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
 }
 
@@ -2195,4 +2196,61 @@ async function labChecks() {
   ok("DELETE repetido → 404", otraVez.res.status === 404, `status=${otraVez.res.status}`);
   const inexistente = await api("/api/lab/runs/tr_no_existe_e2e", { method: "DELETE" });
   ok("DELETE de un id inexistente → 404", inexistente.res.status === 404, `status=${inexistente.res.status}`);
+}
+
+/* ============================================================
+ * 09 — Asignación (T-09-16; el guion completo con vendedores es
+ * scripts/e2e-asignacion.mjs). Como Propietario: cada conversación trae
+ * `assignedTo`/`assignedAt` y el owner las sigue viendo todas — las de este
+ * guion quedan "sin asignar" (el envío del Propietario no asigna).
+ * ============================================================ */
+
+async function asignacionChecks() {
+  console.log("\n== 09: asignación (vista del Propietario) ==");
+  const todas = (await api("/api/conversations")).json?.conversations ?? [];
+  ok("el owner ve conversaciones en la Bandeja", todas.length > 0, `n=${todas.length}`);
+  const sinCampos = todas.filter((c) => !("assignedTo" in c) || !("assignedAt" in c));
+  ok(
+    "cada conversación trae assignedTo y assignedAt",
+    sinCampos.length === 0,
+    sinCampos.map((c) => c.id).join(", ")
+  );
+  ok(
+    "assignedAt presente si y solo si hay responsable",
+    todas.every((c) => (c.assignedTo === null) === (c.assignedAt === null)),
+    JSON.stringify(todas.filter((c) => (c.assignedTo === null) !== (c.assignedAt === null)).map((c) => c.id))
+  );
+  ok(
+    "las del self-test siguen sin asignar (el envío del owner no asigna)",
+    todas
+      .filter((c) => c.contact?.name === "Dueña Dental")
+      .every((c) => c.assignedTo === null),
+    JSON.stringify(todas.filter((c) => c.contact?.name === "Dueña Dental").map((c) => c.assignedTo))
+  );
+
+  // La org puede traer asignaciones de guiones previos (e2e-asignacion corre
+  // sobre la misma BD): se comprueban particiones, no un estado fijo.
+  const yo = (await api("/api/auth/get-session")).json?.user?.id;
+  const ids = (list) => list.map((c) => c.id).sort().join(",");
+  const all = (await api("/api/conversations?assigned=all")).json?.conversations ?? [];
+  ok("?assigned=all = la lista por defecto", ids(all) === ids(todas));
+  const libres = (await api("/api/conversations?assigned=unassigned")).json?.conversations ?? [];
+  ok(
+    "?assigned=unassigned = exactamente las sin responsable",
+    ids(libres) === ids(todas.filter((c) => c.assignedTo === null))
+  );
+  const mias = (await api("/api/conversations?assigned=me")).json?.conversations ?? [];
+  ok(
+    "?assigned=me = exactamente las del owner",
+    !!yo && ids(mias) === ids(todas.filter((c) => c.assignedTo?.userId === yo)),
+    `yo=${yo} n=${mias.length}`
+  );
+  const deOtros = todas.filter((c) => c.assignedTo && c.assignedTo.userId !== yo);
+  ok(
+    "el owner ve todas: también las asignadas a otros",
+    todas.length === libres.length + mias.length + deOtros.length,
+    `todas=${todas.length} libres=${libres.length} mias=${mias.length} otros=${deOtros.length}`
+  );
+  const malo = await api("/api/conversations?assigned=otro");
+  ok("?assigned inválido → 422", malo.res.status === 422, `status=${malo.res.status}`);
 }
