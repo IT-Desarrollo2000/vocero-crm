@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
-import type { ConversationDto } from "@/lib/types";
+import type { ConversationCounts, ConversationDto } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { cn } from "@/lib/utils";
@@ -14,14 +14,16 @@ import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
 import {
   assigneeLabel,
-  filterConversations,
   formatTime,
   initials,
-  isMine,
-  needsHuman,
   previewText,
   type ConversationFilter,
 } from "./helpers";
+import { hasActiveFilters, type InboxFilters } from "./list-state";
+import type { InboxListError } from "./use-inbox-list";
+
+/** Pausa de la búsqueda antes de pedirla al servidor. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * 09 — Responsable en la fila. Al Propietario le dice quién la atiende (con
@@ -104,15 +106,79 @@ function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   );
 }
 
+/**
+ * 06 — Pie de la lista paginada. El botón "Cargar más" es el respaldo
+ * accesible del scroll infinito (teclado, lectores de pantalla, navegadores
+ * sin IntersectionObserver).
+ */
+function ListFooter({
+  hasMore,
+  loadingMore,
+  failed,
+  empty,
+  onLoadMore,
+}: {
+  hasMore: boolean;
+  loadingMore: boolean;
+  failed: boolean;
+  empty: boolean;
+  onLoadMore?: () => void;
+}) {
+  if (loadingMore) {
+    return (
+      <p role="status" className="p-4 text-center text-xs text-text-3">
+        Cargando…
+      </p>
+    );
+  }
+  if (failed) {
+    return (
+      <div className="flex flex-col items-center gap-2 p-4 text-center">
+        <p className="text-xs text-text-3">No se pudieron cargar más conversaciones.</p>
+        <Button size="sm" variant="outline" onClick={onLoadMore}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+  if (hasMore) {
+    return (
+      <div className="flex justify-center p-4">
+        <Button size="sm" variant="outline" onClick={onLoadMore}>
+          Cargar más
+        </Button>
+      </div>
+    );
+  }
+  if (empty) return null;
+  return (
+    <p className="p-4 text-center text-xs text-text-3">No hay más conversaciones</p>
+  );
+}
+
 export function ConversationList({
   conversations: conversationsProp,
+  counts,
+  filters,
+  onFiltersChange,
   channels,
   selectedId,
   onSelect,
   onSeeded,
   teamMode = false,
+  hasMore = false,
+  loadingMore = false,
+  error = null,
+  onLoadMore,
+  onRetry,
 }: {
+  /** 06: lo cargado y dentro del filtro activo; null = primera carga. */
   conversations: ConversationDto[] | null;
+  /** 06: contadores de `/counts` (o los de respaldo sobre lo cargado). */
+  counts: ConversationCounts | null;
+  /** 06: filtros activos; viven en `useInboxList` (son del servidor). */
+  filters: InboxFilters;
+  onFiltersChange: (patch: Partial<InboxFilters>) => void;
   /**
    * 09: ¿se enseña la asignación (pastillas "Mías"/"Sin asignar" y
    * responsable en la fila)? No con el Propietario trabajando solo.
@@ -123,14 +189,48 @@ export function ConversationList({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeeded: () => void;
+  /** 06: ¿hay página siguiente (`nextCursor`)? */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  error?: InboxListError;
+  onLoadMore?: () => void;
+  /** 06: reintenta la primera página tras un error. */
+  onRetry?: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<ConversationFilter>("all");
-  const [stage, setStage] = useState<string>("all");
-  const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
   const viewer = useViewer();
   const viewerOwner = isOwner(viewer);
+  const filter: ConversationFilter =
+    !teamMode && (filters.filter === "mine" || filters.filter === "unassigned")
+      ? "all"
+      : filters.filter;
+  const stage = filters.stageId ?? "all";
+  const inbox: Channel | "all" = filters.channel ?? "all";
+
+  // La búsqueda la hace el servidor (06): se manda tras una pausa al teclear.
+  const onFiltersChangeRef = useRef(onFiltersChange);
+  onFiltersChangeRef.current = onFiltersChange;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function pushQuery(value: string, now = false) {
+    setQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (now) {
+      searchTimer.current = null;
+      onFiltersChangeRef.current({ q: value });
+      return;
+    }
+    searchTimer.current = setTimeout(() => {
+      searchTimer.current = null;
+      onFiltersChangeRef.current({ q: value });
+    }, SEARCH_DEBOUNCE_MS);
+  }
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    []
+  );
 
   /**
    * Rescate de lo tecleado ANTES de que hidratara el JS. La caja se pinta en
@@ -141,36 +241,23 @@ export function ConversationList({
    */
   useEffect(() => {
     const typed = inputRef.current?.value ?? "";
-    if (typed) setQuery(typed);
+    if (typed) pushQuery(typed, true);
   }, []);
 
   const loading = conversationsProp === null;
-  const conversations = conversationsProp ?? [];
-  // Búsqueda (nombre y teléfono) + etapa → bandeja → pastilla. Ver helpers.
-  const { searched, inInbox, visible } = filterConversations(conversations, {
-    query,
-    stage,
-    inbox,
-    // Si la asignación se oculta, una pastilla de asignación ya elegida no
-    // debe seguir filtrando a escondidas.
-    filter:
-      !teamMode && (filter === "mine" || filter === "unassigned") ? "all" : filter,
-    viewerId: viewer.userId,
-  });
-  const inboxCount = (ch: Channel) =>
-    searched.filter((c) => c.channel === ch).length;
-  const unreadCount = inInbox.filter((c) => c.unreadCount > 0).length;
-  const handoffCount = inInbox.filter(needsHuman).length;
-  const mineCount = inInbox.filter((c) => isMine(c, viewer.userId)).length;
-  const unassignedCount = inInbox.filter((c) => c.assignedTo === null).length;
+  const visible = conversationsProp ?? [];
   const pills: { id: ConversationFilter; label: string; count: number }[] = [
-    { id: "all", label: "Todas", count: inInbox.length },
-    { id: "unread", label: "No leídas", count: unreadCount },
-    { id: "handoff", label: "Atención humana", count: handoffCount },
+    { id: "all", label: "Todas", count: counts?.all ?? 0 },
+    { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
+    { id: "human", label: "Atención humana", count: counts?.human ?? 0 },
     ...(teamMode
       ? [
-          { id: "mine" as const, label: "Mías", count: mineCount },
-          { id: "unassigned" as const, label: "Sin asignar", count: unassignedCount },
+          { id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 },
+          {
+            id: "unassigned" as const,
+            label: "Sin asignar",
+            count: counts?.unassigned ?? 0,
+          },
         ]
       : []),
   ];
@@ -178,21 +265,20 @@ export function ConversationList({
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
   const multiChannel = channels.length > 1;
 
-  // Etapas presentes en la bandeja, en el orden en que llegan del pipeline.
-  const stages: string[] = [];
-  for (const c of conversations) {
-    if (c.stageName && !stages.includes(c.stageName)) stages.push(c.stageName);
-  }
-
-  // El color del punto sale del tipo y la posición de la etapa en el
-  // pipeline, no de su nombre (ver lib/stage-colors).
+  // 06: las opciones salen del pipeline completo (el filtro va por id y la
+  // página cargada ya no representa a toda la Bandeja). El color del punto
+  // sale del tipo y la posición de la etapa (ver lib/stage-colors).
   const { stages: pipelineStages, reload: reloadStages } = useStages();
   // Si aparece un nombre que la lista no conoce (el dueño renombró o creó una
   // etapa con la Bandeja abierta), se pide la lista otra vez — una sola vez
   // por combinación de nombres desconocidos, para no entrar en bucle.
-  const unknownStages = stages
-    .filter((n) => !pipelineStages.some((s) => s.name === n))
-    .join("|");
+  const unknownStages = [
+    ...new Set(
+      visible
+        .map((c) => c.stageName)
+        .filter((n): n is string => !!n && !pipelineStages.some((s) => s.name === n))
+    ),
+  ].join("|");
   const askedFor = useRef("");
   useEffect(() => {
     if (!unknownStages || pipelineStages.length === 0) return;
@@ -201,18 +287,50 @@ export function ConversationList({
     void reloadStages();
   }, [unknownStages, pipelineStages.length, reloadStages]);
 
+  function selectStage(id: string) {
+    if (id === "all") {
+      onFiltersChange({ stageId: null, stageName: null });
+      return;
+    }
+    const s = pipelineStages.find((x) => x.id === id);
+    onFiltersChange({ stageId: id, stageName: s?.name ?? null });
+  }
+
   function clearQuery() {
     if (inputRef.current) inputRef.current.value = "";
-    setQuery("");
+    pushQuery("", true);
     inputRef.current?.focus();
   }
+
+  // Scroll infinito: un centinela al pie pide la página siguiente al
+  // acercarse (400px antes). Se vuelve a observar tras cada página para que,
+  // si el centinela sigue a la vista, se pida la otra.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+  const canLoadMore = hasMore && !loadingMore && error !== "more";
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !canLoadMore || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMoreRef.current?.();
+      },
+      { root: scrollRef.current, rootMargin: "400px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [canLoadMore, visible.length]);
+
+  const noFilters = !hasActiveFilters({ ...filters, filter, q: query });
 
   return (
     <div className="flex h-full flex-col">
       <header className="border-b px-4 pb-3 pt-4">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="text-[17px] font-[650] tracking-tight">Bandeja</h2>
-          <span className="text-sm text-text-3">{conversations.length}</span>
+          <span className="text-sm text-text-3">{counts?.all ?? visible.length}</span>
           {multiChannel && (
             <div className="ml-auto flex items-center gap-1">
               {channels.map((ch) => {
@@ -220,7 +338,7 @@ export function ConversationList({
                 return (
                   <button
                     key={ch}
-                    onClick={() => setInbox(on ? "all" : ch)}
+                    onClick={() => onFiltersChange({ channel: on ? null : ch })}
                     aria-pressed={on}
                     title={
                       on
@@ -239,7 +357,7 @@ export function ConversationList({
                       channel={ch}
                       className="h-[13px] w-[13px] rounded-[4px]"
                     />
-                    {inboxCount(ch)}
+                    {counts?.byChannel[ch] ?? 0}
                   </button>
                 );
               })}
@@ -253,7 +371,7 @@ export function ConversationList({
             placeholder="Buscar por nombre o teléfono…"
             aria-label="Buscar conversación"
             defaultValue=""
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => pushQuery(e.target.value)}
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-3"
           />
           {query && (
@@ -275,7 +393,7 @@ export function ConversationList({
         {pills.map((f) => (
           <button
             key={f.id}
-            onClick={() => setFilter(f.id)}
+            onClick={() => onFiltersChange({ filter: f.id })}
             aria-pressed={filter === f.id}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
@@ -296,10 +414,10 @@ export function ConversationList({
           </button>
         ))}
 
-        {stages.length > 0 && (
+        {pipelineStages.length > 0 && (
           <select
             value={stage}
-            onChange={(e) => setStage(e.target.value)}
+            onChange={(e) => selectStage(e.target.value)}
             aria-label="Filtrar por etapa del embudo"
             className={cn(
               "ml-auto min-w-0 max-w-[42%] truncate rounded-full border px-2 py-[5px] text-[12.5px] font-medium transition-colors",
@@ -309,23 +427,32 @@ export function ConversationList({
             )}
           >
             <option value="all">Toda etapa</option>
-            {stages.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            {pipelineStages.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </select>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading ? (
-          <p className="p-6 text-center text-xs text-text-3">Cargando…</p>
-        ) : conversations.length === 0 ? (
+          error === "first" ? (
+            <div className="flex flex-col items-center gap-2 p-6 text-center">
+              <p className="text-xs text-text-3">No se pudo cargar la Bandeja.</p>
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                Reintentar
+              </Button>
+            </div>
+          ) : (
+            <p className="p-6 text-center text-xs text-text-3">Cargando…</p>
+          )
+        ) : visible.length === 0 && noFilters && !hasMore ? (
           <EmptyState onSeeded={onSeeded} />
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && !hasMore ? (
           <p className="p-6 text-center text-xs text-text-3">
-            {filter === "handoff"
+            {filter === "human"
               ? "Ninguna conversación requiere atención humana."
               : filter === "mine"
                 ? "No tienes conversaciones a tu nombre."
@@ -430,6 +557,16 @@ export function ConversationList({
             })}
           </ul>
         )}
+        {!loading && (
+          <ListFooter
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            failed={error === "more"}
+            empty={visible.length === 0}
+            onLoadMore={onLoadMore}
+          />
+        )}
+        <div ref={sentinelRef} aria-hidden className="h-px" />
       </div>
     </div>
   );
