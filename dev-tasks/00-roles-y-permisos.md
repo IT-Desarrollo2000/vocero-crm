@@ -485,9 +485,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "member_org_user_uq"
 
 ### Tareas ordenadas
 
-- [ ] T-00-01 `src/lib/roles.ts` (nuevo) + unit `tests/unit/roles.test.ts` (normalización, etiquetas).
-- [ ] T-00-02 `requireSession` devuelve `Role` normalizado (`session.ts:29-36`). Dep: 01.
-- [ ] T-00-03 `withAuth(..., { role })` + `requireOwner()` en `src/lib/api.ts`; unit `tests/unit/with-auth-role.test.ts` (mock de `@/lib/auth/session`). Dep: 02.
+- [x] T-00-01 `src/lib/roles.ts` (nuevo) + unit `tests/unit/roles.test.ts` (normalización, etiquetas).
+- [x] T-00-02 `requireSession` devuelve `Role` normalizado (`session.ts:29-36`). Dep: 01.
+- [x] T-00-03 `withAuth(..., { role })` + `requireOwner()` en `src/lib/api.ts`; unit `tests/unit/with-auth-role.test.ts` (mock de `@/lib/auth/session`). Dep: 02.
 - [ ] T-00-04 Aplicar la matriz a `settings/*`, `kb/*`, `lab/*`, `agent/profile` PUT, `pipeline/stages` POST/PATCH/DELETE, `templates` POST + `sync`, `calendar/settings`, `seed/demo`; retirar los 4 chequeos manuales. Dep: 03.
 - [ ] T-00-05 `GET /api/agent/profile` reducido para Vendedor. Dep: 03.
 - [ ] T-00-06 `src/lib/permissions.ts` (nuevo) con la tabla `ROUTE_POLICY` + `tests/unit/role-matrix.test.ts` (nuevo). Dep: 04.

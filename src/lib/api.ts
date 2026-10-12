@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireSession, UnauthorizedError, type SessionContext } from "@/lib/auth/session";
+import { isOwner, type Role } from "@/lib/roles";
 
 /** Respuesta de error estándar de la API interna (contrato api.md). */
 export function apiError(
@@ -10,12 +11,37 @@ export function apiError(
   return Response.json({ error: { code, message } }, { status });
 }
 
+export type WithAuthOptions = {
+  /** Rol mínimo exigido. Hoy solo "owner" restringe; sin rol = cualquiera. */
+  role?: Role;
+};
+
+/** 403 estándar cuando la acción es solo del Propietario. */
+function forbidden(): Response {
+  return apiError(403, "forbidden", "Solo el Propietario puede hacer esto");
+}
+
+/**
+ * Chequeo de Propietario DENTRO de un handler (políticas `any*` que bifurcan
+ * por rol). Devuelve la Response 403 a retornar tal cual, o null si pasa —
+ * mismo patrón que `parseBody` (resultado, no excepción):
+ *
+ *   const denied = requireOwner(session);
+ *   if (denied) return denied;
+ */
+export function requireOwner(session: { role: Role }): Response | null {
+  return isOwner(session) ? null : forbidden();
+}
+
 /**
  * Envuelve un route handler autenticado: resuelve la sesión (401 si no hay),
- * captura errores no controlados (500 sin stack) y deja pasar Response.
+ * aplica la guarda de rol si se pide (`{ role: "owner" }` → 403 `forbidden`
+ * sin ejecutar el handler ni leer el body), captura errores no controlados
+ * (500 sin stack) y deja pasar Response.
  */
 export function withAuth<Args extends unknown[]>(
-  handler: (session: SessionContext, ...args: Args) => Promise<Response>
+  handler: (session: SessionContext, ...args: Args) => Promise<Response>,
+  opts?: WithAuthOptions
 ): (...args: Args) => Promise<Response> {
   return async (...args: Args) => {
     let session: SessionContext;
@@ -26,6 +52,9 @@ export function withAuth<Args extends unknown[]>(
         return apiError(401, "unauthorized", "No autenticado");
       }
       throw err;
+    }
+    if (opts?.role === "owner" && !isOwner(session)) {
+      return forbidden();
     }
     try {
       return await handler(session, ...args);
