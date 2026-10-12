@@ -680,6 +680,12 @@ reasignar; NULL al liberar).
 - Lista lo visible para quien pide. `assigned=me|unassigned|all` (def. `all`).
 - 200 `{ conversations: ConversationDto[] }` · 422 `invalid_query` si
   `assigned` trae otro valor.
+- Una conversación que deja de ser visible (reasignada a otro) simplemente
+  no vuelve en la respuesta: el servidor no avisa "ya no la ves" (eso
+  filtraría). Por eso, ante `conversation.updated`, el cliente **reemplaza**
+  la lista con un refetch completo (sin `since`, como hoy
+  `inbox-client.tsx:75-81`); si 06 introduce refetch incremental, debe
+  descartar los ids que ya no lleguen.
 
 `PATCH /api/conversations/[id]` — `any*` (sin cambios de cuerpo)
 - `{ aiEnabled?, reactivate?, markRead? }`; NO cambia la asignación.
