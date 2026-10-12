@@ -246,9 +246,9 @@ los fija 00/09; la ficha hereda los del contacto.
 
 ### Cambios de datos (si aplica)
 
-Migración nueva (generada con `pnpm db:generate`; hoy la última es
-`drizzle/0012_handoff_nota.sql`, así que sería **0013** salvo que 00/09 entren
-antes). Aditiva, re-ejecutable, sin backfill:
+Migración nueva: **`drizzle/0014_ficha_campos.sql`** (0013 la tomó 00; ver
+"Contrato 04-0" para el SQL final, que además lleva FK de `actor_user_id`).
+Aditiva, re-ejecutable, sin backfill:
 
 ```sql
 ALTER TABLE agent_profile ADD COLUMN ficha_fields jsonb;      -- NULL = ficha libre
