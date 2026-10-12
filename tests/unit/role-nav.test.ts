@@ -62,6 +62,7 @@ describe("settingsTabsFor", () => {
       "/settings/whatsapp",
       "/settings/branding",
       "/settings/templates",
+      "/settings/quick-replies",
       "/settings/team",
       "/settings/account",
     ]);
@@ -82,6 +83,7 @@ describe("settingsTabsFor", () => {
       "/settings/messenger",
       "/settings/branding",
       "/settings/templates",
+      "/settings/quick-replies",
       "/settings/team",
       "/settings/calendar",
       "/settings/ads",

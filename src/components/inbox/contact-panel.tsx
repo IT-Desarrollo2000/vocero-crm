@@ -25,8 +25,14 @@ export function ContactPanel({
   refreshKey = 0,
   onPatchConversation,
   onClose,
+  assignment = null,
 }: {
   conversation: ConversationDto;
+  /**
+   * 09: control "Responsable" (selector del Propietario o Tomar/Liberar del
+   * Vendedor). Lo arma la Bandeja; null = no se muestra la fila.
+   */
+  assignment?: React.ReactNode;
   /** Aumenta con cada evento SSE relevante: dispara un refetch en vivo. */
   refreshKey?: number;
   onPatchConversation: (patch: {
@@ -53,7 +59,9 @@ export function ContactPanel({
   const contactId = conversation.contact.id;
   // El Vendedor no configura el agente (dev-tasks/00, RF-00-09): ve el aviso,
   // pero sin el enlace a /agent, que para él es un 404.
-  const owner = isOwner(useViewer());
+  const viewer = useViewer();
+  const owner = isOwner(viewer);
+  const viewerId = viewer.userId;
 
   const agentReady = aiConfigured && agentEnabled;
   // El control es la FUENTE DE VERDAD de la conversación: el agente in-process
@@ -196,6 +204,22 @@ export function ContactPanel({
               </p>
             </div>
           </div>
+
+          {assignment && (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium">Responsable</p>
+                <p className="truncate text-[11px] text-text-3">
+                  {conversation.assignedTo
+                    ? conversation.assignedTo.userId === viewerId
+                      ? "La atiendes tú"
+                      : conversation.assignedTo.name
+                    : "Sin asignar"}
+                </p>
+              </div>
+              <div className="min-w-0 shrink">{assignment}</div>
+            </div>
+          )}
 
           {conversation.handoffAt && (
             <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
