@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createEventHub } from "@/lib/event-hub";
+import { connectEventSource, useEventHub } from "@/components/events-provider";
 
 export type EventHandlers = {
   onMessageNew?: (data: { conversationId: string; message: unknown }) => void;
@@ -34,53 +36,26 @@ export type EventHandlers = {
 };
 
 /**
- * Suscripción SSE de la bandeja (contrato sse.md). EventSource reconecta
+ * Suscripción SSE de la bandeja (contrato sse.md). Dentro de `AppShell`
+ * comparte el ÚNICO `EventSource` de la pestaña (`EventsProvider`, D-05-4);
+ * fuera de él abre su propia conexión, como antes. EventSource reconecta
  * solo; el servidor no garantiza replay, así que al reconectar el consumidor
  * debe refetch con `since=` (onReconnect).
  */
 export function useEvents(handlers: EventHandlers): void {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+  const shared = useEventHub();
 
   useEffect(() => {
-    const source = new EventSource("/api/events");
-    let hadError = false;
-
-    const listen = <T,>(type: string, handler: (data: T) => void) => {
-      source.addEventListener(type, (ev) => {
-        try {
-          handler(JSON.parse((ev as MessageEvent).data) as T);
-        } catch {
-          // evento malformado: ignorar
-        }
-      });
+    if (shared) return shared.subscribe(handlersRef);
+    // Sin proveedor: conexión propia (mismo comportamiento que antes de 05).
+    const hub = createEventHub<EventHandlers>();
+    const unsubscribe = hub.subscribe(handlersRef);
+    const close = connectEventSource(hub);
+    return () => {
+      unsubscribe();
+      close();
     };
-
-    listen("message.new", (d) => handlersRef.current.onMessageNew?.(d as never));
-    listen("message.status", (d) =>
-      handlersRef.current.onMessageStatus?.(d as never)
-    );
-    listen("conversation.updated", (d) =>
-      handlersRef.current.onConversationUpdated?.(d as never)
-    );
-    listen("conversation.handoff", (d) =>
-      handlersRef.current.onConversationHandoff?.(d as never)
-    );
-    listen("lab.run",(d) => handlersRef.current.onLabRun?.(d as never));
-    listen("booking.updated", (d) =>
-      handlersRef.current.onBookingUpdated?.(d as never)
-    );
-
-    source.onerror = () => {
-      hadError = true;
-    };
-    source.onopen = () => {
-      if (hadError) {
-        hadError = false;
-        handlersRef.current.onReconnect?.();
-      }
-    };
-
-    return () => source.close();
-  }, []);
+  }, [shared]);
 }

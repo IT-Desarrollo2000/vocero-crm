@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useViewer } from "@/components/viewer-context";
+import { AlertsCard } from "@/components/alerts-menu";
 import { passwordChangeError, validatePasswordChange } from "./account-errors";
 
 type ClientError = { code?: string; status?: number };
@@ -29,6 +30,8 @@ export function AccountClient({
     <div className="max-w-2xl space-y-6">
       <NameCard initialName={initialName} email={email} roleText={roleLabel(role)} />
       <PasswordCard />
+      {/* 05: alertas del navegador, por usuario y dispositivo. */}
+      <AlertsCard />
     </div>
   );
 }

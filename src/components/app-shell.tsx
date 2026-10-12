@@ -8,6 +8,8 @@ import type { Role } from "@/lib/roles";
 import type { ThemePreference } from "@/lib/theme";
 import { AppNav } from "@/components/app-nav";
 import { ViewerProvider } from "@/components/viewer-context";
+import { EventsProvider } from "@/components/events-provider";
+import { AlertsProvider } from "@/components/alerts-provider";
 
 /**
  * Cascarón de la app en dos modos:
@@ -69,52 +71,58 @@ export function AppShell({
     <ViewerProvider
       viewer={{ userId, role, name: userName, businessName: branding.name }}
     >
-      <div className="flex h-dvh overflow-hidden bg-background">
-        {navOpen && (
-          <button
-            aria-label="Cerrar el menú"
-            tabIndex={-1}
-            onClick={() => setNavOpen(false)}
-            className="fixed inset-0 z-40 bg-overlay lg:hidden"
-          />
-        )}
+      {/* 05: un solo EventSource por pestaña y, encima, título/favicon y
+          coordinación de alertas para todas las páginas autenticadas. */}
+      <EventsProvider>
+        <AlertsProvider>
+          <div className="flex h-dvh overflow-hidden bg-background">
+            {navOpen && (
+              <button
+                aria-label="Cerrar el menú"
+                tabIndex={-1}
+                onClick={() => setNavOpen(false)}
+                className="fixed inset-0 z-40 bg-overlay lg:hidden"
+              />
+            )}
 
-        <AppNav
-          branding={branding}
-          commit={commit}
-          userName={userName}
-          role={role}
-          theme={theme}
-          initialCollapsed={navCollapsed}
-          agenda={agenda}
-          open={navOpen}
-          onClose={() => setNavOpen(false)}
-        />
+            <AppNav
+              branding={branding}
+              commit={commit}
+              userName={userName}
+              role={role}
+              theme={theme}
+              initialCollapsed={navCollapsed}
+              agenda={agenda}
+              open={navOpen}
+              onClose={() => setNavOpen(false)}
+            />
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden">
-            <button
-              onClick={() => setNavOpen(true)}
-              aria-label="Abrir el menú"
-              aria-expanded={navOpen}
-              className="rounded-md p-2 text-text-2 hover:bg-accent hover:text-foreground"
-            >
-              <Menu className="h-5 w-5" strokeWidth={1.8} />
-            </button>
-            <span
-              className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm bg-brand text-[13px] font-bold text-brand-fg"
-              aria-hidden
-            >
-              {branding.name.charAt(0).toUpperCase()}
-            </span>
-            <span className="truncate text-[15px] font-[650] tracking-tight">
-              {branding.name}
-            </span>
-          </header>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden">
+                <button
+                  onClick={() => setNavOpen(true)}
+                  aria-label="Abrir el menú"
+                  aria-expanded={navOpen}
+                  className="rounded-md p-2 text-text-2 hover:bg-accent hover:text-foreground"
+                >
+                  <Menu className="h-5 w-5" strokeWidth={1.8} />
+                </button>
+                <span
+                  className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm bg-brand text-[13px] font-bold text-brand-fg"
+                  aria-hidden
+                >
+                  {branding.name.charAt(0).toUpperCase()}
+                </span>
+                <span className="truncate text-[15px] font-[650] tracking-tight">
+                  {branding.name}
+                </span>
+              </header>
 
-          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
-        </div>
-      </div>
+              <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+            </div>
+          </div>
+        </AlertsProvider>
+      </EventsProvider>
     </ViewerProvider>
   );
 }

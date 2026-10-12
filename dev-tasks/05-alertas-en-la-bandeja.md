@@ -332,21 +332,35 @@ Fuera de alcance:
 
 ### Tareas ordenadas
 
-- [ ] **T-05-01** `src/lib/alerts.ts` (prefs, decisión, contenido, dedupe,
-  título) + unit tests. *(—)*
-- [ ] **T-05-02** `src/server/inbox/handoff.ts` `markHandoff` + evento
+- [x] **T-05-01** `src/lib/alerts.ts` (prefs, decisión, contenido, dedupe,
+  título) + unit tests. *(—)* — 05-core: `tests/unit/alerts.test.ts`.
+- [x] **T-05-02** `src/server/inbox/handoff.ts` `markHandoff` + evento
   `conversation.handoff` (bus, `use-events`, `sse.md`), sin eventos para
-  `is_test`; reemplazar las 3 escrituras. *(—; coordinar con 02)*
-- [ ] **T-05-03** Agregar `conversation.handoff` al filtro SSE por visibilidad
-  de 09 (misma regla que `message.new`) + test. *(09: T-09-08)*
-- [ ] **T-05-04** `events-provider.tsx` y migrar `useEvents` a una sola
-  conexión. *(—; D-05-4)*
-- [ ] **T-05-05** `favicon-badge.ts` + `use-unread-indicator.ts` (título +
-  favicon + badge compartido). *(06: `counts`)*
+  `is_test`; reemplazar las 3 escrituras. *(—; coordinar con 02)* — contrato
+  05/02-0.
+- [x] **T-05-03** Agregar `conversation.handoff` al filtro SSE por visibilidad
+  de 09 (misma regla que `message.new`) + test. *(09: T-09-08)* — contrato
+  05/02-0.
+- [x] **T-05-04** `events-provider.tsx` y migrar `useEvents` a una sola
+  conexión. *(—; D-05-4)* — 05-core: reparto en `src/lib/event-hub.ts`,
+  montado en `AppShell`; `useEvents` conserva su firma (sin proveedor abre
+  su propia conexión).
+- [x] **T-05-05** `favicon-badge.ts` + `use-unread-indicator.ts` (título +
+  favicon + badge compartido). *(06: `counts`)* — 05-core: en
+  `AlertsProvider` (`AppShell`); N = `counts.unreadConversations` con
+  respaldo en la lista completa mientras `counts` responda 501;
+  `useUnreadCount()` listo para el badge del menú (lo cablea 05-inbox).
 - [ ] **T-05-06** `use-inbox-alerts.ts`: líder entre pestañas, notificación,
-  sonido, clic → `/inbox?contact=`. *(T-05-01, T-05-02, T-05-04)*
+  sonido, clic → `/inbox?contact=`. *(T-05-01, T-05-02, T-05-04)* — 05-core
+  dejó el hook (`src/components/use-inbox-alerts.ts`), el coordinador
+  (`alerts-coordinator.ts`: Web Locks + `BroadcastChannel`, dedupe y
+  presencia) y el sonido (`alert-sound.ts`); falta (05-inbox) montar
+  `useInboxAlerts()` y llamar `reportOpenConversation(selectedId)` desde la
+  Bandeja.
 - [ ] **T-05-07** `alerts-menu.tsx` + aviso en Bandeja + estados de permiso.
-  *(T-05-06)*
+  *(T-05-06)* — 05-core: `alerts-menu.tsx` con estados de permiso, montado
+  como tarjeta en «Mi cuenta»; falta (05-inbox) el aviso descartable en la
+  Bandeja y, si se quiere, la campana en el pie del lateral.
 - [ ] **T-05-08** Filtro `closing` en servidor + `counts.closing` + pastilla y
   cuenta regresiva en la lista. *(06)*
 - [ ] **T-05-09** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
