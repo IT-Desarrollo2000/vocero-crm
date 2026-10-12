@@ -407,9 +407,9 @@ justificada: el ticker obtiene primero la lista de organizaciones con
 - [x] T-10-09 Dev: `POST /api/dev/reminders/tick` + disparador de falla en wa-mock.
       *(10-0: el disparador `fail-sends` ya funciona; el tick responde 501
       hasta que 10-A implemente `runReminderTick`.)*
-- [ ] T-10-10 UI Ajustes (card Recordatorios).
-- [ ] T-10-11 UI Citas (chips + reintentar) y métricas (Reportes o card).
-- [x] T-10-12 Unit tests (abajo).
+- [x] T-10-10 UI Ajustes (card Recordatorios).
+- [x] T-10-11 UI Citas (chips + reintentar) y métricas (Reportes → pestaña «Citas»).
+- [x] T-10-12 Unit tests (servidor + `tests/unit/reminders-ui.test.ts`).
 - [x] T-10-13 E2E `scripts/e2e-recordatorios.mjs` + guion
       `tests/e2e/us-recordatorios.md`; enganchar en `pnpm test:e2e`.
       *(10-A: escrito y `node --check`; `pnpm test:e2e` cubre bandera y
