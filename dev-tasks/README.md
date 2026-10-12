@@ -53,7 +53,7 @@ sigue el orden de implementación. Si el orden cambia, se renumera aquí.
 | 09 | `0015` | `conversation.assigned_user_id` + `assigned_at`, tabla `quick_reply` |
 | 06 | `0016` | Solo índices de la Bandeja |
 | 05 | — | Sin cambios de datos (preferencias por dispositivo) |
-| 02 | `0017` | Índice `message(organization_id, created_at)`; en V2 tabla `conversation_handoff_event` |
+| 02 (+05) | `0017` | Índice `message(organization_id, created_at)` + tabla `conversation_handoff_event` (V2) con siembra — **creada en el contrato 05/02-0** |
 | 10 | `0018` | `booking_reminder`, `agenda_offer_log`, ajustes de recordatorio |
 | 08 | `0019` | `lab_persona`, `lab_suggestion_application`, snapshot por corrida |
 

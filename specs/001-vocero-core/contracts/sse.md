@@ -23,13 +23,23 @@ Connection: keep-alive
     a todos los roles. Lo publican el PATCH de la Bandeja, el agente, `/api/bot/*`,
     la ingesta, el pipeline, la asignación y la baja de un miembro (una vez por
     conversación liberada, tras el commit).
+  - `conversation.handoff` — `{ conversationId, reason, handoffAt }` (05/02-0): una
+    conversación PASÓ a necesitar humano (`handoff_at` de NULL a una fecha; `handoffAt`
+    en ISO-8601). Lo publica SOLO `markHandoff` (`src/server/inbox/handoff.ts`), una vez
+    por transición, tras el commit y seguido de `conversation.updated { id }`. Nunca para
+    conversaciones `is_test`. `reason` es el catálogo de `conversation.handoffReason`
+    (`cliente | modelo | error | ventana | hostilidad | manual_reply`); **sí** se publica
+    para `manual_reply` (el dueño contestó desde el teléfono) y es el cliente quien
+    decide no alertar por ese motivo. Payload mínimo a propósito: nombre, teléfono y
+    nota se piden con `GET /api/conversations?ids=<id>`, que aplica la vista del usuario.
+    Cliente: `useEvents({ onConversationHandoff })`.
   - `booking.updated` — `{ bookingId }` (015)
   - `lab.run` — `{ runId, status, progress: {done, total}, score? }` (solo Propietario)
 - **Visibilidad por conexión** (09, `src/server/events/visibility.ts` →
   `decideDelivery(event, viewer, { canSee })` → `deliver | rewrite | drop`; la ruta
   lo aplica con la cola por conexión `createDeliveryQueue`):
   - Propietario: todo `deliver`.
-  - Vendedor: `message.new` / `message.status` solo si ve la conversación
+  - Vendedor: `message.new` / `message.status` / `conversation.handoff` solo si ve la conversación
     (`canSeeConversation`, consulta por PK: suya o sin asignar); `conversation.updated`
     siempre, reescrito a `{ conversation: { id } }`; `booking.updated` sí; `lab.run` no.
   - **Orden**: la ruta procesa los eventos de UNA conexión en orden de llegada (cola de

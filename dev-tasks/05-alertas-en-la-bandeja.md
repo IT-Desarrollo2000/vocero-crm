@@ -1,6 +1,12 @@
 # 05 — Alertas en la Bandeja
 
-> Estado: propuesto · Prioridad: alta · Esfuerzo: M · Migración: no (índice opcional para «Ventana por cerrar», ver Cambios de datos) · Bandera: no (cada usuario la activa en su navegador; apagada por defecto)
+> Estado: en curso (contrato 05/02-0 fijado; migración oficial `0017`) · Prioridad: alta · Esfuerzo: M · Migración: no (índice opcional para «Ventana por cerrar», ver Cambios de datos) · Bandera: no (cada usuario la activa en su navegador; apagada por defecto)
+>
+> **Manda la sección [«Contrato 05/02-0»](#contrato-0502-0)** sobre cualquier
+> detalle anterior que la contradiga (helper `markHandoff`, evento
+> `conversation.handoff`, tabla `conversation_handoff_event` con `created_at`
+> como hora del evento, migración `0017`, regla de `manual_reply`).
+>
 
 ## 1. Especificación
 
@@ -424,6 +430,141 @@ wa-mock + ai-mock, `BOT_API_KEY` en `.env.e2e`):
   Con pocas decenas de usuarios por instancia es despreciable.
 - **Riesgo**: si se implementa antes que 06, el contador saldría de la lista
   completa como hoy; por eso el orden recomendado es 06 → 05.
+
+## Contrato 05/02-0
+
+Fijado en el paso conjunto 05/02-0 para que **05-core**, **05-inbox**,
+**02-A** y **02-B** trabajen en paralelo. Manda sobre el resto de este
+documento (y es idéntico en `05-alertas-en-la-bandeja.md` y
+`02-metricas-del-agente.md`). Decisiones: D-02-1 = **V2** (tabla de eventos);
+D-02-2 = zona de `calendar_settings` si existe, si no `America/Mexico_City`;
+D-05-1 = el contador cuenta **conversaciones**.
+
+Código ya en el repo: `src/server/inbox/handoff.ts` (`markHandoff`), el
+evento `conversation.handoff` (`src/server/events/bus.ts`, filtro en
+`src/server/events/visibility.ts`, `onConversationHandoff` en
+`src/components/use-events.ts`), la tabla `conversationHandoffEvent` y
+`HANDOFF_REASONS` / `HANDOFF_SOURCES` en `src/lib/db/schema.ts`, el prefijo
+`handoffEvent: "hoe"` (`src/lib/db/ids.ts`) y la migración
+`drizzle/0017_metricas_escalamientos.sql`. Pruebas:
+`tests/unit/handoff-event.test.ts`, `tests/unit/handoff-event-guard.test.ts`
+y el caso nuevo de `tests/unit/events-visibility.test.ts`.
+
+### Firma de servidor
+
+```ts
+// src/server/inbox/handoff.ts
+markHandoff(input: {
+  organizationId: string;
+  conversationId: string;
+  reason: HandoffReason;          // catálogo de conversation.handoffReason
+  note?: string | null;           // se recorta con toHandoffNote (≤ 500; vacía → null)
+  source: "agente" | "bot_externo" | "telefono" | "operador" | "sistema";
+  pauseAi: boolean;               // true → además ai_enabled = false
+  actorUserId?: string | null;    // usuario del CRM, si lo hubo
+}): Promise<{ applied: true; handoffAt: Date; isTest: boolean } | { applied: false }>
+```
+
+- Transacción: `UPDATE conversation SET handoff_at, handoff_reason,
+  handoff_note, updated_at[, ai_enabled = false] WHERE org AND id AND
+  handoff_at IS NULL RETURNING id, is_test`. Sin fila → `{ applied: false }`,
+  no escribe ni publica nada (el primer motivo gana).
+- Con fila y `is_test = false`: en la MISMA transacción, `INSERT` del evento
+  `opened` (misma marca de tiempo que `handoff_at`). Tras el commit:
+  `publish conversation.handoff` y después `conversation.updated { id }`.
+- Con `is_test = true`: solo el UPDATE (el runner del Laboratorio lo lee);
+  **cero** filas de bitácora y **cero** eventos SSE.
+- Llamadores hoy:
+
+  | Origen | `reason` | `source` | `pauseAi` |
+  |---|---|---|---|
+  | Agente in-process (`applyHandoff`, `src/server/ai/pipeline.ts`) | `ventana` / `cliente` / `error` / `modelo` | `agente` | `false` (comportamiento previo) |
+  | Respuesta manual desde el teléfono (`src/server/inbox/ingest.ts`) | `manual_reply` | `telefono` | `true` |
+  | Cerebro externo (`POST /api/bot/handoff`) | `toHandoffReason(...)` | `bot_externo` | `true` |
+
+  `operador` y `sistema` quedan reservados (p. ej. un botón «Pasar a humano»
+  en la Bandeja usaría `operador` + `actorUserId`).
+- Corrige la doble escritura de antes: `farewell` → `window_closed` →
+  `applyHandoff("ventana")` y luego `applyHandoff("modelo")` ya no pisa el
+  motivo; queda `ventana` y un solo evento.
+- **No cambia**: reactivar la IA (`PATCH reactivate`,
+  `src/server/inbox/queries.ts`) y `POST /api/bot/reset` siguen limpiando el
+  estado de `conversation` **sin** registrar evento `closed` (recortado). Un
+  re-escalamiento posterior es una transición nueva → otro `opened`.
+
+### Evento SSE
+
+`conversation.handoff` — `{ conversationId: string, reason: string,
+handoffAt: string /* ISO-8601 */ }`. Uno por transición; nunca de `is_test`.
+**Sí** se publica para `manual_reply`; el cliente decide no alertar (RF-05-03).
+Visibilidad (`decideDelivery`): Propietario `deliver`; Vendedor con la MISMA
+regla que `message.new` (`canSee(conversationId)`; si lanza → `drop`).
+Cliente: `useEvents({ onConversationHandoff })` (firma de `useEvents`
+intacta). Documentado en `specs/001-vocero-core/contracts/sse.md`.
+
+### Tabla `conversation_handoff_event` (migración 0017)
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | text PK | `hoe_…` (`newId("handoffEvent")`); sembradas: `hoe_seed_<conversation.id>` |
+| `organization_id` | text NOT NULL | FK `organization` ON DELETE CASCADE |
+| `conversation_id` | text NOT NULL | FK `conversation` ON DELETE CASCADE |
+| `kind` | text NOT NULL | hoy solo `opened` (`closed` reservado, no se escribe) |
+| `reason` | text | catálogo `HANDOFF_REASONS` |
+| `note` | text | nota recortada |
+| `source` | text NOT NULL | `agente \| bot_externo \| telefono \| operador \| sistema \| migracion` |
+| `actor_user_id` | text | FK `user` ON DELETE SET NULL |
+| `approximate` | boolean NOT NULL DEFAULT false | `true` solo en la siembra |
+| `created_at` | timestamp NOT NULL DEFAULT now() | **es la hora del evento** (no existe `occurred_at`; donde este documento diga `occurred_at`, léase `created_at`) |
+
+Índices: `hoe_org_created_idx (organization_id, created_at)`,
+`hoe_org_reason_idx (organization_id, reason)`. Además
+`message_org_created_idx (message.organization_id, created_at)`.
+
+- Append-only: solo `markHandoff` inserta; nadie actualiza ni borra
+  (`handoff-event-guard.test.ts`).
+- Siembra re-ejecutable: una fila `opened`, `source = 'migracion'`,
+  `approximate = true`, `created_at = conversation.handoff_at`, por cada
+  conversación con `handoff_at` no nulo y `is_test = false`
+  (`ON CONFLICT ("id") DO NOTHING`).
+- Columnas `timestamp` sin zona, en UTC (como el resto del esquema).
+
+### Regla de `manual_reply` en métricas (decisión del orquestador)
+
+Las pausas por respuesta manual se registran como evento `opened` con
+`reason = 'manual_reply'` y `source = 'telefono'`, pero las métricas las
+**excluyen** de «Escalamientos por motivo» (M3) y de M5 (en M2 el
+resultado no cambia: la respuesta manual ya cuenta como saliente humana,
+`origin = 'manual'`, así que conviene excluirlas también del CTE `esc`
+para no duplicar criterio); se muestran como
+línea aparte **«Pausas por respuesta manual»** (conteo en el rango). Filtro:
+`reason <> 'manual_reply'` para M3/M5 y `reason = 'manual_reply'` para la
+línea aparte. Las filas `approximate = true` cuentan para totales (M3 y la
+línea aparte) pero jamás para promedios de tiempo (M5).
+
+### Qué falta (por paso)
+
+- **05-core**: `src/lib/alerts.ts` (prefs, `shouldNotify` — `manual_reply`
+  → no —, contenido, `dedupeKey` = `handoff:<conversationId>:<handoffAt>`,
+  título) + tests; `events-provider.tsx` (un solo `EventSource`, D-05-4)
+  conservando `useEvents(handlers)`; `favicon-badge.ts` y
+  `use-unread-indicator.ts` sobre `counts` de 06.
+- **05-inbox**: `use-inbox-alerts.ts` (líder entre pestañas, notificación,
+  sonido, clic → `/inbox?contact=`) usando `onConversationHandoff`;
+  `alerts-menu.tsx`; filtro `closing` («Ventana por cerrar») en
+  `list-query.ts` + `counts.closing` + pastilla (archivos de 06: esperar a
+  que 06 esté integrada); E2E `scripts/e2e-alertas.mjs`.
+- **02-A (servidor)**: `src/server/reports/` (`range.ts`, `timezone.ts` con
+  D-02-2, `run.ts`, `agent.ts` M1–M8 sobre `message_org_created_idx` y
+  `conversation_handoff_event` con la regla de `manual_reply`),
+  `src/lib/reports.ts`, `GET /api/reports/agent` solo Propietario,
+  `api.md`, tests de rango/SQL/formato.
+- **02-B (UI)**: ítem «Reportes» `ownerOnly`, páginas en
+  `src/app/(app)/(owner)/reports/`, `src/components/reports/` (incluye la
+  línea «Pausas por respuesta manual» y el aviso de datos aproximados
+  anteriores a la migración 0017), E2E `scripts/e2e-metricas.mjs`.
+- Ninguno necesita otra migración para esto: 0017 ya está aplicada en el
+  esquema de `schema.ts` (`pnpm db:generate` sin diff).
 
 ## 3. Dependencias con otras tareas
 

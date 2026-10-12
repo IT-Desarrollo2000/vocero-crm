@@ -14,7 +14,8 @@ import {
   resolveStage,
   type AgentActionType,
 } from "@/server/ai/actions";
-import { matchesHandoffIntent, toHandoffNote } from "@/server/ai/handoff";
+import { matchesHandoffIntent } from "@/server/ai/handoff";
+import { markHandoff } from "@/server/inbox/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 import {
   fichaRenderOptions,
@@ -419,35 +420,25 @@ export type ConversationHandoffReason = NonNullable<
   (typeof schema.conversation.$inferSelect)["handoffReason"]
 >;
 
+/**
+ * Escalamiento del agente in-process. Pasa por la puerta única `markHandoff`
+ * (05/02-0): solo escribe si no había handoff abierto (el primer motivo gana),
+ * registra el evento y publica — salvo en el Laboratorio. No apaga la IA
+ * (`ai_enabled` se queda como estaba): el agente se detiene por `handoff_at`.
+ */
 export async function applyHandoff(
   conversationId: string,
   organizationId: string,
   reason: ConversationHandoffReason,
   note?: string | null
 ): Promise<void> {
-  const db = getDb();
-  const handoffNote = toHandoffNote(note);
-  const updated = await db
-    .update(schema.conversation)
-    .set({
-      handoffAt: new Date(),
-      handoffReason: reason,
-      handoffNote,
-      updatedAt: new Date(),
-    })
-    .where(
-      scoped(
-        schema.conversation.organizationId,
-        organizationId,
-        eq(schema.conversation.id, conversationId)
-      )
-    )
-    .returning();
-  if (!updated[0]) return;
-  // 09 (RF-09-09): solo el id; motivo y nota se leen por la API con su vista.
-  publish(organizationId, {
-    type: "conversation.updated",
-    data: { conversation: { id: conversationId } },
+  await markHandoff({
+    organizationId,
+    conversationId,
+    reason,
+    note,
+    source: "agente",
+    pauseAi: false,
   });
 }
 

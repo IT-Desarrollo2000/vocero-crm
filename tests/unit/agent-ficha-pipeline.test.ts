@@ -50,8 +50,8 @@ function thenableChain(rows: unknown[]) {
   return chain;
 }
 
-vi.mock("@/lib/db", () => ({
-  getDb: () => ({
+vi.mock("@/lib/db", () => {
+  const fakeDb = {
     select: () => thenableChain(selectQueue.shift() ?? []),
     insert: () => ({
       values: (values: Record<string, unknown>) => {
@@ -64,22 +64,30 @@ vi.mock("@/lib/db", () => ({
         updates.push(values);
         return {
           where: () => ({
-            returning: () => Promise.resolve([{ id: "cv_x", ...values }]),
+            // La conversación del turno es del Laboratorio (isTest): markHandoff
+            // lee `isTest` del RETURNING para no registrar ni publicar.
+            returning: () =>
+              Promise.resolve([{ id: "cv_x", isTest: true, ...values }]),
             then: (resolve: (v: unknown) => void) =>
               Promise.resolve([{}]).then(resolve),
           }),
         };
       },
     }),
-  }),
-  schema: new Proxy(
-    {},
-    {
-      get: (_t, tableName) =>
-        new Proxy({}, { get: (_t2, col) => `${String(tableName)}.${String(col)}` }),
-    }
-  ),
-}));
+    // markHandoff (05/02-0) escribe dentro de una transacción.
+    transaction: <T,>(fn: (tx: unknown) => Promise<T>) => fn(fakeDb),
+  };
+  return {
+    getDb: () => fakeDb,
+    schema: new Proxy(
+      {},
+      {
+        get: (_t, tableName) =>
+          new Proxy({}, { get: (_t2, col) => `${String(tableName)}.${String(col)}` }),
+      }
+    ),
+  };
+});
 
 const conversation = {
   id: "cv_lab",

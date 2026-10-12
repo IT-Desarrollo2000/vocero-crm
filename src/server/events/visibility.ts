@@ -43,7 +43,8 @@ export type DeliveryDeps = {
  * Propietario: todo se entrega tal cual (sin consultar la BD).
  * Vendedor:
  *   - `lab.run` → drop.
- *   - `message.new` / `message.status` → deliver solo si `canSee(conversationId)`;
+ *   - `message.new` / `message.status` / `conversation.handoff` (05) → deliver
+ *     solo si `canSee(conversationId)`;
  *     si no la ve, o si `canSee` LANZA (BD caída/lenta) → drop. Cerrar por
  *     defecto: el cliente se pone al día con el refetch de `onReconnect` o con
  *     el siguiente `conversation.updated`.
@@ -71,7 +72,10 @@ export async function decideDelivery(
     case "lab.run":
       return { kind: "drop" };
     case "message.new":
-    case "message.status": {
+    case "message.status":
+    // 05: misma regla que message.new — un Vendedor no se entera de que
+    // escaló una conversación ajena.
+    case "conversation.handoff": {
       try {
         const visible = await deps.canSee(event.data.conversationId);
         return visible ? { kind: "deliver" } : { kind: "drop" };

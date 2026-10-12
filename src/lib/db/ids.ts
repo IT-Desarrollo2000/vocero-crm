@@ -33,6 +33,8 @@ const prefixes = {
   fichaEvent: "fe",
   // 09 — respuestas rápidas
   quickReply: "qr",
+  // 02/05 — bitácora de escalamientos a humano
+  handoffEvent: "hoe",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

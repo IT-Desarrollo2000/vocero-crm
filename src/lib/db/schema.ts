@@ -331,6 +331,29 @@ export const leadStageEvent = pgTable(
   ]
 );
 
+/**
+ * Catálogo de motivos de handoff: una sola fuente para la columna de
+ * `conversation` y la bitácora `conversation_handoff_event`.
+ */
+export const HANDOFF_REASONS = [
+  "cliente",
+  "modelo",
+  "error",
+  "ventana",
+  "hostilidad",
+  "manual_reply",
+] as const;
+
+/** Quién provocó un escalamiento (`conversation_handoff_event.source`). */
+export const HANDOFF_SOURCES = [
+  "agente",
+  "bot_externo",
+  "telefono",
+  "operador",
+  "sistema",
+  "migracion",
+] as const;
+
 export const conversation = pgTable(
   "conversation",
   {
@@ -361,14 +384,7 @@ export const conversation = pgTable(
     handoffReason: text("handoff_reason", {
       // 008: manual_reply = el dueño respondió desde la app del teléfono.
       // hostilidad = el lead se puso agresivo y el agente se retiró.
-      enum: [
-        "cliente",
-        "modelo",
-        "error",
-        "ventana",
-        "hostilidad",
-        "manual_reply",
-      ],
+      enum: HANDOFF_REASONS,
     }),
     /**
      * Explicación libre de quien escaló (el agente o el cerebro externo): el
@@ -477,6 +493,57 @@ export const fichaEvent = pgTable(
   ]
 );
 
+/**
+ * 02/05 — Bitácora de escalamientos a humano: append-only. Una fila por cada
+ * TRANSICIÓN a handoff (`conversation.handoff_at` de NULL a una fecha). El
+ * estado de `conversation` se limpia al reactivar y se sobrescribe; esta
+ * tabla es el historial que permite contar escalamientos por motivo y periodo.
+ *
+ * Regla dura: la ÚNICA puerta que inserta aquí es `markHandoff`
+ * (`src/server/inbox/handoff.ts`), en la misma transacción que el UPDATE de
+ * `conversation`. Nadie actualiza ni borra (un unit test de vigilancia lo
+ * exige). Las conversaciones `is_test` (Laboratorio) jamás se registran.
+ *
+ * `created_at` ES la hora del evento (no hay `occurred_at`): las filas
+ * sembradas por la migración 0017 llevan `created_at = handoff_at` y
+ * `approximate = true` (cuentan para totales, jamás para promedios de tiempo).
+ */
+export const conversationHandoffEvent = pgTable(
+  "conversation_handoff_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    /** Hoy solo "opened"; "closed" queda reservado (reactivar no registra). */
+    kind: text("kind", { enum: ["opened", "closed"] }).notNull(),
+    /** Motivo (catálogo de `conversation.handoffReason`); NULL en "closed". */
+    reason: text("reason", { enum: HANDOFF_REASONS }),
+    /** Nota libre recortada (`toHandoffNote`), igual que `handoff_note`. */
+    note: text("note"),
+    /**
+     * Quién escaló: el agente in-process, el cerebro externo (`/api/bot`),
+     * el dueño desde el teléfono (manual_reply), un operador, el sistema o
+     * la siembra de la migración.
+     */
+    source: text("source", { enum: HANDOFF_SOURCES }).notNull(),
+    /** NULL = no lo hizo una persona con sesión en el CRM. */
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** true = sembrada en la migración (hora aproximada). */
+    approximate: boolean("approximate").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("hoe_org_created_idx").on(t.organizationId, t.createdAt),
+    index("hoe_org_reason_idx").on(t.organizationId, t.reason),
+  ]
+);
+
 export const message = pgTable(
   "message",
   {
@@ -522,6 +589,8 @@ export const message = pgTable(
       t.conversationId,
       t.createdAt
     ),
+    // 02: barrido por rango de fechas de toda la org (Reportes, migración 0017).
+    index("message_org_created_idx").on(t.organizationId, t.createdAt),
   ]
 );
 
