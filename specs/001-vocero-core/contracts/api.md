@@ -8,7 +8,9 @@ Todas autenticadas por sesión Better Auth y scoped a la organización del usuar
 |---|---|
 | `GET /api/health` | healthcheck deploy: `{ ok: true }` + check de BD |
 | `GET /api/events` | SSE (ver sse.md) |
-| `GET /api/conversations?since=` | lista bandeja (excluye `is_test`) |
+| `GET /api/conversations?since=&assigned=` | lista bandeja (excluye `is_test`) de lo VISIBLE para quien pide (09: Vendedor = suyas + sin asignar); `assigned=me\|unassigned\|all` (def. `all`; otro → 422 `invalid_query`); cada fila trae `assignedTo` / `assignedAt` |
+| `POST /api/conversations/:id/assign` | 09 — tomar / liberar / asignar `{ userId \| null, expect? }` (ver dev-tasks/09 "Contrato 09-0") |
+| `GET/POST /api/quick-replies`, `PATCH/DELETE /api/quick-replies/:id` | 09 — respuestas rápidas (GET cualquier rol; escritura Propietario) |
 | `GET /api/conversations/:id/messages?since=` | hilo + catch-up |
 | `POST /api/conversations/:id/messages` | enviar texto `{ text }` — 409 si ventana cerrada |
 | `POST /api/conversations/:id/messages/template` | enviar plantilla `{ templateId, variable }` |

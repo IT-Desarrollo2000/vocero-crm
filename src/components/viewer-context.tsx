@@ -9,7 +9,14 @@ import type { Role } from "@/lib/roles";
  * leen para ocultar lo que no es de su rol. Es solo UI: la autorización real
  * vive en la API y en las guardas de página.
  */
-export type Viewer = { userId: string; role: Role };
+export type Viewer = {
+  userId: string;
+  role: Role;
+  /** 09: nombre de quien mira — `{{vendedor}}` de las respuestas rápidas. */
+  name: string;
+  /** 09: nombre de la Marca — `{{negocio}}` de las respuestas rápidas. */
+  businessName: string;
+};
 
 const ViewerContext = createContext<Viewer | null>(null);
 

@@ -379,6 +379,17 @@ export const conversation = pgTable(
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
     unreadCount: integer("unread_count").notNull().default(0),
+    /**
+     * 09: responsable de la conversación (a lo sumo uno). NULL = sin asignar.
+     * Solo usuarios miembros de la org; las `is_test` nunca se asignan. La
+     * baja de un vendedor la devuelve a NULL (`onMemberRemoved`); el
+     * ON DELETE SET NULL cubre además un borrado físico del usuario.
+     */
+    assignedUserId: text("assigned_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** 09: cuándo la tomó su responsable actual (NULL si sin asignar). */
+    assignedAt: timestamp("assigned_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -388,6 +399,11 @@ export const conversation = pgTable(
       .on(t.organizationId, t.contactId)
       .where(sql`${t.isTest} = false`),
     index("conversation_org_last_idx").on(t.organizationId, t.lastMessageAt),
+    // 09: Bandeja por responsable ("Mías" / "Sin asignar").
+    index("conversation_org_assignee_idx").on(
+      t.organizationId,
+      t.assignedUserId
+    ),
   ]
 );
 
@@ -1099,4 +1115,38 @@ export const capiSettings = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("capi_settings_org_uq").on(t.organizationId)]
+);
+
+/* ============================================================
+ * 09 — Respuestas rápidas (catálogo de la organización)
+ * ============================================================ */
+
+/**
+ * Textos oficiales del negocio que el equipo inserta con `/` en el
+ * compositor. Los gestiona el Propietario; todos los leen. `shortcut` se
+ * guarda en minúsculas (`^[a-z0-9_-]{1,32}$`) y es único por org.
+ */
+export const quickReply = pgTable(
+  "quick_reply",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    shortcut: text("shortcut").notNull(),
+    title: text("title").notNull(),
+    /** 1-4096; admite {{nombre}}, {{nombre_completo}}, {{vendedor}}, {{negocio}}. */
+    body: text("body").notNull(),
+    /** Orden del selector y de los chips (ascendente). */
+    position: integer("position").notNull().default(0),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("quick_reply_org_shortcut_uq").on(t.organizationId, t.shortcut),
+    index("quick_reply_org_pos_idx").on(t.organizationId, t.position),
+  ]
 );

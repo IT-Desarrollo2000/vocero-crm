@@ -66,7 +66,9 @@ export function AppShell({
   }, [navOpen]);
 
   return (
-    <ViewerProvider viewer={{ userId, role }}>
+    <ViewerProvider
+      viewer={{ userId, role, name: userName, businessName: branding.name }}
+    >
       <div className="flex h-dvh overflow-hidden bg-background">
         {navOpen && (
           <button

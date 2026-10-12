@@ -1,6 +1,6 @@
 # 09 — Equipo: asignación de conversaciones y respuestas rápidas
 
-> Estado: propuesto · Prioridad: alta · Esfuerzo: L (a: M · b: S-M) · Migración: sí (`00NN_asignacion_respuestas_rapidas.sql`, siguiente libre tras la de 00 — tentativamente `0014`) · Bandera: no (núcleo; la asignación no cambia nada para una instancia con un solo usuario)
+> Estado: en curso (contrato 09-0 fijado) · Prioridad: alta · Esfuerzo: L (a: M · b: S-M) · Migración: sí (`0015_asignacion_respuestas_rapidas.sql`, numeración oficial del README) · Bandera: no (núcleo; la asignación no cambia nada para una instancia con un solo usuario)
 
 ## 1. Especificación
 
@@ -469,15 +469,17 @@ CREATE INDEX IF NOT EXISTS "quick_reply_org_pos_idx"
 
 ### Tareas ordenadas
 
-- [ ] T-09-01 Schema (`conversation.assignedUserId/assignedAt` + índice, tabla `quickReply`), `ids.ts` `qr`, `pnpm db:generate` y migración re-ejecutable a mano; aplicarla 2× en la BD aislada. Dep: 00 (T-00-08, para el número).
-- [ ] T-09-02 `src/server/inbox/visibility.ts` + unit. Dep: 01, 00 (`Role`).
-- [ ] T-09-03 `listConversations`/`getConversation` con `viewer` + `?assigned=` + `assignedTo` en DTO/tipos; actualizar llamadores. Dep: 02.
+- [x] T-09-00 Contrato 09-0 (ver sección "Contrato 09-0" abajo): DTOs, firmas, `ROUTE_POLICY` + stubs 501 con su guarda, decisión SSE, hook de baja.
+- [x] T-09-01 Schema (`conversation.assignedUserId/assignedAt` + índice, tabla `quickReply`), `ids.ts` `qr`, `pnpm db:generate` y migración re-ejecutable a mano (`drizzle/0015_asignacion_respuestas_rapidas.sql`).
+- [ ] T-09-01b Aplicar `0015` 2× en la BD aislada (:5433) — pendiente (09-A).
+- [x] T-09-02 `src/server/inbox/visibility.ts` + unit (`tests/unit/assignment-visibility.test.ts`). Dep: 01, 00 (`Role`).
+- [ ] T-09-03 `listConversations`/`getConversation` con `viewer` + `?assigned=` + `assignedTo` en DTO/tipos; actualizar llamadores. Dep: 02. — **Parcial (09-0)**: `listConversations(org, viewer, { since, assigned })` con visibilidad + `assigned` en el WHERE y `assignedTo` real (join a `user`); `GET /api/conversations` pasa la sesión y valida `?assigned=`; `getConversation(org, id, viewer?)` y `updateConversation(org, id, patch, viewer?)` aceptan el viewer (el PATCH ya lo pasa). Falta (09-A): pasar `session` en `messages` GET/POST, `messages/media`, `messages/template` (T-09-04) y el guardarraíl `assignment-guard.test.ts`.
 - [ ] T-09-04 404 por visibilidad en `messages` GET/POST, `media` POST, `template` POST, `PATCH conversations/:id`. Dep: 03.
 - [ ] T-09-05 `assignConversation` / `claimForSend` (compuerta) + reglas de PATCH (tomar/liberar/asignar) + "responder = tomar" en los 3 endpoints de envío. Dep: 04.
 - [ ] T-09-06 `start-conversation`: 409 `assigned_to_other` + claim. Dep: 05.
 - [ ] T-09-07 `media/[assetId]`: EXISTS por mensaje→conversación visible. Dep: 02.
-- [ ] T-09-08 SSE: filtro por suscriptor en `/api/events` + payload reducido de `conversation.updated` en origen. Dep: 02.
-- [ ] T-09-09 Hook `onMemberRemoved` (liberar al dar de baja) conectado a `removeMember` de 00. Dep: 05, 00 (T-00-10).
+- [ ] T-09-08 SSE: filtro por suscriptor en `/api/events` + payload reducido de `conversation.updated` en origen. Dep: 02. — **Parcial (09-0)**: `decideDelivery` + unit hechos; payload reducido en origen hecho (tipo del bus = `{ conversation: { id } }`; PATCH y `applyHandoff` ya solo mandan el id). Falta (09-A): cablear `decideDelivery` con cola de promesas en `src/app/api/events/route.ts` (hoy solo aplica `canReceive` por rol).
+- [x] T-09-09 Hook `onMemberRemoved` (liberar al dar de baja) conectado a `removeMember` de 00; la ruta DELETE publica `conversation.updated { id }` tras el commit. Dep: 05, 00 (T-00-10).
 - [ ] T-09-10 UI Bandeja: pastillas Mías/Sin asignar, etiqueta de responsable, control Tomar/Liberar/Asignar, aviso de enlace directo. Dep: 05, 00 (T-00-14).
 - [ ] T-09-11 `src/lib/quick-replies.ts` (puro) + unit. Dep: —.
 - [ ] T-09-12 `src/server/quick-replies.ts` + rutas `/api/quick-replies` (+ `ROUTE_POLICY`). Dep: 01, 11, 00 (T-00-03, T-00-06).
@@ -599,6 +601,162 @@ CREATE INDEX IF NOT EXISTS "quick_reply_org_pos_idx"
   quedar en el historial del navegador de un vendedor reasignado.
 - **Decisión abierta D-09-6 — ¿el Vendedor puede ceder a otro vendedor
   directamente?** Recomendado no (solo liberar; el Propietario reasigna).
+
+### Contrato 09-0
+
+Fijado antes de partir en servidor (09-A) y UI (09-B), que trabajan en
+paralelo sobre esto. **Manda sobre el plan de arriba** donde difieran.
+Decisiones aplicadas: D-09-1 (solo la Bandeja se restringe), D-09-2 (no
+auto-asignar al escalar), D-09-3 (el Propietario no se auto-asigna al
+responder), D-09-4 (sin respuestas rápidas personales), D-09-5 (adjuntos
+filtrados por visibilidad), D-09-6 (el Vendedor solo libera; reasigna el
+Propietario), D-00-1 (la baja no borra `user`).
+
+**Datos** — `drizzle/0015_asignacion_respuestas_rapidas.sql` (aditiva,
+re-ejecutable): `conversation.assigned_user_id` (FK `user` ON DELETE SET NULL),
+`conversation.assigned_at`, índice `conversation_org_assignee_idx
+(organization_id, assigned_user_id)`; tabla `quick_reply` (`id` `qr_…`,
+`organization_id` NOT NULL FK cascade, `shortcut`, `title`, `body`, `position`
+def. 0, `created_by_user_id` FK `user` SET NULL, timestamps), únicos/índices
+`quick_reply_org_shortcut_uq (organization_id, shortcut)` y
+`quick_reply_org_pos_idx (organization_id, position)`.
+`assigned_at` = cuándo la tomó su responsable ACTUAL (se reescribe al
+reasignar; NULL al liberar).
+
+**DTOs** (`src/lib/types.ts`)
+- `ConversationDto` + `assignedTo: { userId, name } | null` + `assignedAt: string | null`.
+- `AssignedFilter = "me" | "unassigned" | "all"`.
+- `AssignBody = { userId: string | null; expect?: "unassigned" }` — `userId` es
+  el **user id** (no el id de membresía; `GET /api/settings/team` ya expone
+  `userId`).
+- `QuickReplyDto = { id, shortcut, title, body, position, createdAt, updatedAt }`
+  (`body` sin renderizar).
+- `QuickReplyCreateBody = { shortcut, title, body, position? }`;
+  `QuickReplyPatchBody = Partial<QuickReplyCreateBody>`.
+- Constantes compartidas en `src/lib/quick-replies.ts`: `QUICK_REPLY_VARS`,
+  `QUICK_REPLY_VAR_PATTERN`, `QUICK_REPLY_LIMITS` (las funciones puras de
+  T-09-11 se agregan ahí).
+- `useViewer()` (`src/components/viewer-context.tsx`) gana `name` (usuario) y
+  `businessName` (Marca); los monta `AppShell` desde `(app)/layout.tsx`.
+
+**Firmas de servidor**
+- `src/server/inbox/visibility.ts`:
+  - `type Viewer = { userId: string; role: Role }` — `SessionContext` lo cumple:
+    las rutas pasan `session`.
+  - `conversationVisibleTo(viewer): SQL` — owner → `true`; Vendedor →
+    `assigned_user_id = $yo OR assigned_user_id IS NULL`. Va DENTRO de
+    `scoped(...)` en el WHERE de selects **y** updates.
+  - `canSeeConversation(orgId, viewer, conversationId): Promise<boolean>` — owner
+    → `true` sin consultar; Vendedor → consulta por PK. Lanza si la BD falla.
+- `src/server/inbox/queries.ts`:
+  - `listConversations(orgId, viewer, opts?: { since?: Date; assigned?: AssignedFilter })`
+    — visibilidad + `assigned` en el WHERE; 06 pagina sobre esta misma query.
+  - `getConversation(orgId, id, viewer?)` → `{ conversation, contact, assignee } | null`.
+    `viewer` obligatorio en rutas de sesión (sin él solo agente/bot/mocks).
+  - `updateConversation(orgId, id, patch, viewer?)` — el predicado va en el
+    WHERE del UPDATE; 0 filas → `null` → 404. Nunca leer-y-luego-actualizar.
+  - `serializeConversation(c, contact, preview?, stageName?, assignee?)`.
+  - (09-A) `assignConversation(orgId, id, { to: string | null; expect?: "unassigned" })`
+    y `claimForSend(orgId, id, userId): Promise<boolean>` como en el plan, ambos
+    como UPDATE condicional con `RETURNING`.
+- `src/server/events/visibility.ts`: `canReceive(event, { role })` (síncrono,
+  solo rol, lo usa hoy la ruta) y
+  `decideDelivery(event, viewer, { canSee }): Promise<{kind:"deliver"} | {kind:"rewrite"; event} | {kind:"drop"}>`.
+  Reglas en `specs/001-vocero-core/contracts/sse.md`. La ruta `/api/events`
+  (09-A) procesa los eventos de cada conexión **en orden** con una cola de
+  promesas y `decideDelivery` nunca rechaza (error de BD → `drop`, el stream
+  sigue).
+- `src/server/team/members.ts` (el hook vive aquí, no en `inbox/assignment.ts`):
+  `onMemberRemoved(orgId, userId, tx?): Promise<string[]>` — UPDATE
+  `assigned_user_id = NULL, assigned_at = NULL` de ese usuario en la org,
+  dentro de la tx de la baja, devuelve los ids. `removeMember(...)` devuelve
+  esos ids (resuelve tras el commit) y `DELETE /api/settings/team/[memberId]`
+  publica `conversation.updated { conversation: { id } }` por cada uno.
+- Bus SSE: `conversation.updated` tipado `{ conversation: { id: string } }`.
+
+**HTTP** (errores con la forma estándar `{ error: { code, message } }`)
+
+`GET /api/conversations?since=&assigned=` — `any*`
+- Lista lo visible para quien pide. `assigned=me|unassigned|all` (def. `all`).
+- 200 `{ conversations: ConversationDto[] }` · 422 `invalid_query` si
+  `assigned` trae otro valor.
+- Una conversación que deja de ser visible (reasignada a otro) simplemente
+  no vuelve en la respuesta: el servidor no avisa "ya no la ves" (eso
+  filtraría). Por eso, ante `conversation.updated`, el cliente **reemplaza**
+  la lista con un refetch completo (sin `since`, como hoy
+  `inbox-client.tsx:75-81`); si 06 introduce refetch incremental, debe
+  descartar los ids que ya no lleguen.
+
+`PATCH /api/conversations/[id]` — `any*` (sin cambios de cuerpo)
+- `{ aiEnabled?, reactivate?, markRead? }`; NO cambia la asignación.
+- 404 `not_found` si no existe o no es visible (predicado en el UPDATE).
+- Publica `conversation.updated { conversation: { id } }`.
+
+`POST /api/conversations/[id]/assign` — `any*` (stub 501 hoy)
+- Body `AssignBody`. Una sola forma para las cuatro operaciones:
+
+  | Quién | Body | Precondición (en el WHERE del UPDATE) | Resultado |
+  |---|---|---|---|
+  | Vendedor | `{ userId: <yo> }` (tomar) | sin asignar, o ya mía | 200 |
+  | Vendedor | `{ userId: null }` (liberar) | mía | 200 |
+  | Vendedor | `{ userId: <otro> }` | — | 403 `forbidden` (D-09-6) |
+  | Vendedor | `{ userId: null }` sobre sin asignar | — | 200 sin cambios |
+  | Propietario | `{ userId: <miembro> \| null }` | ninguna (reasigna) | 200 |
+  | Propietario | `{ userId: <miembro>, expect: "unassigned" }` | sin asignar, o ya de ese miembro | 200 |
+
+- Respuestas: 200 `{ conversation: ConversationDto }`; idempotente (tomar la
+  propia / liberar una sin asignar → 200 sin cambios y sin evento).
+- 404 `not_found`: no existe, no visible para el Vendedor, o `is_test`
+  (nunca se asignan).
+- 409 `already_assigned`: carrera de "tomar" (otro la tomó antes). Para el
+  Propietario el error trae el responsable:
+  `{ error: { code: "already_assigned", message, assignedTo: { userId, name } } }`;
+  para el Vendedor, sin `assignedTo` (ya no puede verla).
+- 422 `invalid_body` (Zod) · 422 `invalid_assignee` (el `userId` no es
+  miembro de la org; se valida con `EXISTS` sobre `member` dentro del UPDATE).
+- Tras el commit publica `conversation.updated { conversation: { id } }`.
+- `assignedAt` se fija a `now()` al cambiar de responsable y a `NULL` al liberar.
+- RF-09-16: nunca toca `ai_enabled` ni `handoff_at`.
+
+`POST /api/conversations/[id]/messages`, `.../messages/media`,
+`.../messages/template` (09-A) — no visible → 404; Vendedor: `claimForSend`
+es la compuerta antes de enviar (0 filas → 404 y no sale nada). El
+Propietario no se auto-asigna (D-09-3).
+
+`POST /api/contacts/[id]/start-conversation` (09-A) — asignada a otro →
+409 `assigned_to_other` (sin nombre al Vendedor); Vendedor que inicia → queda
+asignada a él.
+
+`GET /api/media/[assetId]` (09-A) — Vendedor: 404 si el adjunto no cuelga de
+un mensaje de una conversación visible (D-09-5).
+
+`GET /api/quick-replies` — `any` (stub 501 hoy)
+- 200 `{ quickReplies: QuickReplyDto[] }` ordenadas por `position` asc,
+  luego `createdAt` asc.
+
+`POST /api/quick-replies` — `owner` (stub 501 hoy)
+- Body `QuickReplyCreateBody`. `shortcut` se normaliza (trim, sin `/` inicial,
+  minúsculas) y debe cumplir `^[a-z0-9_-]{1,32}$`; `title` 1-80; `body`
+  1-4096; `position` entero ≥ 0 (def. = al final).
+- 201 `{ quickReply: QuickReplyDto }` · 403 `forbidden` (Vendedor) ·
+  422 `invalid_body` · 422 `unknown_variable` (mensaje nombra la(s)
+  variable(s): `Variable desconocida: {{telefono}}`) · 409 `duplicate_shortcut`
+  (choque con `quick_reply_org_shortcut_uq`, sin distinguir mayúsculas).
+
+`PATCH /api/quick-replies/[id]` — `owner` (stub 501 hoy)
+- Body `QuickReplyPatchBody` (al menos un campo; reordenar = `position`).
+- 200 `{ quickReply }` · 403 · 404 `not_found` · 422 `invalid_body` /
+  `unknown_variable` · 409 `duplicate_shortcut`.
+
+`DELETE /api/quick-replies/[id]` — `owner` (stub 501 hoy)
+- 200 `{ ok: true }` · 403 · 404 `not_found`.
+
+**Variables de respuestas rápidas** — `{{nombre}}` (primer nombre del
+contacto), `{{nombre_completo}}`, `{{vendedor}}` (`useViewer().name`),
+`{{negocio}}` (`useViewer().businessName`). Se toleran espacios dentro de las
+llaves. Desconocida al guardar → 422 `unknown_variable`. Al insertar, sin
+valor → cadena vacía + espacios dobles colapsados. El render es del cliente;
+el servidor solo valida.
 
 ## 3. Dependencias con otras tareas
 

@@ -444,11 +444,10 @@ export async function applyHandoff(
     )
     .returning();
   if (!updated[0]) return;
+  // 09 (RF-09-09): solo el id; motivo y nota se leen por la API con su vista.
   publish(organizationId, {
     type: "conversation.updated",
-    data: {
-      conversation: { id: conversationId, handoffReason: reason, handoffNote },
-    },
+    data: { conversation: { id: conversationId } },
   });
 }
 

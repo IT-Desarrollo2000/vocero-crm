@@ -55,18 +55,26 @@ type Db = ReturnType<typeof getDb>;
 export type DbTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * Punto de extensión de la tarea 09: al dar de baja a un vendedor, devolver
- * sus conversaciones asignadas a "sin asignar". Corre DENTRO de la
- * transacción de la baja (si falla, la baja se revierte).
+ * Tarea 09 (RF-09-14): al dar de baja a un miembro, sus conversaciones
+ * asignadas vuelven a "sin asignar". Corre DENTRO de la transacción de la
+ * baja (si falla, la baja se revierte) y devuelve los ids liberados: quien
+ * llama publica `conversation.updated { id }` por cada uno DESPUÉS del commit.
  *
- * Por ahora es un no-op: en esta tarea aún no existe la asignación.
+ * Hace falta porque la baja no borra la fila `user` (D-00-1): el
+ * `ON DELETE SET NULL` de la FK nunca se dispara por aquí.
  */
 export async function onMemberRemoved(
-  _organizationId: string,
-  _userId: string,
-  _tx?: DbTx
-): Promise<void> {
-  // no-op hasta la tarea 09
+  organizationId: string,
+  userId: string,
+  tx?: DbTx
+): Promise<string[]> {
+  const c = schema.conversation;
+  const rows = await (tx ?? getDb())
+    .update(c)
+    .set({ assignedUserId: null, assignedAt: null, updatedAt: new Date() })
+    .where(scoped(c.organizationId, organizationId, eq(c.assignedUserId, userId)))
+    .returning({ id: c.id });
+  return rows.map((r) => r.id);
 }
 
 /* ------------------------------------------------------------------ *
@@ -101,7 +109,8 @@ export type TeamDeps = {
   generatePassword(): string;
   /** Alta de usuario nuevo vía Better Auth (registro interno); devuelve userId. */
   signUp(input: { name: string; email: string; password: string }): Promise<string>;
-  onMemberRemoved(organizationId: string, userId: string, tx: DbTx): Promise<void>;
+  /** Libera las conversaciones del usuario (09); devuelve sus ids. */
+  onMemberRemoved(organizationId: string, userId: string, tx: DbTx): Promise<string[]>;
 };
 
 function drizzleStore(tx: DbTx): TeamStore {
@@ -286,14 +295,17 @@ export async function changeRole(
  * Da de baja a un miembro: borra la membresía y todas sus sesiones (su próxima
  * petición responde 401 y no puede volver a iniciar sesión) y avisa a
  * `onMemberRemoved`. La fila `user` se conserva (D-00-1).
+ *
+ * Devuelve los ids de las conversaciones que quedaron sin asignar (09); se
+ * resuelve tras el commit, así que el llamador ya puede publicarlas.
  */
 export async function removeMember(
   organizationId: string,
   actorUserId: string,
   memberId: string,
   deps: TeamDeps = defaultDeps
-): Promise<void> {
-  await deps.runInTx(async (store, tx) => {
+): Promise<string[]> {
+  return deps.runInTx(async (store, tx) => {
     const ownerIds = await store.lockOwnerIds(organizationId);
     const target = await store.findMember(organizationId, memberId);
     if (!target) throw notFound();
@@ -301,7 +313,7 @@ export async function removeMember(
     if (wouldLeaveNoOwner(target, ownerIds)) throw lastOwner();
     await store.deleteMember(organizationId, memberId);
     await store.deleteSessions(target.userId);
-    await deps.onMemberRemoved(organizationId, target.userId, tx);
+    return deps.onMemberRemoved(organizationId, target.userId, tx);
   });
 }
 

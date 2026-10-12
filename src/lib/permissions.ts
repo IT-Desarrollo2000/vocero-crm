@@ -30,6 +30,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Bandeja ────────────────────────────────────────────────────────────
   "GET /api/conversations": "any*",
   "PATCH /api/conversations/[id]": "any*",
+  // 09: tomar/liberar (ambos roles, sobre lo visible) · asignar a otro (Propietario).
+  "POST /api/conversations/[id]/assign": "any*",
   "GET /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages/media": "any*",
@@ -37,6 +39,13 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/media/[assetId]": "any*",
   // Sesión propia (no `withAuth`): `lab.run` solo al Propietario.
   "GET /api/events": "any*",
+
+  // ── Respuestas rápidas (09) ────────────────────────────────────────────
+  // Lectura para todos (compositor con `/`); el catálogo es del Propietario.
+  "GET /api/quick-replies": "any",
+  "POST /api/quick-replies": "owner",
+  "PATCH /api/quick-replies/[id]": "owner",
+  "DELETE /api/quick-replies/[id]": "owner",
 
   // ── Contactos ──────────────────────────────────────────────────────────
   "GET /api/contacts": "any",

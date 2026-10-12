@@ -104,7 +104,11 @@ function setup() {
   };
 
   const fakeTx = { fake: "tx" } as unknown as DbTx;
-  const onMemberRemoved = vi.fn(async () => {});
+  // 09: devuelve los ids de conversaciones liberadas.
+  const onMemberRemoved = vi.fn(async (_org: string, _userId: string, _tx: DbTx) => [
+    "cv_1",
+    "cv_2",
+  ]);
   const signUp = vi.fn(async (input: { name: string; email: string; password: string }) => {
     const id = `usr_${++seq}`;
     users.push({ id, ...input, password: `hash(${input.password})` });
@@ -188,8 +192,10 @@ describe("removeMember", () => {
   it("borra la membresía y TODAS las sesiones, y llama onMemberRemoved con la tx", async () => {
     t.addMember("ana", "owner");
     const seller = t.addMember("beto", "member");
-    await removeMember(ORG, "ana", seller.id, t.deps);
+    const released = await removeMember(ORG, "ana", seller.id, t.deps);
 
+    // 09: devuelve lo que liberó el hook (la ruta lo publica tras el commit).
+    expect(released).toEqual(["cv_1", "cv_2"]);
     expect(t.members.some((m) => m.id === seller.id)).toBe(false);
     expect(t.sessions.get("beto")).toBe(0);
     expect(t.onMemberRemoved).toHaveBeenCalledWith(ORG, "beto", t.fakeTx);

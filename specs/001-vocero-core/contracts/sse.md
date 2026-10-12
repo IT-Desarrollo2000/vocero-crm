@@ -17,8 +17,29 @@ Connection: keep-alive
 - **Eventos** (`event: <tipo>`, `data: <json>`, `id: <epoch_ms>`):
   - `message.new` — `{ conversationId, message: {...} }` (nunca de conversaciones `is_test`)
   - `message.status` — `{ conversationId, messageId, status }`
-  - `conversation.updated` — `{ conversation: {...} }` (handoff, unread, last_message_at)
-  - `lab.run` — `{ runId, status, progress: {done, total}, score? }`
+  - `conversation.updated` — `{ conversation: { id } }` **solo el id** (09, RF-09-09):
+    "algo cambió en esta conversación (handoff, no leídos, responsable…), refetchea
+    con tu vista". Nunca lleva nombre, teléfono, nota de handoff ni responsable: viaja
+    a todos los roles. Lo publican el PATCH de la Bandeja, el agente, `/api/bot/*`,
+    la ingesta, el pipeline, la asignación y la baja de un miembro (una vez por
+    conversación liberada, tras el commit).
+  - `booking.updated` — `{ bookingId }` (015)
+  - `lab.run` — `{ runId, status, progress: {done, total}, score? }` (solo Propietario)
+- **Visibilidad por conexión** (09, `src/server/events/visibility.ts` →
+  `decideDelivery(event, viewer, { canSee })` → `deliver | rewrite | drop`; su
+  cableado en la ruta llega con 09-A/T-09-08 — hasta entonces solo filtra `lab.run`):
+  - Propietario: todo `deliver`.
+  - Vendedor: `message.new` / `message.status` solo si ve la conversación
+    (`canSeeConversation`, consulta por PK: suya o sin asignar); `conversation.updated`
+    siempre, reescrito a `{ conversation: { id } }`; `booking.updated` sí; `lab.run` no.
+  - **Orden**: la ruta procesa los eventos de UNA conexión en orden de llegada (cola de
+    promesas por conexión), porque la decisión es asíncrona y un `message.status` no
+    debe adelantar a su `message.new`.
+  - **Fallo de BD**: si `canSee` lanza, ese evento se descarta (cerrar por defecto) y el
+    stream sigue vivo; el cliente se pone al día con el refetch de reconexión o con el
+    siguiente `conversation.updated`.
+  - El rol se toma al abrir la conexión; la asignación se evalúa por evento (una
+    reasignación surte efecto en el siguiente evento, sin reconectar).
 - **Catch-up**: el cliente manda `Last-Event-ID` (o el front refetch desde su último
   `last_message_at`) al reconectar; el servidor NO garantiza replay — el cliente hace
   refetch de conversaciones/mensajes con `since=<timestamp>` al evento `open` tras una

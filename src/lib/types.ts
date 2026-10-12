@@ -37,6 +37,52 @@ export type ConversationDto = {
   /** 017: ¿existen plantillas en este canal? Solo WhatsApp. */
   templates: boolean;
   preview: string | null;
+  /**
+   * 09: responsable de la conversación, o null = sin asignar. `name` es el
+   * nombre del usuario (puede seguir aquí tras su baja hasta que
+   * `onMemberRemoved` la libere).
+   */
+  assignedTo: { userId: string; name: string } | null;
+  /** 09: ISO de cuándo la tomó su responsable actual; null si sin asignar. */
+  assignedAt: string | null;
+};
+
+/**
+ * 09: filtro de responsable de `GET /api/conversations?assigned=`. Siempre
+ * DENTRO de lo visible para quien pide: `all` = todo lo visible (default).
+ */
+export type AssignedFilter = "me" | "unassigned" | "all";
+
+/**
+ * 09: body de `POST /api/conversations/[id]/assign`.
+ * `userId` = user id (NO el id de membresía) o null = sin asignar.
+ * `expect: "unassigned"` = solo si nadie la tiene (semántica de "tomar");
+ * para el Vendedor que se asigna a sí mismo es implícito.
+ */
+export type AssignBody = { userId: string | null; expect?: "unassigned" };
+
+/** 09: body de `POST /api/quick-replies`. `position` default = al final. */
+export type QuickReplyCreateBody = {
+  shortcut: string;
+  title: string;
+  body: string;
+  position?: number;
+};
+
+/** 09: body de `PATCH /api/quick-replies/[id]` (al menos un campo). */
+export type QuickReplyPatchBody = Partial<QuickReplyCreateBody>;
+
+/** 09: respuesta rápida del catálogo de la organización. */
+export type QuickReplyDto = {
+  id: string;
+  /** Sin la barra, en minúsculas: `^[a-z0-9_-]{1,32}$`. */
+  shortcut: string;
+  title: string;
+  /** Texto con variables sin sustituir (`{{nombre}}`…); lo rinde el cliente. */
+  body: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 /** 008 — Adjunto de un mensaje, para previsualización en el hilo. */
