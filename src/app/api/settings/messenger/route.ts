@@ -42,7 +42,7 @@ export const GET = withAuth(async (session) => {
       : null,
     webhook: webhookInfo(),
   });
-});
+}, { role: "owner" });
 
 const putSchema = z.object({
   pageId: z
@@ -151,11 +151,11 @@ export const PUT = withAuth(async (session, req: Request) => {
             "La Página quedó guardada, pero no se pudo suscribir a la app: el token necesita el permiso pages_manage_metadata",
         }),
   });
-});
+}, { role: "owner" });
 
 /** Desconecta la Página: deja de recibir y de enviar por Messenger. */
 export const DELETE = withAuth(async (session) => {
   if (!isChannelEnabled("messenger")) return channelDisabledResponse();
   await deleteMessengerCredentials(session.organizationId);
   return Response.json({ ok: true });
-});
+}, { role: "owner" });

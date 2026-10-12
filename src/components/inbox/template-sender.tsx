@@ -6,6 +6,8 @@ import { countVariables } from "@/lib/templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 
 /**
  * Selector de plantilla aprobada para conversaciones con ventana cerrada
@@ -18,6 +20,8 @@ export function TemplateSender({
   conversationId: string;
   onSent: () => void;
 }) {
+  // Crear plantillas es un ajuste del Propietario (dev-tasks/00, RF-00-08).
+  const owner = isOwner(useViewer());
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string>("");
   const [variables, setVariables] = useState<string[]>([]);
@@ -48,6 +52,14 @@ export function TemplateSender({
   }
 
   if (templates.length === 0) {
+    if (!owner) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          Aún no hay plantillas aprobadas. Pide al propietario que cree una
+          plantilla.
+        </p>
+      );
+    }
     return (
       <p className="text-sm text-muted-foreground">
         Aún no hay plantillas aprobadas. Créalas en{" "}

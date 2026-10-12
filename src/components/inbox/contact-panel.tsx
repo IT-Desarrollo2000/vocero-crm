@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
 import { handoffLabel } from "@/lib/handoff-labels";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 
 export function ContactPanel({
   conversation,
@@ -44,6 +46,9 @@ export function ContactPanel({
   const [aiConfigured, setAiConfigured] = useState(false);
 
   const contactId = conversation.contact.id;
+  // El Vendedor no configura el agente (dev-tasks/00, RF-00-09): ve el aviso,
+  // pero sin el enlace a /agent, que para él es un 404.
+  const owner = isOwner(useViewer());
 
   const agentReady = aiConfigured && agentEnabled;
   // El control es la FUENTE DE VERDAD de la conversación: el agente in-process
@@ -247,9 +252,13 @@ export function ContactPanel({
                 />
                 <p className="text-[11px] leading-relaxed text-warning-text">
                   {aiConfigured
-                    ? "El agente de Vocero no responde por su cuenta. Configura lo básico y enciéndelo (o conecta tu propio bot por la API)."
-                    : "Falta la clave de IA de la instancia (OPENROUTER_API_TOKEN) para que el agente responda, o conecta tu propio bot por la API."}
-                  {aiConfigured && (
+                    ? owner
+                      ? "El agente de Vocero no responde por su cuenta. Configura lo básico y enciéndelo (o conecta tu propio bot por la API)."
+                      : "El agente de Vocero no responde por su cuenta. Pídele al Propietario que lo configure y lo encienda."
+                    : owner
+                      ? "Falta la clave de IA de la instancia (OPENROUTER_API_TOKEN) para que el agente responda, o conecta tu propio bot por la API."
+                      : "El agente de IA no está disponible en esta instancia. Pídele al Propietario que lo configure."}
+                  {aiConfigured && owner && (
                     <Link
                       href="/agent"
                       className="ml-1 whitespace-nowrap font-medium text-brand-text underline underline-offset-2 hover:text-brand"

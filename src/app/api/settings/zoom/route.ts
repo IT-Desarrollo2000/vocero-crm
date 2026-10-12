@@ -27,7 +27,7 @@ export const GET = withAuth(async (session) => {
       fields: { accountId: creds.accountId, clientId: creds.clientId },
     },
   });
-});
+}, { role: "owner" });
 
 const credsSchema = z.object({
   accountId: z.string().trim().min(1),
@@ -59,10 +59,10 @@ export const PUT = withAuth(async (session, req: Request) => {
       fields: { accountId: body.data.accountId, clientId: body.data.clientId },
     },
   });
-});
+}, { role: "owner" });
 
 export const DELETE = withAuth(async (session) => {
   if (!agendaEnabled()) return agendaDisabledResponse();
   await deleteZoomCredentials(session.organizationId);
   return Response.json({ ok: true });
-});
+}, { role: "owner" });

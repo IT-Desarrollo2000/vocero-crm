@@ -10,7 +10,15 @@ import {
   onUserCreated,
   resolveActiveOrganizationId,
 } from "@/server/auth/on-signup";
-import { isPublicSignupAllowed } from "@/server/auth/registration";
+import {
+  isBlockedAuthPath,
+  REMOVED_ACCOUNT_MESSAGE,
+  shouldAllowSessionCreation,
+} from "@/server/auth/policy";
+import {
+  isPublicSignupAllowed,
+  organizationExists,
+} from "@/server/auth/registration";
 
 /**
  * Contexto interno del proceso: permite que el alta de cuentas de equipo
@@ -62,9 +70,22 @@ function createAuth() {
       requireEmailVerification: false,
       minPasswordLength: 8,
     },
-    plugins: [organization({ creatorRole: "owner" })],
+    plugins: [
+      organization({
+        creatorRole: "owner",
+        // Defensa en profundidad (RF-00-10): el bloqueo real es el 404 de
+        // `/organization/*` en hooks.before.
+        allowUserToCreateOrganization: false,
+        disableOrganizationDeletion: true,
+      }),
+    ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // El equipo se gestiona por /api/settings/team/* (solo Propietario):
+        // el árbol del plugin queda fuera, para todos (RF-00-10).
+        if (isBlockedAuthPath(ctx.path)) {
+          throw new APIError("NOT_FOUND");
+        }
         // Rate limit por IP en login/registro (FR-062): 10 / 10 min → 429.
         if (RATE_LIMITED_PATHS.has(ctx.path)) {
           const ip =
@@ -99,10 +120,24 @@ function createAuth() {
       },
       session: {
         create: {
-          before: async (session) => {
+          before: async (session, context) => {
             const organizationId = await resolveActiveOrganizationId(
               session.userId
             );
+            // Cuenta dada de baja (sin membresía) → no inicia sesión
+            // (RF-00-13). Excepciones (primer registro, alta de equipo) en
+            // shouldAllowSessionCreation.
+            const allowed = await shouldAllowSessionCreation({
+              hasMembership: organizationId !== null,
+              path: context?.path,
+              internalSignup: isInternalSignup(),
+              organizationExists,
+            });
+            if (!allowed) {
+              throw new APIError("FORBIDDEN", {
+                message: REMOVED_ACCOUNT_MESSAGE,
+              });
+            }
             return {
               data: { ...session, activeOrganizationId: organizationId },
             };

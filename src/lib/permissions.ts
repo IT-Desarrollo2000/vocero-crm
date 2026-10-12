@@ -1,0 +1,185 @@
+/**
+ * Matriz endpoint → política (tarea 00, RF-00-03). Fuente de verdad: la tabla
+ * "Matriz de endpoints" de `dev-tasks/00-roles-y-permisos.md`.
+ *
+ * Clave: `"METHOD /api/<carpeta>"` — la ruta es la carpeta del `route.ts` bajo
+ * `src/app/api/`, con los segmentos dinámicos tal cual (`[id]`, `[...path]`).
+ *
+ * `tests/unit/role-matrix.test.ts` recorre el árbol de rutas y falla si un
+ * handler exportado no está aquí o si su código no aplica la guarda de su
+ * política. Al agregar una ruta: clasifícala aquí en el mismo cambio.
+ *
+ * Sin dependencias de servidor: importable desde cliente si hiciera falta.
+ */
+
+export type RoutePolicy =
+  /** `withAuth(fn, { role: "owner" })` (o `requireOwner(`): 403 al Vendedor. */
+  | "owner"
+  /** `withAuth(fn)`: Propietario y Vendedor por igual. */
+  | "any"
+  /** Cualquier rol, con respuesta filtrada por rol (y por asignación en 09). */
+  | "any*"
+  /** `BOT_API_KEY` (`src/server/bot/auth.ts`), sin sesión. */
+  | "bot"
+  /** `mockGuard()` (`src/lib/dev-guard.ts`): 404 en producción. */
+  | "dev"
+  /** Sin sesión, con su propia defensa (firma, segmento secreto…). */
+  | "public";
+
+export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
+  // ── Bandeja ────────────────────────────────────────────────────────────
+  "GET /api/conversations": "any*",
+  "PATCH /api/conversations/[id]": "any*",
+  "GET /api/conversations/[id]/messages": "any*",
+  "POST /api/conversations/[id]/messages": "any*",
+  "POST /api/conversations/[id]/messages/media": "any*",
+  "POST /api/conversations/[id]/messages/template": "any*",
+  "GET /api/media/[assetId]": "any*",
+  // Sesión propia (no `withAuth`): `lab.run` solo al Propietario.
+  "GET /api/events": "any*",
+
+  // ── Contactos ──────────────────────────────────────────────────────────
+  "GET /api/contacts": "any",
+  "POST /api/contacts": "any",
+  "GET /api/contacts/[id]": "any",
+  "PATCH /api/contacts/[id]": "any",
+  "POST /api/contacts/[id]/start-conversation": "any*",
+
+  // ── Pipeline ───────────────────────────────────────────────────────────
+  "GET /api/pipeline/board": "any",
+  "PATCH /api/pipeline/leads/[id]": "any",
+  "GET /api/pipeline/stages": "any",
+  "POST /api/pipeline/stages": "owner",
+  "PATCH /api/pipeline/stages/[id]": "owner",
+  "DELETE /api/pipeline/stages/[id]": "owner",
+
+  // ── Agenda ─────────────────────────────────────────────────────────────
+  "GET /api/bookings": "any",
+  "POST /api/bookings": "any",
+  "PATCH /api/bookings/[id]": "any",
+  "GET /api/calendar/availability": "any",
+  "GET /api/calendar/settings": "owner",
+  "PUT /api/calendar/settings": "owner",
+
+  // ── Plantillas ─────────────────────────────────────────────────────────
+  "GET /api/templates": "any",
+  "POST /api/templates": "owner",
+  "POST /api/templates/sync": "owner",
+
+  // ── Agente y base de conocimiento ──────────────────────────────────────
+  "GET /api/agent/profile": "any*",
+  "PUT /api/agent/profile": "owner",
+  "GET /api/kb": "owner",
+  "POST /api/kb": "owner",
+  "PATCH /api/kb/[id]": "owner",
+  "DELETE /api/kb/[id]": "owner",
+  "GET /api/kb/size": "owner",
+
+  // ── Laboratorio ────────────────────────────────────────────────────────
+  "GET /api/lab/runs": "owner",
+  "POST /api/lab/runs": "owner",
+  "GET /api/lab/runs/[id]": "owner",
+  "DELETE /api/lab/runs/[id]": "owner",
+  "POST /api/lab/suggestions/apply": "owner",
+
+  // ── Demo ───────────────────────────────────────────────────────────────
+  "POST /api/seed/demo": "owner",
+
+  // ── Ajustes ────────────────────────────────────────────────────────────
+  "GET /api/settings/whatsapp": "owner",
+  "PUT /api/settings/whatsapp": "owner",
+  "POST /api/settings/whatsapp/test": "owner",
+  "GET /api/settings/webhook": "owner",
+  "GET /api/settings/instagram": "owner",
+  "PUT /api/settings/instagram": "owner",
+  "DELETE /api/settings/instagram": "owner",
+  "GET /api/settings/messenger": "owner",
+  "PUT /api/settings/messenger": "owner",
+  "DELETE /api/settings/messenger": "owner",
+  "GET /api/settings/capi": "owner",
+  "PUT /api/settings/capi": "owner",
+  "DELETE /api/settings/capi": "owner",
+  "GET /api/settings/capi/events": "owner",
+  "POST /api/settings/capi/events/retry": "owner",
+  "POST /api/settings/capi/events/[id]/retry": "owner",
+  "GET /api/settings/google": "owner",
+  "PUT /api/settings/google": "owner",
+  "DELETE /api/settings/google": "owner",
+  "POST /api/settings/google/test": "owner",
+  "GET /api/settings/zoom": "owner",
+  "PUT /api/settings/zoom": "owner",
+  "DELETE /api/settings/zoom": "owner",
+  "POST /api/settings/zoom/test": "owner",
+  "GET /api/settings/team": "owner",
+  "POST /api/settings/team": "owner",
+  "PATCH /api/settings/team/[memberId]": "owner",
+  "DELETE /api/settings/team/[memberId]": "owner",
+  "POST /api/settings/team/[memberId]/reset-password": "owner",
+  // La marca la pinta también `/login`: lectura pública, escritura Propietario.
+  "GET /api/settings/branding": "public",
+  "PUT /api/settings/branding": "owner",
+  "PUT /api/settings/branding/favicon": "owner",
+  "DELETE /api/settings/branding/favicon": "owner",
+
+  // ── Públicas ───────────────────────────────────────────────────────────
+  "GET /api/branding/favicon": "public",
+  // Better Auth; `/organization/*` bloqueado en su hook (RF-00-10).
+  "GET /api/auth/[...all]": "public",
+  "POST /api/auth/[...all]": "public",
+  "GET /api/health": "public",
+  "POST /api/meta/data-deletion": "public",
+  "GET /api/webhooks/wa/[webhookToken]": "public",
+  "POST /api/webhooks/wa/[webhookToken]": "public",
+  "GET /api/webhooks/ig/[webhookToken]": "public",
+  "POST /api/webhooks/ig/[webhookToken]": "public",
+  "GET /api/webhooks/fb/[webhookToken]": "public",
+  "POST /api/webhooks/fb/[webhookToken]": "public",
+
+  // ── Cerebro externo (BOT_API_KEY) ──────────────────────────────────────
+  "GET /api/bot/availability": "bot",
+  "POST /api/bot/bookings": "bot",
+  "PATCH /api/bot/bookings": "bot",
+  "GET /api/bot/context": "bot",
+  "PUT /api/bot/ficha": "bot",
+  "POST /api/bot/handoff": "bot",
+  "GET /api/bot/media/[mediaId]": "bot",
+  "POST /api/bot/messages": "bot",
+  "GET /api/bot/profile": "bot",
+  "POST /api/bot/reset": "bot",
+  "POST /api/bot/typing": "bot",
+
+  // ── Mocks del entorno de pruebas (404 en producción) ───────────────────
+  "POST /api/dev/ai-mock/chat/completions": "dev",
+  "POST /api/dev/ai-mock/v1/chat/completions": "dev",
+  "GET /api/dev/google-mock/[...path]": "dev",
+  "POST /api/dev/google-mock/[...path]": "dev",
+  "PATCH /api/dev/google-mock/[...path]": "dev",
+  "DELETE /api/dev/google-mock/[...path]": "dev",
+  "GET /api/dev/wa-mock/capi-events": "dev",
+  "DELETE /api/dev/wa-mock/capi-events": "dev",
+  "POST /api/dev/wa-mock/channel-inbound": "dev",
+  "POST /api/dev/wa-mock/channel-token": "dev",
+  "POST /api/dev/wa-mock/echo": "dev",
+  "GET /api/dev/wa-mock/graph/[...path]": "dev",
+  "POST /api/dev/wa-mock/graph/[...path]": "dev",
+  "DELETE /api/dev/wa-mock/graph/[...path]": "dev",
+  "POST /api/dev/wa-mock/inbound": "dev",
+  "GET /api/dev/wa-mock/media-file/[id]": "dev",
+  "GET /api/dev/wa-mock/outbox": "dev",
+  "DELETE /api/dev/wa-mock/outbox": "dev",
+  "POST /api/dev/wa-mock/status": "dev",
+  "POST /api/dev/wa-mock/template-status": "dev",
+  "GET /api/dev/zoom-mock/[...path]": "dev",
+  "POST /api/dev/zoom-mock/[...path]": "dev",
+  "PATCH /api/dev/zoom-mock/[...path]": "dev",
+  "DELETE /api/dev/zoom-mock/[...path]": "dev",
+};
+
+/**
+ * Regla reservada (tarea 02): todo handler bajo estos prefijos es del
+ * Propietario. El test de la matriz la vigila cuando esas rutas existan.
+ */
+export const OWNER_ROUTE_PREFIXES: readonly string[] = [
+  "/api/reports",
+  "/api/metrics",
+];

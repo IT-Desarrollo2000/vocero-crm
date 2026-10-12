@@ -2,33 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-
-type Tab = { href: string; label: string };
-
-const TABS: Tab[] = [
-  { href: "/settings/whatsapp", label: "WhatsApp" },
-  { href: "/settings/branding", label: "Marca" },
-  { href: "/settings/templates", label: "Plantillas" },
-  { href: "/settings/team", label: "Equipo" },
-];
-
-/** 017 — Los canales extra solo aparecen si están en CHANNELS. */
-const INSTAGRAM_TAB: Tab = { href: "/settings/instagram", label: "Instagram" };
-const MESSENGER_TAB: Tab = { href: "/settings/messenger", label: "Messenger" };
-
-/** 015 — "Agenda" solo existe si esta instancia encendió la bandera. */
-const AGENDA_TAB: Tab = { href: "/settings/calendar", label: "Agenda" };
-
-/** 016 — Igual con "Anuncios" y la bandera ATRIBUCION. */
-const ADS_TAB: Tab = { href: "/settings/ads", label: "Anuncios" };
+import { settingsTabsFor } from "./settings-tabs";
 
 export function SettingsNav({
+  role,
   agenda = false,
   atribucion = false,
   instagram = false,
   messenger = false,
 }: {
+  role: Role;
   agenda?: boolean;
   atribucion?: boolean;
   instagram?: boolean;
@@ -37,16 +22,7 @@ export function SettingsNav({
   const pathname = usePathname();
   // Qué pestañas existen lo decide el servidor y baja por prop: este es un
   // componente de cliente y no puede leer variables de entorno.
-  // Los canales van justo después de WhatsApp: son la misma clase de ajuste.
-  const [whatsappTab, ...restTabs] = TABS;
-  const tabs = [
-    ...(whatsappTab ? [whatsappTab] : []),
-    ...(instagram ? [INSTAGRAM_TAB] : []),
-    ...(messenger ? [MESSENGER_TAB] : []),
-    ...restTabs,
-    ...(agenda ? [AGENDA_TAB] : []),
-    ...(atribucion ? [ADS_TAB] : []),
-  ];
+  const tabs = settingsTabsFor({ role, agenda, atribucion, instagram, messenger });
   return (
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-44 sm:flex-col sm:space-y-1 sm:overflow-visible sm:border-b-0 sm:border-r sm:p-3">
       {tabs.map((t) => (

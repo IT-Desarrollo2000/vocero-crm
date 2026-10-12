@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import type { Branding } from "@/lib/branding";
+import type { Role } from "@/lib/roles";
 import type { ThemePreference } from "@/lib/theme";
 import { AppNav } from "@/components/app-nav";
+import { ViewerProvider } from "@/components/viewer-context";
 
 /**
  * Cascarón de la app en dos modos:
@@ -22,6 +24,7 @@ import { AppNav } from "@/components/app-nav";
  */
 export function AppShell({
   branding,
+  userId,
   userName,
   role,
   theme,
@@ -31,8 +34,10 @@ export function AppShell({
   children,
 }: {
   branding: Branding;
+  /** Quién mira (dev-tasks/00): baja a `useViewer()` para filtrar la UI. */
+  userId: string;
   userName: string;
-  role: string;
+  role: Role;
   theme: ThemePreference;
   /** Lateral contraído en escritorio (cookie leída en el servidor). */
   navCollapsed?: boolean;
@@ -61,51 +66,53 @@ export function AppShell({
   }, [navOpen]);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
-      {navOpen && (
-        <button
-          aria-label="Cerrar el menú"
-          tabIndex={-1}
-          onClick={() => setNavOpen(false)}
-          className="fixed inset-0 z-40 bg-overlay lg:hidden"
-        />
-      )}
-
-      <AppNav
-        branding={branding}
-        commit={commit}
-        userName={userName}
-        role={role}
-        theme={theme}
-        initialCollapsed={navCollapsed}
-        agenda={agenda}
-        open={navOpen}
-        onClose={() => setNavOpen(false)}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden">
+    <ViewerProvider viewer={{ userId, role }}>
+      <div className="flex h-dvh overflow-hidden bg-background">
+        {navOpen && (
           <button
-            onClick={() => setNavOpen(true)}
-            aria-label="Abrir el menú"
-            aria-expanded={navOpen}
-            className="rounded-md p-2 text-text-2 hover:bg-accent hover:text-foreground"
-          >
-            <Menu className="h-5 w-5" strokeWidth={1.8} />
-          </button>
-          <span
-            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm bg-brand text-[13px] font-bold text-brand-fg"
-            aria-hidden
-          >
-            {branding.name.charAt(0).toUpperCase()}
-          </span>
-          <span className="truncate text-[15px] font-[650] tracking-tight">
-            {branding.name}
-          </span>
-        </header>
+            aria-label="Cerrar el menú"
+            tabIndex={-1}
+            onClick={() => setNavOpen(false)}
+            className="fixed inset-0 z-40 bg-overlay lg:hidden"
+          />
+        )}
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+        <AppNav
+          branding={branding}
+          commit={commit}
+          userName={userName}
+          role={role}
+          theme={theme}
+          initialCollapsed={navCollapsed}
+          agenda={agenda}
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+        />
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden">
+            <button
+              onClick={() => setNavOpen(true)}
+              aria-label="Abrir el menú"
+              aria-expanded={navOpen}
+              className="rounded-md p-2 text-text-2 hover:bg-accent hover:text-foreground"
+            >
+              <Menu className="h-5 w-5" strokeWidth={1.8} />
+            </button>
+            <span
+              className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-sm bg-brand text-[13px] font-bold text-brand-fg"
+              aria-hidden
+            >
+              {branding.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="truncate text-[15px] font-[650] tracking-tight">
+              {branding.name}
+            </span>
+          </header>
+
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+        </div>
       </div>
-    </div>
+    </ViewerProvider>
   );
 }

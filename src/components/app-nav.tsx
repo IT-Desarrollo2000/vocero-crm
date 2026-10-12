@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -21,6 +21,8 @@ import type { ThemePreference } from "@/lib/theme";
 import { NAV_COLLAPSED_COOKIE, NAV_COLLAPSED_COOKIE_MAX_AGE } from "@/lib/nav";
 import { cn, initials } from "@/lib/utils";
 import { signOut } from "@/lib/auth/client";
+import { roleLabel, type Role } from "@/lib/roles";
+import { filterNavForRole } from "@/components/nav-items";
 import { useEvents } from "@/components/use-events";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
@@ -30,14 +32,16 @@ type NavItem = {
   label: string;
   icon: typeof Inbox;
   badge?: boolean;
+  /** Solo Propietario (dev-tasks/00, RF-00-05): el Vendedor no lo ve. */
+  ownerOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
-  { href: "/agent", label: "Agente", icon: Sparkles },
-  { href: "/lab", label: "Laboratorio", icon: FlaskConical },
+  { href: "/agent", label: "Agente", icon: Sparkles, ownerOnly: true },
+  { href: "/lab", label: "Laboratorio", icon: FlaskConical, ownerOnly: true },
 ];
 
 /** 015 — "Citas" solo existe si esta instancia encendió la agenda. */
@@ -60,7 +64,7 @@ export function AppNav({
 }: {
   branding: Branding;
   userName: string;
-  role: string;
+  role: Role;
   theme: ThemePreference;
   /**
    * Lateral contraído a solo iconos. Solo aplica en `lg+`: en móvil el cajón
@@ -93,18 +97,24 @@ export function AppNav({
     document.cookie = `${NAV_COLLAPSED_COOKIE}=${value ? "1" : "0"};path=/;max-age=${NAV_COLLAPSED_COOKIE_MAX_AGE};samesite=lax`;
   }
 
-  async function refetchUnread() {
+  const refetchUnread = useCallback(async () => {
     const res = await fetch("/api/conversations").catch(() => null);
+    // Sesión revocada (dado de baja, contraseña restablecida): a la entrada,
+    // en vez de dejar la pantalla viva contra una API que ya no responde.
+    if (res?.status === 401) {
+      router.replace("/login");
+      return;
+    }
     if (!res?.ok) return;
     const data = (await res.json()) as {
       conversations: { unreadCount: number }[];
     };
     setUnread(data.conversations.reduce((a, c) => a + c.unreadCount, 0));
-  }
+  }, [router]);
 
   useEffect(() => {
     void refetchUnread();
-  }, []);
+  }, [refetchUnread]);
 
   useEvents({
     onMessageNew: () => void refetchUnread(),
@@ -114,9 +124,12 @@ export function AppNav({
   const sha = commit || BUILD_COMMIT;
   // Citas va después de Pipeline: es el paso siguiente de un trato, no una
   // sección aparte.
-  const items = agenda
-    ? [...NAV.slice(0, 2), AGENDA_ITEM, ...NAV.slice(2)]
-    : NAV;
+  // Primero se arma el menú completo y luego se filtra por rol: así la
+  // posición de Citas no depende de qué ítems ve cada quien.
+  const items = filterNavForRole(
+    agenda ? [...NAV.slice(0, 2), AGENDA_ITEM, ...NAV.slice(2)] : NAV,
+    role
+  );
 
   return (
     <aside
@@ -271,7 +284,7 @@ export function AppNav({
         <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
           <span className="block truncate text-[13px] font-semibold">{userName}</span>
           <span className="block text-[11px] text-text-3">
-            {role === "owner" ? "Propietario" : "Equipo"} · En línea
+            {roleLabel(role)} · En línea
           </span>
         </span>
         <ThemeToggle initial={theme} />

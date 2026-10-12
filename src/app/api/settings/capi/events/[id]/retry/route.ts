@@ -38,4 +38,4 @@ export const POST = withAuth(async (session, _req: Request, ctx: Params) => {
 
   const event = await getConversionActivityRow(session.organizationId, id);
   return Response.json({ outcome: result.outcome, event });
-});
+}, { role: "owner" });

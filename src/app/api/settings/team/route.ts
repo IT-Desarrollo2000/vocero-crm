@@ -1,36 +1,15 @@
-import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
-import { getAuth, runInternalSignup } from "@/lib/auth";
-import { getDb, schema } from "@/lib/db";
-import { newId } from "@/lib/db/ids";
-import { scoped } from "@/lib/db/tenant";
+import { parseBody, withAuth } from "@/lib/api";
+import { serializeMember, teamErrorResponse } from "@/server/team/http";
+import { createOrRelinkMember, listMembers } from "@/server/team/members";
 
 export const dynamic = "force-dynamic";
 
+/** Equipo de la organización (solo Propietario: expone nombres y correos). */
 export const GET = withAuth(async (session) => {
-  const db = getDb();
-  const members = await db
-    .select({
-      id: schema.member.id,
-      role: schema.member.role,
-      createdAt: schema.member.createdAt,
-      name: schema.user.name,
-      email: schema.user.email,
-    })
-    .from(schema.member)
-    .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
-    .where(scoped(schema.member.organizationId, session.organizationId));
-  return Response.json({
-    members: members.map((m) => ({
-      id: m.id,
-      role: m.role,
-      name: m.name,
-      email: m.email,
-      createdAt: m.createdAt.toISOString(),
-    })),
-  });
-});
+  const members = await listMembers(session.organizationId);
+  return Response.json({ members: members.map(serializeMember) });
+}, { role: "owner" });
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -38,46 +17,21 @@ const createSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
-/** Alta de cuenta de equipo (owner only): email + contraseña temporal (FR-061). */
+/**
+ * Alta de cuenta de equipo (owner only): email + contraseña temporal (FR-061).
+ * Un correo dado de baja se re-vincula (`relinked: true`) en vez de dar 409.
+ */
 export const POST = withAuth(async (session, req: Request) => {
-  if (session.role !== "owner") {
-    return apiError(403, "forbidden", "Solo el propietario puede crear cuentas");
-  }
   const body = await parseBody(req, createSchema);
   if (!body.ok) return body.response;
 
-  const auth = getAuth();
-  let newUserId: string;
   try {
-    const result = await runInternalSignup(() =>
-      auth.api.signUpEmail({
-        body: {
-          name: body.data.name,
-          email: body.data.email,
-          password: body.data.password,
-        },
-      })
+    const result = await createOrRelinkMember(session.organizationId, body.data);
+    return Response.json(
+      result.relinked ? { ok: true, relinked: true } : { ok: true },
+      { status: 201 }
     );
-    newUserId = result.user.id;
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "No se pudo crear la cuenta";
-    if (/exist/i.test(message)) {
-      return apiError(409, "duplicate", "Ya existe una cuenta con ese correo");
-    }
-    return apiError(422, "invalid", message);
+    return teamErrorResponse(err);
   }
-
-  const db = getDb();
-  await db
-    .insert(schema.member)
-    .values({
-      id: newId("member"),
-      organizationId: session.organizationId,
-      userId: newUserId,
-      role: "member",
-    })
-    .onConflictDoNothing();
-
-  return Response.json({ ok: true }, { status: 201 });
-});
+}, { role: "owner" });

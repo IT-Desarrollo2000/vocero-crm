@@ -20,4 +20,4 @@ export const POST = withAuth(async (session) => {
   }
   const result = await seedDemo(db, session.organizationId);
   return Response.json({ ok: true, ...result });
-});
+}, { role: "owner" });

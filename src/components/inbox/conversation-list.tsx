@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { useStages } from "@/components/use-stages";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
 import {
   filterConversations,
@@ -21,6 +23,8 @@ import {
 function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   const [seeding, setSeeding] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Sembrar la demo escribe datos del negocio: solo Propietario (dev-tasks/00).
+  const owner = isOwner(useViewer());
 
   async function seed() {
     setSeeding(true);
@@ -39,7 +43,7 @@ function EmptyState({ onSeeded }: { onSeeded: () => void }) {
         Cuando alguien escriba a tu número de WhatsApp, su conversación
         aparecerá aquí en tiempo real.
       </p>
-      {!failed && (
+      {owner && !failed && (
         <Button
           size="sm"
           variant="outline"

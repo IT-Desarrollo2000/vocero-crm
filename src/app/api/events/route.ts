@@ -1,5 +1,6 @@
 import { requireSession, UnauthorizedError } from "@/lib/auth/session";
 import { subscribe } from "@/server/events/bus";
+import { canReceive } from "@/server/events/visibility";
 
 /**
  * Canal SSE de la bandeja (contrato sse.md).
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
     }
     throw err;
   }
-  const { organizationId } = session;
+  const { organizationId, role } = session;
 
   let cleanup: (() => void) | null = null;
 
@@ -38,6 +39,7 @@ export async function GET(req: Request) {
       send(`: conectado\n\n`);
 
       const unsubscribe = subscribe(organizationId, (event) => {
+        if (!canReceive(event, { role })) return;
         send(
           `event: ${event.type}\n` +
             `id: ${Date.now()}\n` +

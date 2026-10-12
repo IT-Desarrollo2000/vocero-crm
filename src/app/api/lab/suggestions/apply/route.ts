@@ -48,4 +48,4 @@ export const POST = withAuth(async (session, req: Request) => {
     })
     .returning();
   return Response.json({ entry: inserted[0] }, { status: 201 });
-});
+}, { role: "owner" });

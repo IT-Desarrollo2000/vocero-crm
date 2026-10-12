@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { parseBody, withAuth } from "@/lib/api";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { isValidHex, resolveAccentSet } from "@/lib/branding";
 import { CURRENCIES } from "@/lib/money";
@@ -22,9 +22,6 @@ const putSchema = z.object({
 });
 
 export const PUT = withAuth(async (session, req: Request) => {
-  if (session.role !== "owner") {
-    return apiError(403, "forbidden", "Solo el propietario puede cambiar la marca");
-  }
   const body = await parseBody(req, putSchema);
   if (!body.ok) return body.response;
   // El icono se conserva: este formulario es de nombre, color y moneda, y se
@@ -36,4 +33,4 @@ export const PUT = withAuth(async (session, req: Request) => {
     favicon: actual.favicon,
   });
   return Response.json({ ok: true });
-});
+}, { role: "owner" });

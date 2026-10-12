@@ -488,21 +488,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS "member_org_user_uq"
 - [x] T-00-01 `src/lib/roles.ts` (nuevo) + unit `tests/unit/roles.test.ts` (normalización, etiquetas).
 - [x] T-00-02 `requireSession` devuelve `Role` normalizado (`session.ts:29-36`). Dep: 01.
 - [x] T-00-03 `withAuth(..., { role })` + `requireOwner()` en `src/lib/api.ts`; unit `tests/unit/with-auth-role.test.ts` (mock de `@/lib/auth/session`). Dep: 02.
-- [ ] T-00-04 Aplicar la matriz a `settings/*`, `kb/*`, `lab/*`, `agent/profile` PUT, `pipeline/stages` POST/PATCH/DELETE, `templates` POST + `sync`, `calendar/settings`, `seed/demo`; retirar los 4 chequeos manuales. Dep: 03.
-- [ ] T-00-05 `GET /api/agent/profile` reducido para Vendedor. Dep: 03.
-- [ ] T-00-06 `src/lib/permissions.ts` (nuevo) con la tabla `ROUTE_POLICY` + `tests/unit/role-matrix.test.ts` (nuevo). Dep: 04.
-- [ ] T-00-07 Better Auth: bloquear `/organization/*`, `allowUserToCreateOrganization: false`, `disableOrganizationDeletion: true`; quitar `organizationClient()`. Unit sobre el hook. Dep: —.
-- [ ] T-00-08 `resolveMembership` con `ORDER BY`; schema + migración `0013_roles_miembros.sql` (dedupe + índice único); probar 2× en la BD aislada. Dep: —.
-- [ ] T-00-09 Bloqueo de login sin membresía en `session.create.before` respetando `runInternalSignup`; unit para: alta de equipo OK, primer registro OK, cuenta dada de baja 403. Dep: 08.
-- [ ] T-00-10 `src/server/team/members.ts` (nuevo) con `changeRole`, `removeMember` (+ hook `onMemberRemoved`), `resetPassword`, `createOrRelinkMember`; unit `tests/unit/team-members.test.ts` (último owner, self-change). Dep: 08.
-- [ ] T-00-11 Rutas `settings/team/[memberId]` y `.../reset-password` (nuevas); POST de alta usa re-link. Dep: 10.
-- [ ] T-00-12 `/api/events`: `lab.run` solo a owner. Dep: 02.
-- [ ] T-00-13 `requireOwnerPage()` + route groups `(owner)` en `(app)/` y `settings/`; `settings/page.tsx` por rol. Dep: 02.
-- [ ] T-00-14 `ViewerProvider` + `useViewer()`; `layout.tsx` pasa `userId`. Dep: 02.
-- [ ] T-00-15 Menú y `SettingsNav` por rol; `roleLabel` en `app-nav.tsx:274` y `team-client.tsx:156`. Dep: 13, 14.
-- [ ] T-00-16 "Mi cuenta" (página + client) con cambio de nombre y contraseña. Dep: 13.
-- [ ] T-00-17 Equipo UI: cambiar rol, baja, restablecer contraseña. Dep: 11.
-- [ ] T-00-18 Componentes compartidos sin enlaces de Propietario (contact-panel, template-sender, start-conversation, pipeline-client, conversation-list). Dep: 14.
+- [x] T-00-04 Aplicar la matriz a `settings/*`, `kb/*`, `lab/*`, `agent/profile` PUT, `pipeline/stages` POST/PATCH/DELETE, `templates` POST + `sync`, `calendar/settings`, `seed/demo`; retirar los 4 chequeos manuales. Dep: 03.
+- [x] T-00-05 `GET /api/agent/profile` reducido para Vendedor. Dep: 03.
+- [x] T-00-06 `src/lib/permissions.ts` (nuevo) con la tabla `ROUTE_POLICY` + `tests/unit/role-matrix.test.ts` (nuevo). Dep: 04.
+- [x] T-00-07 Better Auth: bloquear `/organization/*`, `allowUserToCreateOrganization: false`, `disableOrganizationDeletion: true`; quitar `organizationClient()`. Unit sobre el hook. Dep: —.
+- [x] T-00-08 `resolveMembership` con `ORDER BY`; schema + migración `0013_roles_miembros.sql` (dedupe + índice único); probar 2× en la BD aislada. Dep: —.
+- [x] T-00-09 Bloqueo de login sin membresía en `session.create.before` respetando `runInternalSignup`; unit para: alta de equipo OK, primer registro OK, cuenta dada de baja 403. Dep: 08.
+- [x] T-00-10 `src/server/team/members.ts` (nuevo) con `changeRole`, `removeMember` (+ hook `onMemberRemoved`), `resetPassword`, `createOrRelinkMember`; unit `tests/unit/team-members.test.ts` (último owner, self-change). Dep: 08.
+- [x] T-00-11 Rutas `settings/team/[memberId]` y `.../reset-password` (nuevas); POST de alta usa re-link. Dep: 10.
+- [x] T-00-12 `/api/events`: `lab.run` solo a owner. Dep: 02.
+- [x] T-00-13 `requireOwnerPage()` + route groups `(owner)` en `(app)/` y `settings/`; `settings/page.tsx` por rol. Dep: 02.
+- [x] T-00-14 `ViewerProvider` + `useViewer()`; `layout.tsx` pasa `userId`. Dep: 02.
+- [x] T-00-15 Menú y `SettingsNav` por rol; `roleLabel` en `app-nav.tsx:274` y `team-client.tsx:156`. Dep: 13, 14.
+- [x] T-00-16 "Mi cuenta" (página + client) con cambio de nombre y contraseña. Dep: 13.
+- [x] T-00-17 Equipo UI: cambiar rol, baja, restablecer contraseña. Dep: 11.
+- [x] T-00-18 Componentes compartidos sin enlaces de Propietario (contact-panel, template-sender, start-conversation, pipeline-client, conversation-list). Dep: 14.
 - [ ] T-00-19 E2E `scripts/e2e-roles.mjs` (nuevo) + guion `tests/e2e/us-roles.md` (nuevo); actualizar `tests/e2e/us7-team.md`. Dep: todas.
 - [ ] T-00-20 Gate completo `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` (el selftest corre como owner y debe seguir verde) + `e2e-roles.mjs` contra BD aislada (`.env.e2e`). Actualizar `dev-tasks/README.md` con el commit.
 

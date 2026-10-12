@@ -58,7 +58,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       conversationId: c.conversationId,
     })),
   });
-});
+}, { role: "owner" });
 
 export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
@@ -74,4 +74,4 @@ export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
     return apiError(404, "not_found", "Corrida no encontrada");
   }
   return Response.json({ deleted: true });
-});
+}, { role: "owner" });

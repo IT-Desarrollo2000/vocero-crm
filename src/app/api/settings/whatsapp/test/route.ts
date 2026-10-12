@@ -24,4 +24,4 @@ export const POST = withAuth(async (_session, req: Request) => {
     displayPhoneNumber: check.displayPhoneNumber,
     verifiedName: check.verifiedName,
   });
-});
+}, { role: "owner" });

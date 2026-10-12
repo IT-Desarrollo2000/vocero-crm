@@ -17,4 +17,4 @@ export const POST = withAuth(async (session) => {
   const result = await retryAllConversions(session.organizationId);
   if (!result) return atribucionDisabledResponse();
   return Response.json(result);
-});
+}, { role: "owner" });

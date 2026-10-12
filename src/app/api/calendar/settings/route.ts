@@ -23,7 +23,7 @@ export const GET = withAuth(async (session) => {
   if (!agendaEnabled()) return agendaDisabledResponse();
   const settings = await getSettings(session.organizationId);
   return Response.json({ settings });
-});
+}, { role: "owner" });
 
 const intervalSchema = z.object({
   start: z.string(),
@@ -73,4 +73,4 @@ export const PUT = withAuth(async (session, req: Request) => {
     }
     throw err;
   }
-});
+}, { role: "owner" });

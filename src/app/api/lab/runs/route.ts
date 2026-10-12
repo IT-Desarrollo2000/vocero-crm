@@ -35,7 +35,7 @@ export const GET = withAuth(async (session) => {
     };
   });
   return Response.json({ runs: withDelta, aiConfigured: isAiConfigured() });
-});
+}, { role: "owner" });
 
 export const POST = withAuth(async (session) => {
   if (!isAiConfigured()) {
@@ -58,4 +58,4 @@ export const POST = withAuth(async (session) => {
     }
     throw err;
   }
-});
+}, { role: "owner" });

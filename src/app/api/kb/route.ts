@@ -15,7 +15,7 @@ export const GET = withAuth(async (session) => {
     .where(scoped(schema.kbEntry.organizationId, session.organizationId))
     .orderBy(asc(schema.kbEntry.createdAt));
   return Response.json({ entries });
-});
+}, { role: "owner" });
 
 const createSchema = z
   .discriminatedUnion("kind", [
@@ -48,4 +48,4 @@ export const POST = withAuth(async (session, req: Request) => {
     .returning();
   if (!inserted[0]) return apiError(500, "internal", "No se pudo crear");
   return Response.json({ entry: inserted[0] }, { status: 201 });
-});
+}, { role: "owner" });

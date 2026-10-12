@@ -28,6 +28,7 @@ export default async function AppLayout({
   return (
     <AppShell
       branding={branding}
+      userId={session.userId}
       userName={authSession?.user.name ?? "Usuario"}
       role={session.role}
       theme={theme}
