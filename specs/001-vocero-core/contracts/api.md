@@ -33,8 +33,43 @@ Todas autenticadas por sesión Better Auth y scoped a la organización del usuar
 | `POST /api/settings/whatsapp/test` | probar conexión (valida token↔número, NO guarda) |
 | `GET /api/settings/webhook` | URL completa del webhook + estado firma |
 | `GET/POST /api/settings/team` | miembros / crear cuenta (owner only) |
+| `GET /api/reports/agent?range=` | 02 — métricas M1–M8 del agente (owner only; ver abajo) |
 | `POST /api/seed/demo` | cargar demo (solo BD vacía de dominio; idempotente) |
 | `POST /api/auth/[...all]` | Better Auth (registro gated por 1ª org / `ALLOW_SIGNUP`) |
 
 Rate limiting in-process por IP en endpoints de auth (login/registro): ventana
 deslizante, 10 intentos / 10 min → 429.
+
+## `GET /api/reports/agent` (02 — Reportes → Agente)
+
+Solo Propietario (`withAuth(..., { role: "owner" })`): el Vendedor recibe 403
+`forbidden`. Tipos en `src/lib/reports.ts` (`AgentReportDto`), compartidos con
+la UI. Siempre excluye el Laboratorio (`is_test`).
+
+Query (días calendario en la zona del negocio: `calendar_settings.timezone` si
+existe, si no `America/Mexico_City`):
+
+- `range=7d|30d|90d` — N días locales que terminan hoy (sin parámetros → `30d`).
+- `range=custom&from=YYYY-MM-DD&to=YYYY-MM-DD` — `to` inclusive, máx. 366 días.
+- Compatibilidad: `range=7|30|90` y `from`/`to` sin `range` (mandan sobre un preset).
+
+Respuestas:
+
+- 200 `{ range, attention, escalations, responseTimes, afterHandoff, failures, delivery, volume }`,
+  `Cache-Control: private, max-age=60`. `range` = `{ preset, from, to, days[], tz, fromUtc, toUtc }`
+  (límites UTC `[fromUtc, toUtc)`). Cada otro campo es un bloque
+  `{ ok: true, data } | { ok: false, error: "timeout" | "unavailable" }` que
+  degrada por separado. Proporciones 0..1, `null` sin denominador.
+  - `attention` (M1+M2): `{ active, aiOnly, aiAndHuman, humanOnly, noReply, aiOnlyRate }`
+  - `escalations` (M3): `{ total, byReason: [{ reason, label, count, samples: [{ conversationId, contactId, contactName, note, occurredAt }] }], manualReplyPauses, approximate: boolean }` — `manual_reply` NO entra en `total`/`byReason`: va en `manualReplyPauses` («Pausas por respuesta manual»); los eventos sembrados por 0017 (`approximate`) cuentan para totales.
+  - `responseTimes` (M4): `{ ai: { sessions, p50Seconds, p90Seconds }, human: {…}, unanswered }`
+  - `afterHandoff` (M5, solo eventos exactos y sin `manual_reply`): `{ attended, unattended, p50Seconds, p90Seconds }`
+  - `failures` (M6): `{ total, failed, rate, byOrigin: [{ origin, total, failed }], byChannel: [{ channel, total, failed }], topErrors: [{ error, count }] }`
+  - `delivery` (M7, canales con `deliveryReceipts`, sin `manual`, sin los últimos 15 min): `{ channels, base, delivered, read, unconfirmed, deliveryRate, readRate }`
+  - `volume` (M8): `{ rows: [{ day, channel, inbound, outbound }] }` — una fila por día del rango × canal (WhatsApp siempre + los presentes), ceros incluidos.
+- 422 `invalid_range` — fecha ilegible o inexistente, `from > to`, > 366 días, preset desconocido, `custom` sin `from` + `to`.
+- 503 `report_timeout` («Prueba un rango más corto») — todos los bloques fallaron y al menos uno por tiempo.
+
+Ejecución: cada bloque en su transacción `READ ONLY` con
+`statement_timeout = 15 s`, de 2 en 2 (el pool es `max: 10` y compite con el
+webhook), presupuesto total 30 s.
