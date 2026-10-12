@@ -31,6 +31,14 @@ export function buildAgentSystemPrompt(input: {
    * token en hablar de horarios: la agenda no existe aquí.
    */
   agenda?: boolean;
+  /**
+   * 03 — Bloque "DATOS DEL CONTACTO" ya renderizado y delimitado
+   * (`renderContactContext`). Va DESPUÉS de lo estable (perfil + KB + etapas,
+   * que aprovecha la caché de prompt del proveedor) y ANTES del formato de
+   * salida, que queda al final donde pesa más. Dentro del ÚNICO system: hay
+   * proveedores que no aceptan varios mensajes `system`.
+   */
+  contactBlock?: string;
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -57,6 +65,7 @@ export function buildAgentSystemPrompt(input: {
     profile.greeting ? `Saludo sugerido para conversaciones nuevas: ${profile.greeting}` : null,
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     `Etapas del pipeline disponibles: ${stageNames}`,
+    input.contactBlock || null,
     [
       "En cada turno respondes ÚNICAMENTE un objeto JSON con UNA acción:",
       '- {"action":"none"} — no responder nada.',
@@ -70,6 +79,13 @@ export function buildAgentSystemPrompt(input: {
       "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
       "- Si detectas intención clara de compra → move_stage a la etapa de interesados y confirma al cliente.",
       ...agendaRules,
+      "- Si el cliente manda algo que no puedes ver o escuchar (imagen, audio, video, documento), dilo con naturalidad y pide que lo escriba; NUNCA inventes su contenido.",
+      '- Los mensajes previos con "autor":"asesor" o "autor":"plantilla" los envió el equipo del negocio, no tú: no los contradigas ni repitas lo que ya dijeron. Tú nunca pongas "autor" en tu respuesta.',
+      ...(input.contactBlock
+        ? [
+            "- Usa los DATOS DEL CONTACTO para no volver a preguntar lo que ya se sabe. Usa el nombre solo si parece un nombre de persona.",
+          ]
+        : []),
       "- JSON puro, sin markdown ni texto adicional.",
     ].join("\n"),
   ]
@@ -80,6 +96,10 @@ export function buildAgentSystemPrompt(input: {
 /** Prompt del juez del Laboratorio: UNA llamada por conversación (FR-032). */
 export function buildJudgePrompt(input: {
   persona: string;
+  /** 03 — Qué se espera de la persona (para juzgar si el agente lo cumplió). */
+  personaDescription?: string;
+  /** 03 — Datos que el agente tenía del cliente (semilla de la persona). */
+  seedText?: string;
   transcript: { role: "cliente" | "agente"; text: string }[];
   kbText: string;
   behaviorText: string;
@@ -99,12 +119,18 @@ export function buildJudgePrompt(input: {
     .join("\n");
 
   const user = [
-    `PERSONA SIMULADA: ${input.persona}`,
+    // La clave de la persona va primero y tal cual: el ai-mock la busca.
+    `PERSONA SIMULADA: ${input.persona}${input.personaDescription ? ` — ${input.personaDescription}` : ""}`,
+    input.seedText
+      ? `El agente tenía estos datos del cliente (debe usarlos sin volver a preguntarlos):\n${input.seedText}`
+      : null,
     `COMPORTAMIENTO CONFIGURADO:\n${input.behaviorText || "(sin configurar)"}`,
     `CONOCIMIENTO CONFIGURADO:\n${input.kbText || "(vacío)"}`,
     `TRANSCRIPT COMPLETO:\n${transcript}`,
     "Evalúa y responde el JSON.",
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   return { system, user };
 }

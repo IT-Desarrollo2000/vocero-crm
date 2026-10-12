@@ -72,7 +72,13 @@ es del bot.
 18. `GET /api/bot/context?conversationId={id}` con la key → **200** con
     `contact` (id, name, waIdentity, phone), `conversation`
     (id, aiEnabled, handoffAt, windowOpen, windowRemainingMs) y `lead`
-    (id, stageName).
+    (id, stageName). Desde 03, además (solo ADITIVO): `contact.source`,
+    `contact.createdAt`, `contact.notes` (recortadas como en el prompt),
+    `lead.stageKind`/`amountCents`/`currency`, `attribution` (solo con
+    `ATRIBUCION`), `bookings {next,last}` (solo con `AGENDA`), `recurrent`,
+    `now {iso,timezone}` y `agentContext.block` — el texto exacto del bloque
+    "DATOS DEL CONTACTO" que recibe el agente in-process
+    (ver [us-contexto-agente.md](us-contexto-agente.md)).
 19. `GET /api/bot/context?waIdentity={identidad}` → la MISMA conversación. Es el
     camino que usa el bot cuando le llega un mensaje y solo tiene el remitente.
 20. Tras un entrante reciente, `windowOpen: true` y `windowRemainingMs` > 0.

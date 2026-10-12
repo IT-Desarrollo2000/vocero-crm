@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -16,6 +16,11 @@ import {
 } from "@/server/ai/actions";
 import { matchesHandoffIntent, toHandoffNote } from "@/server/ai/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
+import {
+  loadContactContext,
+  renderContactContext,
+} from "@/server/ai/contact-context";
+import { loadHistoryRows, toChatHistory } from "@/server/ai/history";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
 
@@ -121,21 +126,11 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return;
 
-  const history = await db
-    .select()
-    .from(schema.message)
-    .where(
-      scoped(
-        schema.message.organizationId,
-        organizationId,
-        eq(schema.message.conversationId, conversationId)
-      )
-    )
-    .orderBy(desc(schema.message.createdAt))
-    .limit(20);
-  history.reverse();
-  const lastInbound = [...history].reverse().find((m) => m.direction === "in");
-  if (!lastInbound) return;
+  // Últimos 20 mensajes con su adjunto: los no-texto viajan como marcador
+  // (03), no se descartan.
+  const history = await loadHistoryRows(organizationId, conversationId);
+  if (!history.some((m) => m.direction === "in")) return;
+  const { messages: chatHistory, lastInboundText } = toChatHistory(history);
 
   // Ventana cerrada: el agente JAMÁS envía texto libre → handoff 'ventana'.
   if (!conversation.isTest && !isWindowOpen(conversation.lastInboundAt)) {
@@ -143,8 +138,9 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     return;
   }
 
-  // Patrón de respaldo ANTES del LLM (FR-022).
-  if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
+  // Patrón de respaldo ANTES del LLM (FR-022) — sobre el texto o, si el
+  // último entrante es una foto/video/documento, sobre su pie (RF-03-10).
+  if (lastInboundText && matchesHandoffIntent(lastInboundText)) {
     await applyHandoff(conversationId, organizationId, "cliente");
     return;
   }
@@ -161,24 +157,22 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .orderBy(asc(schema.pipelineStage.position));
 
   const agenda = agendaEnabled();
+  const contactBlock = await safeContactBlock(organizationId, conversation);
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildAgentSystemPrompt({ profile, kb, stages, agenda }),
+      content: buildAgentSystemPrompt({
+        profile,
+        kb,
+        stages,
+        agenda,
+        contactBlock,
+      }),
     },
-    ...history
-      .filter((m) => m.text)
-      .map((m) =>
-        m.direction === "in"
-          ? { role: "user" as const, content: m.text! }
-          : // Los turnos previos van en el MISMO formato JSON que se le exige:
-            // con texto plano, modelos como MiniMax imitan su historial y
-            // dejan de responder JSON desde el segundo turno.
-            {
-              role: "assistant" as const,
-              content: JSON.stringify({ action: "reply", text: m.text! }),
-            }
-      ),
+    // Los turnos previos van en el MISMO formato JSON que se le exige (con
+    // texto plano, MiniMax imita su historial y deja de responder JSON desde
+    // el segundo turno); los del equipo, marcados con "autor" (history.ts).
+    ...chatHistory,
   ];
 
   const result = await chatJson(agentActionSchema(agenda), messages);
@@ -268,6 +262,30 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
 }
 
 type Conversation = typeof schema.conversation.$inferSelect;
+
+/**
+ * 03 — Bloque "DATOS DEL CONTACTO" del turno. Armar el contexto JAMÁS tumba
+ * el turno (RF-03-13): si algo truena, se registra el tipo de error (sin
+ * valores personales) y el agente responde sin la sección.
+ */
+async function safeContactBlock(
+  organizationId: string,
+  conversation: Conversation
+): Promise<string | undefined> {
+  try {
+    const ctx = await loadContactContext({
+      organizationId,
+      conversation,
+      now: new Date(),
+    });
+    return renderContactContext(ctx);
+  } catch (err) {
+    console.error(
+      `[agente] contexto no disponible: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return undefined;
+  }
+}
 
 /** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
 async function deliverReply(

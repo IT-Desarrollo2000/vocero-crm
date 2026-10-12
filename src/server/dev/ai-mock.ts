@@ -1,4 +1,16 @@
 import { JUDGE_MARKER } from "@/server/ai/prompts";
+import { CONTEXT_CLOSE, CONTEXT_OPEN } from "@/server/ai/contact-context";
+
+/** Contenido entre los delimitadores del bloque de contexto, en una línea. */
+function contextBlockOf(system: string): string | null {
+  const start = system.indexOf(CONTEXT_OPEN);
+  const end = system.indexOf(CONTEXT_CLOSE);
+  if (start === -1 || end <= start) return null;
+  return system
+    .slice(start + CONTEXT_OPEN.length, end)
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Proveedor LLM determinista para el self-test (contrato mocks.md).
@@ -44,6 +56,17 @@ export function aiMockCompletion(messages: InMessage[]): string {
   }
 
   const text = lastUser.toLowerCase();
+
+  // 03 — "¿qué sabes de mí?": devuelve el bloque DATOS DEL CONTACTO que llegó
+  // en el system, en una línea. Prueba que el bloque LLEGA (inyección), no la
+  // calidad de la respuesta.
+  const plain = text.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (plain.includes("que sabes de mi")) {
+    return JSON.stringify({
+      action: "reply",
+      text: `CTX: ${contextBlockOf(system) ?? "(sin datos del contacto)"}`,
+    });
+  }
 
   // Persona pide_humano (el regex de respaldo captura la frase canónica; esta
   // rama cubre variantes que llegan al modelo).

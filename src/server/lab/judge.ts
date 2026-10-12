@@ -29,12 +29,18 @@ export type JudgeOutcome =
  */
 export async function judgeCase(input: {
   personaKey: string;
+  /** 03 — Descripción de la persona: el juez sabe qué se esperaba. */
+  personaDescription?: string;
+  /** 03 — Semilla de ficha/notas que el agente tenía del cliente. */
+  seedText?: string;
   transcript: { role: "cliente" | "agente"; text: string }[];
   kbText: string;
   behaviorText: string;
 }): Promise<JudgeOutcome> {
   const { system, user } = buildJudgePrompt({
     persona: input.personaKey,
+    personaDescription: input.personaDescription,
+    seedText: input.seedText,
     transcript: input.transcript,
     kbText: input.kbText,
     behaviorText: input.behaviorText,
