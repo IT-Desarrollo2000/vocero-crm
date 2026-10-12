@@ -404,6 +404,16 @@ export const conversation = pgTable(
       t.organizationId,
       t.assignedUserId
     ),
+    // 06: orden de la Bandeja (keyset sobre (sort_at, id), migración 0016).
+    // NO parcial: `is_test = false` viaja como parámetro y un plan genérico
+    // no podría probar el predicado de un índice parcial. Las expresiones van
+    // como SQL crudo para que el texto (`DESC`, sin `NULLS LAST`) sea idéntico
+    // al ORDER BY de `listConversations` (dev-tasks/06, "Contrato 06-0").
+    index("conversation_org_sort_idx").on(
+      t.organizationId,
+      sql`(coalesce(${t.lastMessageAt}, ${t.createdAt})) DESC`,
+      sql`${t.id} DESC`
+    ),
   ]
 );
 

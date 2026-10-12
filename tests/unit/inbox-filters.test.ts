@@ -35,6 +35,9 @@ function mk(
     // 09: sin asignar por defecto.
     assignedTo: null,
     assignedAt: null,
+    // 06: clave de orden y etapa por id.
+    sortAt: "2026-01-01T00:00:00.000Z",
+    stageId: null,
     ...rest,
   } satisfies ConversationDto;
 }

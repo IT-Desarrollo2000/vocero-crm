@@ -1,5 +1,4 @@
 import {
-  desc,
   eq,
   exists,
   gt,
@@ -17,11 +16,19 @@ import { publish } from "@/server/events/bus";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import { capabilitiesFor, replyModeFor } from "@/server/channels/capabilities";
 import { conversationVisibleTo, type Viewer } from "@/server/inbox/visibility";
-import type { AssignedFilter, ConversationDto } from "@/lib/types";
+import { inboxOrderBy, type InboxQuery } from "@/server/inbox/list-query";
+import type {
+  AssignedFilter,
+  ConversationDto,
+  ConversationsPage,
+} from "@/lib/types";
 
-export type ListConversationsOptions = {
-  /** Catch-up: solo las actualizadas después de este instante. */
-  since?: Date;
+/**
+ * Opciones de `listConversations` (contrato 06-0, dev-tasks/06). Todo es
+ * opcional: sin nada = lista completa visible (D-06-1). `since` = catch-up
+ * legado (solo las actualizadas después de ese instante).
+ */
+export type ListConversationsOptions = Partial<InboxQuery> & {
   /**
    * 09 (RF-09-12): filtro de responsable, SIEMPRE dentro de lo visible.
    * `me` = asignadas a `viewer.userId`; `unassigned` = sin responsable;
@@ -55,12 +62,17 @@ function assigneeOf(
  * Lista de la Bandeja (sin `is_test`) para `viewer` (RF-09-02). La
  * visibilidad y el filtro `assigned` van en el WHERE: 06 pagina SOBRE esta
  * misma query, sin reimplementar el predicado.
+ *
+ * 06-0: firma y forma de respuesta FIJADAS (`{ conversations, nextCursor }`).
+ * Por ahora solo implementa `since` y `assigned` (lista completa,
+ * `nextCursor: null`); `limit`/`cursor`/`filter`/`stageId`/`channel`/`q`/
+ * `ids`/`contactId` los implementa 06-A según el "Contrato 06-0".
  */
 export async function listConversations(
   organizationId: string,
   viewer: Viewer,
   opts: ListConversationsOptions = {}
-): Promise<ConversationDto[]> {
+): Promise<ConversationsPage> {
   const { since, assigned } = opts;
   const db = getDb();
   const previewSql = sql<string | null>`(
@@ -104,9 +116,10 @@ export async function listConversations(
         since ? gt(schema.conversation.updatedAt, since) : undefined
       )
     )
-    .orderBy(desc(sql`coalesce(${schema.conversation.lastMessageAt}, ${schema.conversation.createdAt})`));
+    // 06: mismo texto que el índice `conversation_org_sort_idx` (0016).
+    .orderBy(...inboxOrderBy);
 
-  return rows.map((r) =>
+  const conversations = rows.map((r) =>
     serializeConversation(
       r.conversation,
       r.contact,
@@ -115,6 +128,7 @@ export async function listConversations(
       assigneeOf(r.conversation, r.assigneeName)
     )
   );
+  return { conversations, nextCursor: null };
 }
 
 /**
@@ -193,7 +207,9 @@ export function serializeConversation(
   contact: typeof schema.contact.$inferSelect,
   preview: string | null = null,
   stageName: string | null = null,
-  assignee: Assignee = null
+  assignee: Assignee = null,
+  /** 06: lo llena 06-A desde el JOIN con `lead`; null mientras tanto. */
+  stageId: string | null = null
 ): ConversationDto {
   return {
     id: c.id,
@@ -215,6 +231,8 @@ export function serializeConversation(
     preview,
     assignedTo: assignee,
     assignedAt: assignee ? (c.assignedAt?.toISOString() ?? null) : null,
+    sortAt: (c.lastMessageAt ?? c.createdAt).toISOString(),
+    stageId,
   };
 }
 

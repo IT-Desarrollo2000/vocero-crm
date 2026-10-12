@@ -29,6 +29,9 @@ export type RoutePolicy =
 export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Bandeja ────────────────────────────────────────────────────────────
   "GET /api/conversations": "any*",
+  // 06: contadores y detalle, siempre sobre lo visible para quien pide.
+  "GET /api/conversations/counts": "any*",
+  "GET /api/conversations/[id]": "any*",
   "PATCH /api/conversations/[id]": "any*",
   // 09: tomar/liberar (ambos roles, sobre lo visible) · asignar a otro (Propietario).
   "POST /api/conversations/[id]/assign": "any*",

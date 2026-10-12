@@ -1,6 +1,7 @@
 import { apiError, withAuth } from "@/lib/api";
+import { parseInboxQuery } from "@/server/inbox/list-query";
 import { listConversations } from "@/server/inbox/queries";
-import type { AssignedFilter } from "@/lib/types";
+import type { AssignedFilter, ConversationsPage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +11,15 @@ const ASSIGNED: readonly AssignedFilter[] = ["me", "unassigned", "all"];
  * Lista de la Bandeja para quien pide (09: el Vendedor ve las suyas + las sin
  * asignar; el Propietario, todas). `?assigned=me|unassigned|all` (default
  * `all` = todo lo visible); otro valor → 422 `invalid_query`.
+ *
+ * 06 (contrato 06-0): `limit`, `cursor`, `filter`, `stage`, `channel`, `q`,
+ * `ids`, `contact` y `since` se parsean TOLERANTES (`parseInboxQuery`).
+ * Responde `{ conversations, nextCursor }`; sin `limit` = lista completa con
+ * `nextCursor: null` (D-06-1). Precedencia: `ids` > `contact` > `since` >
+ * lista paginada.
  */
 export const GET = withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
-  const sinceParam = url.searchParams.get("since");
-  const since = sinceParam ? new Date(sinceParam) : undefined;
   const assignedParam = url.searchParams.get("assigned");
   if (
     assignedParam !== null &&
@@ -26,9 +31,11 @@ export const GET = withAuth(async (session, req: Request) => {
       "assigned debe ser me, unassigned o all"
     );
   }
-  const conversations = await listConversations(session.organizationId, session, {
-    since: since && !Number.isNaN(since.getTime()) ? since : undefined,
-    assigned: (assignedParam ?? "all") as AssignedFilter,
-  });
-  return Response.json({ conversations });
+  const query = parseInboxQuery(url.searchParams);
+  const page: ConversationsPage = await listConversations(
+    session.organizationId,
+    session,
+    { ...query, assigned: (assignedParam ?? "all") as AssignedFilter }
+  );
+  return Response.json(page);
 });

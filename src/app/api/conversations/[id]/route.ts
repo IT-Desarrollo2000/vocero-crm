@@ -14,6 +14,16 @@ const patchSchema = z.object({
 type Params = { params: Promise<{ id: string }> };
 
 /**
+ * 06: detalle de UNA conversación (`{ conversation: ConversationDto }`) con la
+ * visibilidad del viewer; no existe, es `is_test` o no la ves → 404.
+ *
+ * STUB del contrato 06-0: lo implementa 06-A.
+ */
+export const GET = withAuth(async () =>
+  apiError(501, "not_implemented", "Detalle de conversación: pendiente (06-A)")
+);
+
+/**
  * 09: el predicado de visibilidad va en el WHERE del UPDATE
  * (`updateConversation(..., session)`): 0 filas = no existe o no la ves → 404.
  * La asignación NO se cambia por aquí: tiene su ruta
