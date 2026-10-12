@@ -441,12 +441,12 @@ posterior.
   como `{ id }` (paso 7) y que el filtro SSE de `message.new` está activo; si
   06 va antes que 09, el cliente igual usa `?ids=` (funciona con cualquier
   payload). *(09)*
-- [ ] **T-06-10** Hook `use-inbox-list.ts` (upsert/remove/orden/recarga al reconectar/counts). *(T-06-06..09)*
-- [ ] **T-06-11** `conversation-list.tsx`: filtros a servidor, contadores de
+- [x] **T-06-10** Hook `use-inbox-list.ts` (upsert/remove/orden/recarga al reconectar/counts). *(T-06-06..09)*
+- [x] **T-06-11** `conversation-list.tsx`: filtros a servidor, contadores de
   `counts`, etapas de `useStages`, scroll infinito. *(T-06-10)*
-- [ ] **T-06-12** `inbox-client.tsx`: SSE con upsert, `loadFirst` al reconectar (sin `since`),
+- [x] **T-06-12** `inbox-client.tsx`: SSE con upsert, `loadFirst` al reconectar (sin `since`),
   `?contact=` fuera de página. *(T-06-10)*
-- [ ] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)*
+- [x] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)*
 - [ ] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
   según D-06-1. *(T-06-08)*
 - [ ] **T-06-15** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm

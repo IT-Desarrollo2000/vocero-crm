@@ -81,8 +81,8 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(names(visible)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
   });
 
-  it("'handoff' deja las que tienen handoffAt o la IA apagada", () => {
-    const { visible } = filterConversations(all, { ...base, filter: "handoff" });
+  it("'human' deja las que tienen handoffAt o la IA apagada", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Diego Pérez", "Ana Kevinsky", "Lucía Sol"]);
   });
 
@@ -90,7 +90,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(needsHuman(lucia)).toBe(true);
     expect(needsHuman(diego)).toBe(true);
     expect(needsHuman(pablo)).toBe(false);
-    const { visible } = filterConversations([lucia], { ...base, filter: "handoff" });
+    const { visible } = filterConversations([lucia], { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Lucía Sol"]);
   });
 
@@ -98,7 +98,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
     // Diego tiene ambos; no se duplica en la lista ni en el contador.
     const { visible } = filterConversations([diego, pablo], {
       ...base,
-      filter: "handoff",
+      filter: "human",
     });
     expect(names(visible)).toEqual(["Diego Pérez"]);
     expect([diego, pablo].filter(needsHuman)).toHaveLength(1);
@@ -109,11 +109,11 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(needsHuman(juan)).toBe(true);
   });
 
-  it("'handoff' se combina con la búsqueda", () => {
+  it("'human' se combina con la búsqueda", () => {
     const { visible, inInbox } = filterConversations(all, {
       ...base,
       query: "kevin",
-      filter: "handoff",
+      filter: "human",
     });
     // La búsqueda trae a Kevin y a Ana Kevinsky; solo Ana pidió un humano.
     expect(names(inInbox)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
@@ -130,7 +130,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
   });
 
   it("búsqueda sin coincidencias → nada, en cualquier pastilla", () => {
-    for (const filter of ["all", "unread", "handoff"] as const) {
+    for (const filter of ["all", "unread", "human"] as const) {
       const { visible } = filterConversations(all, {
         ...base,
         query: "zzz-no-existe",
@@ -156,7 +156,7 @@ describe("filterConversations — etapa y canal", () => {
     const { visible } = filterConversations(all, {
       ...base,
       stage: "Interesado",
-      filter: "handoff",
+      filter: "human",
     });
     expect(names(visible)).toEqual(["Alfa", "Gama"]);
   });
@@ -165,7 +165,7 @@ describe("filterConversations — etapa y canal", () => {
     const { searched, inInbox, visible } = filterConversations(all, {
       ...base,
       inbox: "instagram",
-      filter: "handoff",
+      filter: "human",
     });
     expect(searched).toHaveLength(3);
     expect(names(inInbox)).toEqual(["Gama"]);

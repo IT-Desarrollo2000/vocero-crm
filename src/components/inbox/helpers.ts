@@ -2,18 +2,14 @@
 
 import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
-import type { ConversationDto } from "@/lib/types";
+import type { ConversationDto, InboxFilter } from "@/lib/types";
 
 /**
  * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana y (09)
- * por responsable: las mías o las que nadie ha tomado.
+ * por responsable: las mías o las que nadie ha tomado. 06: mismos nombres que
+ * `GET /api/conversations?filter=` (`human` = atención humana).
  */
-export type ConversationFilter =
-  | "all"
-  | "unread"
-  | "handoff"
-  | "mine"
-  | "unassigned";
+export type ConversationFilter = InboxFilter;
 
 /**
  * Atención humana = nadie automático va a contestar: la conversación tiene
@@ -35,12 +31,20 @@ export function needsHuman(c: ConversationDto): boolean {
  * Solo nombre y teléfono, como cualquier filtro de contactos. Antes también
  * miraba el preview, y como el agente nombra al dueño en sus propios
  * mensajes, buscar ese nombre devolvía media bandeja.
+ *
+ * 06: el filtro de verdad lo hace el servidor; esto queda como su ESPEJO en
+ * el cliente (mismas reglas: `matchesQuery` ≡ `contactSearchSql`,
+ * `needsHuman` ≡ `human`) para decidir si una fila que llega por SSE entra en
+ * la lista activa y para los contadores de respaldo.
  */
 export function filterConversations(
   conversations: readonly ConversationDto[],
   opts: {
     query: string;
+    /** Nombre de la etapa, o "all". Respaldo cuando la fila no trae `stageId`. */
     stage: string;
+    /** 06: etapa por id (D-06-2); manda sobre el nombre si la fila lo trae. */
+    stageId?: string;
     inbox: Channel | "all";
     filter: ConversationFilter;
     /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
@@ -51,13 +55,19 @@ export function filterConversations(
   inInbox: ConversationDto[];
   visible: ConversationDto[];
 } {
-  const { query, stage, inbox, filter, viewerId } = opts;
+  const { query, stage, stageId, inbox, filter, viewerId } = opts;
+  const stageOk = (c: ConversationDto): boolean => {
+    if (!stageId) return stage === "all" || c.stageName === stage;
+    if (c.stageId != null) return c.stageId === stageId;
+    // Servidor anterior a 06 (DTO sin `stageId`): se compara por nombre.
+    return stage !== "all" && c.stageName === stage;
+  };
   const searched = conversations.filter(
     (c) =>
       matchesQuery(query, {
         text: [c.contact.name],
         phone: c.contact.phone,
-      }) && (stage === "all" || c.stageName === stage)
+      }) && stageOk(c)
   );
   // La bandeja elegida es el filtro de AFUERA: las pastillas cuentan dentro
   // de ella, no sobre la suma de los canales.
@@ -66,7 +76,7 @@ export function filterConversations(
   const visible =
     filter === "unread"
       ? inInbox.filter((c) => c.unreadCount > 0)
-      : filter === "handoff"
+      : filter === "human"
         ? inInbox.filter(needsHuman)
         : filter === "mine"
           ? inInbox.filter((c) => isMine(c, viewerId))

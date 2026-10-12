@@ -5,7 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { ChevronLeft, Info, PanelRight, X } from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
-import type { AssignBody, ConversationDto, MessageDto } from "@/lib/types";
+import type {
+  AssignBody,
+  ConversationDto,
+  ConversationsPage,
+  MessageDto,
+} from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { useEvents } from "@/components/use-events";
@@ -16,6 +21,7 @@ import { MessageThread } from "./message-thread";
 import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
 import { AssignmentControl, type TeamOption } from "./assignment-control";
+import { useInboxList } from "./use-inbox-list";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
 const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
@@ -54,10 +60,13 @@ const isWideEnoughForPanel = () =>
 
 export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   const multiChannel = channels.length > 1;
-  const [conversations, setConversations] = useState<ConversationDto[] | null>(
-    null
-  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * 06: copia de la conversación abierta. Si deja de cumplir el filtro activo
+   * sale de la lista, pero el hilo sigue abierto con esta copia (contrato
+   * 06-0); solo se cierra si `?ids=` dice que ya no es visible.
+   */
+  const [selectedDto, setSelectedDto] = useState<ConversationDto | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [pending, setPending] = useState<PendingOut[]>([]);
   // Arranca cerrado: en pantallas angostas el panel de detalles es un cajón
@@ -82,7 +91,6 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   }, []);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
-  const lastFetchRef = useRef<string | null>(null);
   const tmpSeq = useRef(0);
   // Los envíos salen en fila: el compositor ya no espera, pero WhatsApp debe
   // recibir "hola" antes que el renglón siguiente. Sin esta cadena, dos POST
@@ -134,31 +142,46 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
     else if (!silentForOwner) setNotice(NOTICE_GONE);
   }, []);
 
-  // Las ráfagas de SSE disparan refetches simultáneos: solo se aplica la
-  // respuesta más reciente, para que una lista vieja no "pierda" la abierta.
-  const fetchSeq = useRef(0);
-  const conversationsRef = useRef<ConversationDto[] | null>(null);
-  const refetchConversations = useCallback(async () => {
-    const seq = ++fetchSeq.current;
-    const res = await fetch("/api/conversations").catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as { conversations: ConversationDto[] };
-    if (seq !== fetchSeq.current) return;
-    const prev = conversationsRef.current;
-    conversationsRef.current = data.conversations;
-    setConversations(data.conversations);
-    lastFetchRef.current = new Date().toISOString();
-    // El servidor no avisa "ya no la ves" (filtraría): se nota porque deja de
-    // venir en la lista completa (contrato 09-0).
-    const sel = selectedIdRef.current;
-    if (
-      sel &&
-      prev?.some((c) => c.id === sel) &&
-      !data.conversations.some((c) => c.id === sel)
-    ) {
-      closeLost(sel, true);
-    }
-  }, [closeLost]);
+  /**
+   * 06 — Lista paginada. Los eventos ya no recargan todo: cada id se resuelve
+   * con `?ids=` (ráfagas juntas). Id ausente = ya no la ves → si estaba
+   * abierta se cierra con el aviso; presente = la copia abierta se actualiza
+   * aunque haya salido de la lista por el filtro.
+   */
+  const list = useInboxList({
+    viewerId: viewer.userId,
+    localTeamMode: !owner || (team?.length ?? 0) > 1,
+    onResolved: ({ gone, present }) => {
+      const sel = selectedIdRef.current;
+      if (!sel) return;
+      const fresh = present.get(sel);
+      if (fresh) setSelectedDto(fresh);
+      if (gone.includes(sel)) closeLost(sel, true);
+    },
+  });
+  const { resolveIds, refreshCounts, loadFirst } = list;
+
+  /** Una conversación cambió por algo que hicimos aquí: se relee solo esa. */
+  const refreshOne = useCallback(
+    (id: string) => {
+      resolveIds([id]);
+      refreshCounts();
+    },
+    [resolveIds, refreshCounts]
+  );
+
+  /**
+   * Reconexión del SSE o pestaña que vuelve a estar visible: primera página
+   * con los filtros activos + contadores (sin `since`, RF-06-13). La abierta
+   * se conserva aunque no venga en la página, salvo que `?ids=` diga que ya
+   * no es visible.
+   */
+  const reloadList = useCallback(() => {
+    void loadFirst();
+    refreshCounts({ now: true });
+    if (selectedIdRef.current) resolveIds([selectedIdRef.current]);
+  }, [loadFirst, refreshCounts, resolveIds]);
+
 
   const refetchMessages = useCallback(
     async (conversationId: string) => {
@@ -184,17 +207,19 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         body: JSON.stringify({ markRead: true }),
       }).catch(() => null);
       if (res?.status === 404) closeLost(conversationId, false);
+      // Con "No leídas" activa, la recién leída sale de la lista y el
+      // contador baja (CA-06-04) sin esperar al evento.
+      else if (res?.ok) refreshOne(conversationId);
     },
-    [closeLost]
+    [closeLost, refreshOne]
   );
 
-  useEffect(() => {
-    void refetchConversations();
-  }, [refetchConversations]);
-
+  const itemsRef = useRef(list.items);
+  itemsRef.current = list.items;
   const select = useCallback(
-    (id: string) => {
+    (id: string, dto?: ConversationDto) => {
       setSelectedId(id);
+      setSelectedDto(dto ?? itemsRef.current?.find((c) => c.id === id) ?? null);
       setMessages([]);
       void refetchMessages(id);
       void markRead(id);
@@ -202,26 +227,43 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
     [refetchMessages, markRead]
   );
 
-  // Enlace directo desde Contactos/Pipeline: /inbox?contact=<id>
+  // Enlace directo desde Contactos/Pipeline: /inbox?contact=<id>. Si no está
+  // en lo cargado (conversación antigua, otra página), se pide suelta con
+  // `?contact=`. 09: si tampoco viene, el Vendedor no la ve (o no existe) y
+  // se dice por qué en vez de dejar el hilo vacío. Una vez por enlace.
   const searchParams = useSearchParams();
   const contactParam = searchParams.get("contact");
-  useEffect(() => {
-    if (!contactParam || selectedIdRef.current) return;
-    const match = conversations?.find((c) => c.contact.id === contactParam);
-    if (match) select(match.id);
-  }, [contactParam, conversations, select]);
-
-  // 09: si el enlace apunta a una conversación que el Vendedor no ve, se dice
-  // por qué en vez de dejar el hilo vacío. Una sola vez por enlace, con la
-  // primera lista que llega.
+  const loaded = list.items !== null;
   const linkChecked = useRef<string | null>(null);
   useEffect(() => {
-    if (!contactParam || conversations === null) return;
+    if (!contactParam || !loaded) return;
     if (linkChecked.current === contactParam) return;
     linkChecked.current = contactParam;
-    const match = conversations.some((c) => c.contact.id === contactParam);
-    if (!match && !owner) setNotice(NOTICE_LINK);
-  }, [contactParam, conversations, owner]);
+    if (selectedIdRef.current) return;
+    const match = itemsRef.current?.find((c) => c.contact.id === contactParam);
+    if (match) {
+      select(match.id, match);
+      return;
+    }
+    void (async () => {
+      const res = await fetch(
+        `/api/conversations?${new URLSearchParams({ contact: contactParam })}`
+      ).catch(() => null);
+      const data = res?.ok
+        ? ((await res.json().catch(() => null)) as ConversationsPage | null)
+        : null;
+      // Se busca por contacto (no se toma la primera fila): un servidor que
+      // aún no entiende `contact` devuelve la lista completa.
+      const found = data?.conversations?.find((c) => c.contact.id === contactParam);
+      if (found) {
+        list.upsert(found);
+        if (!selectedIdRef.current) select(found.id, found);
+      } else if (!ownerRef.current) {
+        setNotice(NOTICE_LINK);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `list.upsert` es estable
+  }, [contactParam, loaded, select]);
 
   /**
    * 09 — Tomar / liberar / (re)asignar. `POST .../assign` con `AssignBody`;
@@ -260,10 +302,19 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
           setNotice(data?.error?.message ?? "No se pudo cambiar el responsable.");
         }
       }
-      await refetchConversations();
+      refreshOne(conversationId);
     },
-    [closeLost, refetchConversations]
+    [closeLost, refreshOne]
   );
+
+  // SSE caído: al volver a la pestaña se recarga lo que se vea (RF-06-13).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reloadList();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reloadList]);
 
   useEvents({
     onMessageNew: ({ conversationId, message }) => {
@@ -274,7 +325,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         );
         void markRead(conversationId);
       }
-      void refetchConversations();
+      refreshOne(conversationId);
       // Un entrante nuevo puede crear/mover el lead: refresca el panel.
       setDetailRev((v) => v + 1);
     },
@@ -292,20 +343,31 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         )
       );
     },
-    onConversationUpdated: () => {
-      void refetchConversations();
+    onConversationUpdated: ({ conversation }) => {
+      // 09 deja el payload en `{ id }`: el DTO se pide con `?ids=` (que
+      // aplica visibilidad). Sin id legible, se recarga la primera página.
+      const id = (conversation as { id?: unknown } | null)?.id;
+      if (typeof id === "string" && id) refreshOne(id);
+      else reloadList();
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
       setDetailRev((v) => v + 1);
     },
     onReconnect: () => {
-      // Catch-up tras reconexión (contrato sse.md): refetch completo.
-      void refetchConversations();
+      // Catch-up tras reconexión: primera página + contadores, sin `since`.
+      reloadList();
       if (selectedIdRef.current) void refetchMessages(selectedIdRef.current);
       setDetailRev((v) => v + 1);
     },
   });
 
-  const selected = conversations?.find((c) => c.id === selectedId) ?? null;
+  // La abierta sale de la lista si está cargada; si salió por el filtro (o
+  // llegó por el enlace profundo), de su copia.
+  const listed = list.items?.find((c) => c.id === selectedId) ?? null;
+  const selected =
+    listed ?? (selectedDto && selectedDto.id === selectedId ? selectedDto : null);
+  useEffect(() => {
+    if (listed) setSelectedDto(listed);
+  }, [listed]);
 
   /**
    * Hilo visible = lo confirmado + lo que aún viaja. El mensaje real puede
@@ -398,7 +460,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         // revés, la burbuja parpadearía.
         await refetchMessages(conversationId);
         drop();
-        void refetchConversations();
+        refreshOne(conversationId);
         return null;
       };
 
@@ -406,7 +468,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       sendQueue.current = queued.catch(() => null);
       return queued;
     },
-    [refetchMessages, refetchConversations, closeLost]
+    [refetchMessages, refreshOne, closeLost]
   );
 
   const patchConversation = useCallback(
@@ -419,20 +481,19 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         body: JSON.stringify(patch),
       }).catch(() => null);
       if (res?.status === 404) closeLost(conversationId, false);
-      void refetchConversations();
+      refreshOne(conversationId);
     },
-    [refetchConversations, closeLost]
+    [refreshOne, closeLost]
   );
 
   /**
    * 09: la asignación solo se enseña si hay equipo. Con el Propietario solo
    * (instancia de un usuario) la Bandeja queda exactamente como antes; el
-   * Vendedor, por definición, trabaja en equipo.
+   * Vendedor, por definición, trabaja en equipo. 06: la regla la resuelve
+   * `/counts` (estable, no depende de lo cargado); si no responde, la de
+   * siempre sobre lo cargado (ver `useInboxList`).
    */
-  const teamMode =
-    !owner ||
-    (team?.length ?? 0) > 1 ||
-    (conversations?.some((c) => c.assignedTo !== null) ?? false);
+  const teamMode = list.teamMode;
 
   const assignmentControl = (className?: string) =>
     selected && teamMode ? (
@@ -457,12 +518,20 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         )}
       >
         <ConversationList
-          conversations={conversations}
+          conversations={list.visible}
+          counts={list.counts}
+          filters={list.filters}
+          onFiltersChange={list.setFilters}
           channels={channels}
           selectedId={selectedId}
           onSelect={select}
-          onSeeded={() => void refetchConversations()}
+          onSeeded={() => reloadList()}
           teamMode={teamMode}
+          hasMore={list.hasMore}
+          loadingMore={list.loadingMore}
+          error={list.error}
+          onLoadMore={() => void list.loadMore()}
+          onRetry={() => reloadList()}
         />
       </section>
 
@@ -533,7 +602,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
               onSent={() => {
                 if (selectedIdRef.current)
                   void refetchMessages(selectedIdRef.current);
-                void refetchConversations();
+                if (selectedIdRef.current) refreshOne(selectedIdRef.current);
               }}
             />
           </>
