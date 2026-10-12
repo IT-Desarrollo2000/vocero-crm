@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { filterConversations, needsHuman } from "@/components/inbox/helpers";
+import {
+  assigneeLabel,
+  filterConversations,
+  initials,
+  isMine,
+  needsHuman,
+} from "@/components/inbox/helpers";
 import type { ConversationDto } from "@/lib/types";
 
 let seq = 0;
@@ -161,5 +167,56 @@ describe("filterConversations — etapa y canal", () => {
     expect(searched).toHaveLength(3);
     expect(names(inInbox)).toEqual(["Gama"]);
     expect(names(visible)).toEqual(["Gama"]);
+  });
+});
+
+describe("filterConversations — asignación (09)", () => {
+  const yo = "usr_yo";
+  const mia = mk({ name: "Mía", assignedTo: { userId: yo, name: "Yo Vendedor" } });
+  const libre = mk({ name: "Libre", unreadCount: 1 });
+  const ajena = mk({ name: "Ajena", assignedTo: { userId: "usr_otro", name: "Otra Persona" } });
+  const all = [mia, libre, ajena];
+
+  it("'mine' deja solo las asignadas a quien mira", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "mine", viewerId: yo });
+    expect(names(visible)).toEqual(["Mía"]);
+  });
+
+  it("'mine' sin viewerId no adivina: queda vacía", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "mine" });
+    expect(visible).toHaveLength(0);
+  });
+
+  it("'unassigned' deja las que nadie tiene", () => {
+    const { visible } = filterConversations(all, {
+      ...base,
+      filter: "unassigned",
+      viewerId: yo,
+    });
+    expect(names(visible)).toEqual(["Libre"]);
+  });
+
+  it("se combina con la búsqueda y el canal", () => {
+    const ig = mk({ name: "Libre IG", channel: "instagram" });
+    const { visible } = filterConversations([...all, ig], {
+      ...base,
+      query: "libre",
+      inbox: "instagram",
+      filter: "unassigned",
+      viewerId: yo,
+    });
+    expect(names(visible)).toEqual(["Libre IG"]);
+  });
+
+  it("isMine / assigneeLabel / initials", () => {
+    expect(isMine(mia, yo)).toBe(true);
+    expect(isMine(ajena, yo)).toBe(false);
+    expect(isMine(libre, yo)).toBe(false);
+    expect(assigneeLabel(mia, yo)).toEqual({ kind: "mine", label: "Tuya" });
+    expect(assigneeLabel(libre, yo)).toEqual({ kind: "none", label: "Sin asignar" });
+    expect(assigneeLabel(ajena, yo)).toEqual({ kind: "other", label: "Otra Persona" });
+    expect(initials("Ana María López")).toBe("AL");
+    expect(initials("ana")).toBe("A");
+    expect(initials("  ")).toBe("?");
   });
 });

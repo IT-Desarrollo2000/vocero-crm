@@ -13,12 +13,58 @@ import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
 import {
+  assigneeLabel,
   filterConversations,
   formatTime,
+  initials,
+  isMine,
   needsHuman,
   previewText,
   type ConversationFilter,
 } from "./helpers";
+
+/**
+ * 09 — Responsable en la fila. Al Propietario le dice quién la atiende (con
+ * sus iniciales); al Vendedor, "Tuya" o "Sin asignar" (no ve otras).
+ */
+function AssigneeTag({
+  c,
+  viewerId,
+  owner,
+}: {
+  c: ConversationDto;
+  viewerId: string;
+  owner: boolean;
+}) {
+  const { kind, label } = assigneeLabel(c, viewerId);
+  if (kind === "none") {
+    return (
+      <span className="ml-auto inline-flex shrink-0 items-center rounded-full border border-dashed px-2 py-0.5 text-[11px] text-text-3">
+        Sin asignar
+      </span>
+    );
+  }
+  const name = c.assignedTo?.name ?? label;
+  return (
+    <span
+      title={kind === "mine" ? "La atiendes tú" : `La atiende ${name}`}
+      className={cn(
+        "ml-auto inline-flex min-w-0 shrink items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px]",
+        kind === "mine"
+          ? "border-brand-soft bg-brand-tint text-brand-text"
+          : "bg-secondary text-text-2"
+      )}
+    >
+      <span
+        aria-hidden
+        className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-full bg-background text-[8.5px] font-semibold"
+      >
+        {initials(name)}
+      </span>
+      <span className="truncate">{owner && kind === "other" ? name : label}</span>
+    </span>
+  );
+}
 
 function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   const [seeding, setSeeding] = useState(false);
@@ -64,8 +110,14 @@ export function ConversationList({
   selectedId,
   onSelect,
   onSeeded,
+  teamMode = false,
 }: {
   conversations: ConversationDto[] | null;
+  /**
+   * 09: ¿se enseña la asignación (pastillas "Mías"/"Sin asignar" y
+   * responsable en la fila)? No con el Propietario trabajando solo.
+   */
+  teamMode?: boolean;
   /** Canales encendidos en esta instancia (ADR-001). */
   channels: readonly Channel[];
   selectedId: string | null;
@@ -77,6 +129,8 @@ export function ConversationList({
   const [stage, setStage] = useState<string>("all");
   const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
+  const viewer = useViewer();
+  const viewerOwner = isOwner(viewer);
 
   /**
    * Rescate de lo tecleado ANTES de que hidratara el JS. La caja se pinta en
@@ -97,12 +151,29 @@ export function ConversationList({
     query,
     stage,
     inbox,
-    filter,
+    // Si la asignación se oculta, una pastilla de asignación ya elegida no
+    // debe seguir filtrando a escondidas.
+    filter:
+      !teamMode && (filter === "mine" || filter === "unassigned") ? "all" : filter,
+    viewerId: viewer.userId,
   });
   const inboxCount = (ch: Channel) =>
     searched.filter((c) => c.channel === ch).length;
   const unreadCount = inInbox.filter((c) => c.unreadCount > 0).length;
   const handoffCount = inInbox.filter(needsHuman).length;
+  const mineCount = inInbox.filter((c) => isMine(c, viewer.userId)).length;
+  const unassignedCount = inInbox.filter((c) => c.assignedTo === null).length;
+  const pills: { id: ConversationFilter; label: string; count: number }[] = [
+    { id: "all", label: "Todas", count: inInbox.length },
+    { id: "unread", label: "No leídas", count: unreadCount },
+    { id: "handoff", label: "Atención humana", count: handoffCount },
+    ...(teamMode
+      ? [
+          { id: "mine" as const, label: "Mías", count: mineCount },
+          { id: "unassigned" as const, label: "Sin asignar", count: unassignedCount },
+        ]
+      : []),
+  ];
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
   const multiChannel = channels.length > 1;
@@ -198,22 +269,14 @@ export function ConversationList({
       </header>
 
       {/* Con tres pastillas no cabe todo en 360px: el selector de etapa baja
-          a una segunda línea en vez de salirse por la derecha. */}
+          a una segunda línea en vez de salirse por la derecha. Con las de
+          asignación (09) "Mías" y "Sin asignar" bajan juntas a esa línea. */}
       <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5">
-        {(
-          [
-            { id: "all", label: "Todas", count: inInbox.length },
-            { id: "unread", label: "No leídas", count: unreadCount },
-            {
-              id: "handoff",
-              label: "Atención humana",
-              count: handoffCount,
-            },
-          ] as const
-        ).map((f) => (
+        {pills.map((f) => (
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
+            aria-pressed={filter === f.id}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
               filter === f.id
@@ -264,7 +327,11 @@ export function ConversationList({
           <p className="p-6 text-center text-xs text-text-3">
             {filter === "handoff"
               ? "Ninguna conversación requiere atención humana."
-              : "Sin resultados para este filtro."}
+              : filter === "mine"
+                ? "No tienes conversaciones a tu nombre."
+                : filter === "unassigned"
+                  ? "Todas las conversaciones tienen responsable."
+                  : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
@@ -354,6 +421,7 @@ export function ConversationList({
                             IA pausada
                           </span>
                         ) : null}
+                        {teamMode && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
                       </span>
                     </span>
                   </button>

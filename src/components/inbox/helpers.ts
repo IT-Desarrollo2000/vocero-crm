@@ -4,8 +4,16 @@ import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
 import type { ConversationDto } from "@/lib/types";
 
-/** Pastillas de la bandeja: todas, no leídas o pidiendo atención humana. */
-export type ConversationFilter = "all" | "unread" | "handoff";
+/**
+ * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana y (09)
+ * por responsable: las mías o las que nadie ha tomado.
+ */
+export type ConversationFilter =
+  | "all"
+  | "unread"
+  | "handoff"
+  | "mine"
+  | "unassigned";
 
 /**
  * Atención humana = nadie automático va a contestar: la conversación tiene
@@ -35,13 +43,15 @@ export function filterConversations(
     stage: string;
     inbox: Channel | "all";
     filter: ConversationFilter;
+    /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
+    viewerId?: string;
   }
 ): {
   searched: ConversationDto[];
   inInbox: ConversationDto[];
   visible: ConversationDto[];
 } {
-  const { query, stage, inbox, filter } = opts;
+  const { query, stage, inbox, filter, viewerId } = opts;
   const searched = conversations.filter(
     (c) =>
       matchesQuery(query, {
@@ -58,8 +68,39 @@ export function filterConversations(
       ? inInbox.filter((c) => c.unreadCount > 0)
       : filter === "handoff"
         ? inInbox.filter(needsHuman)
-        : inInbox;
+        : filter === "mine"
+          ? inInbox.filter((c) => isMine(c, viewerId))
+          : filter === "unassigned"
+            ? inInbox.filter((c) => c.assignedTo === null)
+            : inInbox;
   return { searched, inInbox, visible };
+}
+
+/** 09: ¿la conversación es de quien mira? */
+export function isMine(c: ConversationDto, viewerId: string | undefined): boolean {
+  return viewerId != null && c.assignedTo?.userId === viewerId;
+}
+
+/**
+ * 09: cómo se nombra al responsable en la fila y en el panel. El Vendedor
+ * solo ve las suyas y las sin asignar ("Tuya" / "Sin asignar"); el
+ * Propietario ve además el nombre de quien atiende las ajenas.
+ */
+export function assigneeLabel(
+  c: ConversationDto,
+  viewerId: string | undefined
+): { kind: "none" | "mine" | "other"; label: string } {
+  if (!c.assignedTo) return { kind: "none", label: "Sin asignar" };
+  if (isMine(c, viewerId)) return { kind: "mine", label: "Tuya" };
+  return { kind: "other", label: c.assignedTo.name || "Otro miembro" };
+}
+
+/** 09: iniciales para el distintivo del responsable ("Ana López" → "AL"). */
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase() || "?";
 }
 
 export function formatTime(iso: string | null): string {

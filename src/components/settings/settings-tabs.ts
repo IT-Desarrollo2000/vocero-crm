@@ -11,6 +11,8 @@ const WHATSAPP_TAB: SettingsTab = { href: "/settings/whatsapp", label: "WhatsApp
 const BUSINESS_TABS: SettingsTab[] = [
   { href: "/settings/branding", label: "Marca" },
   { href: "/settings/templates", label: "Plantillas" },
+  // 09 — Catálogo del negocio: lo gestiona el Propietario, lo usan todos.
+  { href: "/settings/quick-replies", label: "Respuestas rápidas" },
   { href: "/settings/team", label: "Equipo" },
 ];
 
