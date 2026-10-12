@@ -1,5 +1,6 @@
 import type { schema } from "@/lib/db";
-import { serializeFicha } from "@/server/bot/ficha";
+import type { FichaFieldDef } from "@/lib/ficha-fields";
+import { serializeFicha, serializeFichaMeta } from "@/server/bot/ficha";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import { effectiveSource } from "@/server/contact-source";
 import {
@@ -32,6 +33,8 @@ export function buildBotContextPayload(input: {
   lead: { lead: Lead; stage: Stage } | null;
   ctx: ContactContext | null;
   block: string | null;
+  /** 04 — Definición de campos de la ficha (`null` = sin definición). */
+  fichaFields?: FichaFieldDef[] | null;
 }) {
   const { contact, conversation, lead, ctx, block } = input;
   return {
@@ -49,6 +52,9 @@ export function buildBotContextPayload(input: {
       source: effectiveSource(contact.source),
       createdAt: contact.createdAt.toISOString(),
       notes: recentNotesText(contact.notes),
+      // 04 — aditivo: procedencia por clave. Candado = `by === "humano"`;
+      // una clave con valor y sin entrada es dato previo a 04.
+      fichaMeta: serializeFichaMeta(contact),
     },
     conversation: {
       id: conversation.id,
@@ -99,5 +105,7 @@ export function buildBotContextPayload(input: {
       : null,
     now: ctx ? { iso: ctx.now.toISOString(), timezone: ctx.timezone } : null,
     agentContext: { block },
+    // 04 — aditivo: la definición de campos de la ficha (RF-04-14).
+    fichaFields: input.fichaFields ?? null,
   };
 }

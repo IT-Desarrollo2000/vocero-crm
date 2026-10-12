@@ -21,7 +21,9 @@ const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 500;
 
 export async function chatJson<T>(
-  schema: z.ZodType<T>,
+  // Entrada `unknown`: admite esquemas con preprocess (p. ej. las acciones
+  // del agente, que toleran alias antes de validar).
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
   messages: ChatMessage[],
   opts?: { model?: string; judge?: boolean; timeoutMs?: number }
 ): Promise<ChatJsonResult<T>> {

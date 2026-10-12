@@ -1,5 +1,19 @@
-import { JUDGE_MARKER } from "@/server/ai/prompts";
+import { FICHA_FIELDS_MARKER, JUDGE_MARKER } from "@/server/ai/prompts";
 import { CONTEXT_CLOSE, CONTEXT_OPEN } from "@/server/ai/contact-context";
+
+const MOCK_MODELS = /\b(t03|macaron|bingo(?: plus)?|nammi(?: 01)?)\b/i;
+const MOCK_CITY =
+  /\b(?:soy de|vivo en|aqu[ií] en)\s+([A-Za-zÁÉÍÓÚÑáéíóúñü]+)/i;
+
+/** 04 — Lo que el mock "descubre" del mensaje del cliente para la ficha. */
+function mockFichaFrom(message: string): Record<string, string> {
+  const ficha: Record<string, string> = {};
+  const model = MOCK_MODELS.exec(message)?.[1];
+  if (model) ficha.modelo_interes = model.length <= 3 ? model.toUpperCase() : model;
+  const city = MOCK_CITY.exec(message)?.[1];
+  if (city) ficha.ciudad = city;
+  return ficha;
+}
 
 /** Contenido entre los delimitadores del bloque de contexto, en una línea. */
 function contextBlockOf(system: string): string | null {
@@ -85,6 +99,35 @@ export function aiMockCompletion(messages: InMessage[]): string {
       stage: "Interesado",
       reply: "¡Excelente! Te aparto el producto y un compañero te confirma el pago.",
     });
+  }
+
+  // 04 — Ficha. Palabras clave de prueba (sin depender de la definición):
+  // "ficha-rota" manda una ficha que no es objeto (el cliente debe recibir su
+  // respuesta igual) y "ficha-update" usa el alias `update_ficha` con un
+  // presupuesto en texto (la puerta lo convierte a número).
+  if (text.includes("ficha-rota")) {
+    return JSON.stringify({ action: "reply", text: "ok", ficha: "no soy un objeto" });
+  }
+  if (text.includes("ficha-update")) {
+    return JSON.stringify({
+      action: "update_ficha",
+      reply: "Anotado",
+      ficha: { presupuesto: "350 mil" },
+    });
+  }
+  // Con la sección de campos en el prompt, un modelo conocido o la ciudad del
+  // cliente viajan en `ficha` junto a la respuesta (D-04-1).
+  if (system.includes(FICHA_FIELDS_MARKER)) {
+    const ficha = mockFichaFrom(lastUser);
+    if (Object.keys(ficha).length > 0) {
+      return JSON.stringify({
+        action: "reply",
+        text: ficha.modelo_interes
+          ? `¡Anotado! Con gusto te cuento del ${ficha.modelo_interes}.`
+          : "¡Gracias! Lo tomo en cuenta.",
+        ficha,
+      });
+    }
   }
 
   const eco = lastUser.slice(0, 80);

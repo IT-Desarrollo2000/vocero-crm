@@ -24,6 +24,13 @@ export type Persona = {
   contactName: string;
   script: string[];
   seed?: PersonaSeed;
+  /**
+   * 04 — Qué debe quedar en la ficha del contacto sintético al terminar el
+   * caso (clave → patrón del valor). Chequeo determinista e informativo
+   * (`agent_test_case.ficha_check`), fuera del score del juez. Solo cuenta
+   * con las claves que la organización tiene definidas y que llena el agente.
+   */
+  expectFicha?: Record<string, RegExp>;
 };
 
 export const PERSONAS: Persona[] = [
@@ -40,6 +47,10 @@ export const PERSONAS: Persona[] = [
       "¿Qué autonomía tiene? Hago unos 60 km diarios aquí en Villahermosa",
       "Me convence, quiero comprar el T03. ¿Cómo le hago para apartarlo?",
     ],
+    expectFicha: {
+      modelo_interes: /t03/i,
+      ciudad: /villahermosa/i,
+    },
   },
   {
     key: "pregunton_precios",
@@ -55,6 +66,7 @@ export const PERSONAS: Persona[] = [
       "¿Me hacen algún descuento si pago de contado?",
       "Ok, lo voy a pensar",
     ],
+    expectFicha: { modelo_interes: /macaron|bingo/i },
   },
   {
     key: "cliente_enojado",

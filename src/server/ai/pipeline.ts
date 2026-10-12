@@ -17,9 +17,12 @@ import {
 import { matchesHandoffIntent, toHandoffNote } from "@/server/ai/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 import {
+  fichaRenderOptions,
   loadContactContext,
   renderContactContext,
 } from "@/server/ai/contact-context";
+import { upsertFicha } from "@/server/bot/ficha";
+import type { FichaFieldDef } from "@/lib/ficha-fields";
 import { loadHistoryRows, toChatHistory } from "@/server/ai/history";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
@@ -157,7 +160,13 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .orderBy(asc(schema.pipelineStage.position));
 
   const agenda = agendaEnabled();
-  const contactBlock = await safeContactBlock(organizationId, conversation);
+  // 04 — Definición de campos (NULL = el agente no llena nada, RF-04-02).
+  const fichaFields = profile.fichaFields ?? null;
+  const contactBlock = await safeContactBlock(
+    organizationId,
+    conversation,
+    fichaFields
+  );
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -167,6 +176,7 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
         stages,
         agenda,
         contactBlock,
+        fichaFields,
       }),
     },
     // Los turnos previos van en el MISMO formato JSON que se le exige (con
@@ -184,7 +194,32 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     return;
   }
 
-  let action: AgentActionType = result.data;
+  const chosen: AgentActionType = result.data;
+  await executeAction(chosen, { organizationId, conversation, stages, agenda });
+
+  // 04 — La ficha va DESPUÉS de entregar la respuesta (RF-04-10): el cliente
+  // ya tiene su mensaje pase lo que pase aquí.
+  await applyAgentFicha({
+    organizationId,
+    conversation,
+    fields: fichaFields,
+    ficha: chosen.ficha,
+  });
+}
+
+/** Ejecuta la acción del turno (y entrega su respuesta, si la hay). */
+async function executeAction(
+  initial: AgentActionType,
+  t: {
+    organizationId: string;
+    conversation: Conversation;
+    stages: { id: string; name: string }[];
+    agenda: boolean;
+  }
+): Promise<void> {
+  const { organizationId, conversation, stages, agenda } = t;
+  const conversationId = conversation.id;
+  let action = initial;
 
   // 015 — Agenda. Un fallo del motor degrada el turno (el agente responde sin
   // agendar), nunca lo tumba: quedarse callado es peor que no agendar.
@@ -270,7 +305,8 @@ type Conversation = typeof schema.conversation.$inferSelect;
  */
 async function safeContactBlock(
   organizationId: string,
-  conversation: Conversation
+  conversation: Conversation,
+  fichaFields: readonly FichaFieldDef[] | null
 ): Promise<string | undefined> {
   try {
     const ctx = await loadContactContext({
@@ -278,12 +314,55 @@ async function safeContactBlock(
       conversation,
       now: new Date(),
     });
-    return renderContactContext(ctx);
+    // 04 — Mismo gancho que `GET /api/bot/context`: campos definidos primero
+    // y lo que el agente no puede pisar, marcado "(confirmado por el equipo)".
+    return renderContactContext(ctx, fichaRenderOptions(ctx, fichaFields));
   } catch (err) {
     console.error(
       `[agente] contexto no disponible: ${err instanceof Error ? err.name : typeof err}`
     );
     return undefined;
+  }
+}
+
+/**
+ * 04 — Escribe en la ficha lo que el agente descubrió en este turno, por la
+ * puerta única (`source: "ia"`: coerción por tipo + "el humano gana").
+ *
+ * Nunca tumba el turno ni provoca handoff (RF-04-10): cualquier error se
+ * registra con las CLAVES y el tipo de error, jamás con valores
+ * (Constitución I). Sin campos que llene el agente, no hace nada (RF-04-02).
+ * En el Laboratorio escribe igual sobre el contacto sintético (RF-04-15): es
+ * la BD propia, no una API externa.
+ */
+async function applyAgentFicha(input: {
+  organizationId: string;
+  conversation: Conversation;
+  fields: readonly FichaFieldDef[] | null;
+  ficha: Record<string, unknown> | null | undefined;
+}): Promise<void> {
+  const { organizationId, conversation, fields, ficha } = input;
+  if (!ficha || Object.keys(ficha).length === 0) return;
+  if (!fields?.some((f) => f.agentFills)) return;
+  try {
+    const res = await upsertFicha({
+      organizationId,
+      contactId: conversation.contactId,
+      ficha,
+      source: "ia",
+      fields,
+      conversationId: conversation.id,
+    });
+    if (res?.changed) {
+      publish(organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id: conversation.id } },
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[agente] ficha no guardada (claves: ${Object.keys(ficha).slice(0, 40).join(", ")}): ${err instanceof Error ? err.name : typeof err}`
+    );
   }
 }
 

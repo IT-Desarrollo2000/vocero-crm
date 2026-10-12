@@ -56,6 +56,8 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       hallazgos: c.hallazgos ?? [],
       transcript: c.transcript ?? [],
       conversationId: c.conversationId,
+      // 04 — aditivo: chequeo determinista de la ficha (`null` si no aplica).
+      fichaCheck: c.fichaCheck ?? null,
     })),
   });
 }, { role: "owner" });

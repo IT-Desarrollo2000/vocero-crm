@@ -3,12 +3,14 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import type { ContactDetailResponse } from "@/lib/types";
 import {
   getContactById,
   getContactStage,
   serializeContact,
 } from "@/server/contacts";
 import { upsertFicha } from "@/server/bot/ficha";
+import { fichaFieldsOrNull } from "@/server/ficha-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,10 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const contact = await getContactById(session.organizationId, id);
   if (!contact) return apiError(404, "not_found", "Contacto no encontrado");
   const stageRow = await getContactStage(session.organizationId, id);
-  return Response.json({
+  // 04 — La definición viaja aquí para que el Vendedor pinte el panel sin
+  // acceso a la pantalla de Agente.
+  const fichaFields = await fichaFieldsOrNull(session.organizationId);
+  const body: ContactDetailResponse = {
     contact: serializeContact(contact),
     stage: stageRow
       ? {
@@ -30,7 +35,9 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
         }
       : null,
     lead: stageRow ? { id: stageRow.lead.id } : null,
-  });
+    fichaFields,
+  };
+  return Response.json(body);
 });
 
 const patchSchema = z.object({
@@ -41,9 +48,12 @@ const patchSchema = z.object({
    * Parche de la ficha: solo las claves que cambian. `null` borra una clave.
    * No es un reemplazo — el agente sigue escribiendo mientras el dueño
    * corrige, y mandar la ficha entera haría que el último en guardar le
-   * borrara lo recién descubierto al otro.
+   * borrara lo recién descubierto al otro. Lo que escribe una persona queda
+   * con candado (04): el agente ya no lo pisa.
    */
   ficha: z.record(z.unknown()).optional(),
+  /** 04 — "Dejar que el agente lo actualice": quita el candado, conserva el valor. */
+  fichaUnlock: z.array(z.string().trim().min(1).max(60)).max(40).optional(),
 });
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
@@ -51,37 +61,50 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   const body = await parseBody(req, patchSchema);
   if (!body.ok) return body.response;
 
-  // La ficha va por su propia puerta —la MISMA que usa el cerebro externo en
-  // `PUT /api/bot/ficha`— para heredar el merge y las cotas. Escribirla aquí
-  // con un `set` plano sería un segundo camino con otras reglas.
-  if (body.data.ficha !== undefined) {
+  // La ficha va por su propia puerta —la MISMA que usan el cerebro externo y
+  // el agente— para heredar el merge, las cotas, la procedencia y la
+  // bitácora. Escribirla aquí con un `set` plano sería un segundo camino con
+  // otras reglas.
+  if (body.data.ficha !== undefined || body.data.fichaUnlock?.length) {
     const res = await upsertFicha({
       organizationId: session.organizationId,
       contactId: id,
-      ficha: body.data.ficha,
+      ficha: body.data.ficha ?? {},
+      source: "humano",
+      userId: session.userId,
+      unlock: body.data.fichaUnlock,
     });
     if (!res) return apiError(404, "not_found", "Contacto no encontrado");
   }
 
-  const set: Record<string, unknown> = { updatedAt: new Date() };
-  if (body.data.name !== undefined) set.name = body.data.name;
-  if (body.data.notes !== undefined) set.notes = body.data.notes;
-  if (body.data.archived !== undefined) {
-    set.archivedAt = body.data.archived ? new Date() : null;
-  }
+  const updated = await updateContactFields(session.organizationId, id, body.data);
+  if (!updated) return apiError(404, "not_found", "Contacto no encontrado");
+  return Response.json({ contact: serializeContact(updated) });
+});
 
+/**
+ * Nombre, notas y archivado. Separado de la puerta de la ficha a propósito:
+ * este `update` no toca la calificación del lead (guardarraíl
+ * `tests/unit/ficha-guard.test.ts`).
+ */
+async function updateContactFields(
+  organizationId: string,
+  id: string,
+  data: z.infer<typeof patchSchema>
+): Promise<typeof schema.contact.$inferSelect | null> {
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.name !== undefined) set.name = data.name;
+  if (data.notes !== undefined) set.notes = data.notes;
+  if (data.archived !== undefined) {
+    set.archivedAt = data.archived ? new Date() : null;
+  }
   const db = getDb();
   const updated = await db
     .update(schema.contact)
     .set(set)
     .where(
-      scoped(
-        schema.contact.organizationId,
-        session.organizationId,
-        eq(schema.contact.id, id)
-      )
+      scoped(schema.contact.organizationId, organizationId, eq(schema.contact.id, id))
     )
     .returning();
-  if (!updated[0]) return apiError(404, "not_found", "Contacto no encontrado");
-  return Response.json({ contact: serializeContact(updated[0]) });
-});
+  return updated[0] ?? null;
+}

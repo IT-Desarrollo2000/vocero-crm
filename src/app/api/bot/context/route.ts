@@ -5,10 +5,12 @@ import { apiError } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { buildBotContextPayload } from "@/server/bot/context";
 import {
+  fichaRenderOptions,
   loadContactContext,
   renderContactContext,
   type ContactContext,
 } from "@/server/ai/contact-context";
+import { fichaFieldsOrNull } from "@/server/ficha-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -124,6 +126,14 @@ export async function GET(req: Request) {
 
   // El contexto extendido jamás tumba la respuesta: sin él, las claves
   // previas salen igual y `agentContext.block` llega null.
+  // 04 — La definición de campos viaja al bot y da forma al bloque igual que
+  // al agente in-process (`fichaRenderOptions`): mismo texto en los dos.
+  const fichaFields = await fichaFieldsOrNull(organizationId).catch((err) => {
+    console.error(
+      `[bot] definición de la ficha no disponible: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return null;
+  });
   let ctx: ContactContext | null = null;
   let block: string | null = null;
   try {
@@ -132,7 +142,7 @@ export async function GET(req: Request) {
       conversation,
       now: new Date(),
     });
-    block = renderContactContext(ctx);
+    block = renderContactContext(ctx, fichaRenderOptions(ctx, fichaFields));
   } catch (err) {
     console.error(
       `[bot] contexto extendido no disponible: ${err instanceof Error ? err.name : typeof err}`
@@ -146,6 +156,7 @@ export async function GET(req: Request) {
       lead: leadRows[0] ?? null,
       ctx,
       block,
+      fichaFields,
     })
   );
 }

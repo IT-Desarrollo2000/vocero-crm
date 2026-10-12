@@ -141,6 +141,25 @@ ok(
   JSON.stringify(convive)
 );
 
+console.log("\n== Lo que corrigió el dueño, el bot ya no lo pisa (04, D-04-4) ==");
+const pisa = await bot("/api/bot/ficha", {
+  conversationId: conv.id,
+  ficha: { presupuesto: 1 },
+});
+ok(
+  "PUT /api/bot/ficha → 200 con `ignored` [presupuesto: candado_humano]",
+  pisa.res.ok &&
+    Array.isArray(pisa.json?.ignored) &&
+    pisa.json.ignored.some((i) => i.key === "presupuesto" && i.reason === "candado_humano"),
+  JSON.stringify(pisa.json)
+);
+const intacta = await fichaDe(contactId);
+ok(
+  "el valor del dueño queda intacto",
+  intacta?.presupuesto === 60000,
+  JSON.stringify(intacta?.presupuesto)
+);
+
 console.log("\n== Se puede quitar un dato equivocado ==");
 await api(`/api/contacts/${contactId}`, {
   method: "PATCH",
