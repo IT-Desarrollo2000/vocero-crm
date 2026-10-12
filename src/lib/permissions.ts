@@ -71,6 +71,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/bookings": "any",
   "POST /api/bookings": "any",
   "PATCH /api/bookings/[id]": "any",
+  // 10: reintentar un recordatorio fallido (los dos roles operan Citas).
+  "POST /api/bookings/[id]/reminders/[reminderId]/retry": "any",
   "GET /api/calendar/availability": "any",
   "GET /api/calendar/settings": "owner",
   "PUT /api/calendar/settings": "owner",
@@ -155,6 +157,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Reportes (02) ──────────────────────────────────────────────────────
   // Solo Propietario (prefijo reservado en OWNER_ROUTE_PREFIXES).
   "GET /api/reports/agent": "owner",
+  // 10: oferta → cita y asistencia (además detrás de AGENDA).
+  "GET /api/reports/bookings": "owner",
 
   // ── Cerebro externo (BOT_API_KEY) ──────────────────────────────────────
   "GET /api/bot/availability": "bot",
@@ -172,6 +176,11 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Mocks del entorno de pruebas (404 en producción) ───────────────────
   "POST /api/dev/ai-mock/chat/completions": "dev",
   "POST /api/dev/ai-mock/v1/chat/completions": "dev",
+  // 10: una vuelta del ticker de recordatorios con reloj simulado.
+  "POST /api/dev/reminders/tick": "dev",
+  // 10: falla conmutable de los envíos de WhatsApp del mock.
+  "GET /api/dev/wa-mock/fail-sends": "dev",
+  "POST /api/dev/wa-mock/fail-sends": "dev",
   "GET /api/dev/google-mock/[...path]": "dev",
   "POST /api/dev/google-mock/[...path]": "dev",
   "PATCH /api/dev/google-mock/[...path]": "dev",

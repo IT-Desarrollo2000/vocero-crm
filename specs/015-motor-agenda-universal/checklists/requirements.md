@@ -27,7 +27,7 @@
       de conector con citas vivas, credenciales borradas, DST, carrera,
       mensaje repetido, Laboratorio
 - [x] Success criteria medibles y tecnológicamente agnósticos (SC-001..007)
-- [x] Fuera de alcance explícito: free-busy, recordatorios, multi-calendario,
+- [x] Fuera de alcance explícito: free-busy, recordatorios (post-v1: tarea 10), multi-calendario,
       composición de conectores, cancelación por bot, OAuth con redirect
 
 ## Puerta constitucional (obligatoria en ambos carriles)

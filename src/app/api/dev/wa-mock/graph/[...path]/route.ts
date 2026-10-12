@@ -282,6 +282,20 @@ export async function POST(req: Request, ctx: Params) {
       });
       return Response.json({ recipient_id: recipient.id, message_id: messageId });
     }
+    // 10: disparador de falla conmutable (`/api/dev/wa-mock/fail-sends`) para
+    // el camino infeliz de WhatsApp (p. ej. recordatorio de cita fallido).
+    if (state.failSends === "down") {
+      return Response.json(
+        { error: { message: "Service temporarily unavailable", type: "OAuthException", code: 2, fbtrace_id: "mock" } },
+        { status: 503 }
+      );
+    }
+    if (state.failSends === "error") {
+      return Response.json(
+        { error: { message: "(#131026) Message undeliverable", type: "OAuthException", code: 131026, fbtrace_id: "mock" } },
+        { status: 400 }
+      );
+    }
     // Meta responde 132000 si los parámetros no cuadran con las {{n}} de la
     // plantilla aprobada. El mock lo replica para que un desfase no pase.
     if (body.type === "template") {

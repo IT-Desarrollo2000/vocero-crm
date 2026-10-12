@@ -127,6 +127,13 @@
       "when": 1791838954876,
       "tag": "0017_metricas_escalamientos",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791843811312,
+      "tag": "0018_recordatorios_citas",
+      "breakpoints": true
     }
   ]
 }

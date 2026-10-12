@@ -35,6 +35,9 @@ const prefixes = {
   quickReply: "qr",
   // 02/05 — bitácora de escalamientos a humano
   handoffEvent: "hoe",
+  // 10 — recordatorios de cita y bitácora de ofertas
+  bookingReminder: "brm",
+  agendaOfferLog: "aol",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

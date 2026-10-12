@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { startReminderTicker } from "@/server/agenda/reminder-ticker";
 
 /**
  * Limpieza al arranque (FR-034): corridas del Laboratorio que quedaron
@@ -25,5 +26,18 @@ export async function cleanupOrphanRuns(): Promise<void> {
   } catch (err) {
     // La BD puede no estar lista aún (migraciones corren antes del server).
     console.error("[boot] limpieza de corridas huérfanas falló:", err);
+  }
+}
+
+/**
+ * 10 — Trabajo en segundo plano in-process (sin colas externas). Hoy: el reloj
+ * de recordatorios de cita, que solo arranca con AGENDA encendida y
+ * `AGENDA_REMINDER_TICK_MS` distinto de 0. Nunca tumba el arranque.
+ */
+export function startBackgroundJobs(): void {
+  try {
+    startReminderTicker();
+  } catch (err) {
+    console.error("[boot] el reloj de recordatorios no arrancó:", err);
   }
 }

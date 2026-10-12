@@ -11,6 +11,10 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { FichaCheck, FichaFieldDef, FichaMeta } from "../ficha-fields";
+import {
+  BOOKING_REMINDER_SKIP_REASONS,
+  BOOKING_REMINDER_STATUSES,
+} from "../reminders";
 
 /* ============================================================
  * Auth (Better Auth + plugin organization)
@@ -866,6 +870,31 @@ export const calendarSettings = pgTable(
     connector: text("connector").notNull().default("enlace-fijo"),
     /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
     meetingLink: text("meeting_link"),
+    /* ── 10 — Recordatorios de cita (contrato 10-0, migración 0018) ── */
+    /** Apagado por defecto: activarlo exige plantilla aprobada y mapeo completo. */
+    reminderEnabled: boolean("reminder_enabled").notNull().default(false),
+    /**
+     * Instante (puesto por JS) de la última transición apagado → encendido.
+     * Solo se avisan recordatorios cuyo momento de envío (`scheduled_at −
+     * offset`) sea ≥ esta fecha: encender no dispara una ráfaga sobre las
+     * citas ya agendadas. Apagar no lo borra; re-encender lo reescribe.
+     */
+    reminderEnabledAt: timestamp("reminder_enabled_at"),
+    /** Plantilla aprobada de WhatsApp; borrarla deja el ajuste sin plantilla. */
+    reminderTemplateId: text("reminder_template_id").references(
+      () => template.id,
+      { onDelete: "set null" }
+    ),
+    /** Anticipaciones en minutos (1 o 2 valores, 60..4320). */
+    reminderOffsetsMinutes: jsonb("reminder_offsets_minutes")
+      .$type<number[]>()
+      .notNull()
+      .default([1440]),
+    /** Campo del catálogo por cada `{{n}}` (índice = n − 1). */
+    reminderVariables: jsonb("reminder_variables")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -973,6 +1002,105 @@ export const offeredSlot = pgTable(
     offeredAt: timestamp("offered_at").notNull().defaultNow(),
   },
   (t) => [index("offered_slot_conv_idx").on(t.conversationId, t.startUtc)]
+);
+
+/**
+ * 10 — Un recordatorio de cita: una fila por `(cita, anticipación, hora de la
+ * cita)`. El UNIQUE de esa terna ES el claim atómico (`INSERT … ON CONFLICT DO
+ * NOTHING RETURNING`): dos ticks simultáneos —o dos réplicas— no pueden enviar
+ * dos veces (a lo sumo una vez, D-10-02).
+ *
+ * `scheduled_for` es la copia de `booking.scheduled_at` al reclamar: al
+ * reprogramar, la clave cambia y nacen recordatorios nuevos; los de la hora
+ * anterior quedan como historial.
+ *
+ * Todos los tiempos de la lógica (`claimed_at`, `sent_at`) los pone JS con el
+ * reloj inyectado (`runReminderTick(now)`), nunca un `DEFAULT now()` de SQL:
+ * así se prueba "interrumpido a los 10 min" sin esperar 10 min.
+ *
+ * Las citas `is_test` (Laboratorio) JAMÁS generan fila.
+ */
+export const bookingReminder = pgTable(
+  "booking_reminder",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => booking.id, { onDelete: "cascade" }),
+    /** Minutos antes de la cita (una de las anticipaciones configuradas). */
+    offsetMinutes: integer("offset_minutes").notNull(),
+    /** La hora de la cita (UTC, sin zona, igual que `booking.scheduled_at`). */
+    scheduledFor: timestamp("scheduled_for").notNull(),
+    /** Ver `BOOKING_REMINDER_STATUSES` (`src/lib/reminders.ts`). */
+    status: text("status", { enum: BOOKING_REMINDER_STATUSES }).notNull(),
+    /** Motivo de `skipped` (catálogo `BOOKING_REMINDER_SKIP_REASONS`). */
+    reason: text("reason", { enum: BOOKING_REMINDER_SKIP_REASONS }),
+    /** Texto legible del fallo (`failed`), p. ej. `interrumpido`. */
+    error: text("error"),
+    /** Plantilla con la que se intentó (la del ajuste en ese momento). */
+    templateId: text("template_id").references(() => template.id, {
+      onDelete: "set null",
+    }),
+    /** Mensaje persistido por `sendTemplate`: de aquí sale el estado de entrega. */
+    messageId: text("message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    /** Id de Meta del envío (copia cruda; la entrega se lee de `message`). */
+    waMessageId: text("wa_message_id"),
+    /** 1 = intento automático; 2 = el único reintento manual (D-10-02). */
+    attempts: integer("attempts").notNull().default(1),
+    /** Puesto por JS al reclamar (y al reintentar). Sin default a propósito. */
+    claimedAt: timestamp("claimed_at").notNull(),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("booking_reminder_claim_uq").on(
+      t.bookingId,
+      t.offsetMinutes,
+      t.scheduledFor
+    ),
+    index("booking_reminder_org_status_idx").on(
+      t.organizationId,
+      t.status,
+      t.claimedAt
+    ),
+  ]
+);
+
+/**
+ * 10 — Bitácora APPEND-ONLY de rondas de horarios ofrecidos (D-10-07): el
+ * denominador de "oferta → cita". `offered_slot` no sirve porque se borra en
+ * cada ronda. Se inserta DESPUÉS de confirmar la oferta, en try/catch: un
+ * fallo del registro jamás revierte ni bloquea la oferta. Nadie actualiza ni
+ * borra.
+ */
+export const agendaOfferLog = pgTable(
+  "agenda_offer_log",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    /** Copia de `conversation.is_test`: las métricas lo excluyen. */
+    isTest: boolean("is_test").notNull().default(false),
+    /** Instantes UTC ofrecidos (ISO-8601), en el orden mostrado. */
+    slots: jsonb("slots").$type<string[]>().notNull().default([]),
+    slotCount: integer("slot_count").notNull(),
+    /** Hora de la ronda (la pone JS; el default solo cubre inserciones a mano). */
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("agenda_offer_log_org_created_idx").on(t.organizationId, t.createdAt),
+    index("agenda_offer_log_conv_idx").on(t.conversationId),
+  ]
 );
 
 /**

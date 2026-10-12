@@ -185,7 +185,9 @@ sandbox, agente incluido.
       cita); etiqueta con día en palabras
 - [X] T027 [US3] Completar `src/server/agenda/service.ts` — reprogramar
       (excluye la propia cita; `updateMeeting` sobre el MISMO `external_ref`,
-      conserva link; `reminder` no aplica: fuera de v1), cancelar (idempotente;
+      conserva link; `reminder` no aplica: fuera de v1 — post-v1 lo cubre la
+      tarea 10, donde reprogramar genera recordatorios nuevos por clave
+      `(cita, anticipación, hora)`), cancelar (idempotente;
       `deleteMeeting` con 404=éxito; cancelada no se reprograma → 422), marcar
       realizada/no_show, y crear bloqueos — el guard de `is_test` simétrico en
       las TRES mutaciones (FR-017)

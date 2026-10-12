@@ -976,6 +976,7 @@ async function main() {
   );
 
   await agendaChecks();
+  await recordatoriosChecks();
   await atribucionChecks();
   await canalesChecks();
   await labChecks();
@@ -992,6 +993,47 @@ async function main() {
  * innegociables con sus CÓDIGOS EXACTOS, la carrera del hueco, el enlace
  * pendiente cuando el proveedor falla, y el sandbox del Laboratorio.
  * ============================================================ */
+
+/* ============================================================
+ * 10 — Recordatorios de cita y reporte de citas (el guion completo, con
+ * reloj simulado, claim concurrente, sandbox y reintento, es
+ * scripts/e2e-recordatorios.mjs). Aquí: la bandera y que las superficies
+ * respondan.
+ * ============================================================ */
+
+async function recordatoriosChecks() {
+  const encendida = /^(on|1|true|si|sí|yes)$/i.test(
+    (process.env.AGENDA ?? "").trim()
+  );
+  console.log("\n== 10: recordatorios de cita ==");
+  const tick = await api("/api/dev/reminders/tick", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  const rep = await api("/api/reports/bookings");
+  if (!encendida) {
+    ok("/api/dev/reminders/tick → 404 con la agenda apagada", tick.res.status === 404, `status=${tick.res.status}`);
+    ok("/api/reports/bookings → 404 con la agenda apagada", rep.res.status === 404, `status=${rep.res.status}`);
+    return;
+  }
+  ok(
+    "tick forzado → 200 con el resultado de la vuelta",
+    tick.res.ok && typeof tick.json?.claimed === "number" && typeof tick.json?.now === "string",
+    JSON.stringify(tick.json)
+  );
+  ok(
+    "reporte de citas → 200 con sus tres bloques",
+    rep.res.ok && ["offers", "attendance", "byReminder"].every((k) => rep.json?.[k]),
+    `status=${rep.res.status}`
+  );
+  const lista = (await api("/api/bookings")).json;
+  ok(
+    "GET /api/bookings trae businessTimezone y reminders por cita",
+    typeof lista?.businessTimezone === "string" &&
+      (lista?.bookings ?? []).every((b) => Array.isArray(b.reminders)),
+    JSON.stringify(lista?.businessTimezone)
+  );
+}
 
 async function agendaChecks() {
   const encendida = /^(on|1|true|si|sí|yes)$/i.test(

@@ -544,6 +544,12 @@ reconexión.
 - **Sin recordatorios automáticos en v1**: el core no tiene infraestructura de
   cron; el fork los resuelve con una tarea programada externa y ese patrón
   queda documentado como candidato post-v1.
+  **Enmienda post-v1 (tarea 10)**: los recordatorios entran con un reloj
+  in-process (`setInterval` desde `instrumentation.ts`, sin cola ni cron
+  externo), claim atómico por UNIQUE `(cita, anticipación, hora)` — a lo sumo
+  un envío —, plantilla aprobada de WhatsApp y detrás de la misma bandera
+  `AGENDA`. Ver `dev-tasks/10-recordatorio-de-citas-y-no-shows.md` y
+  `docs/agenda-conectores.md` § «Recordatorios de cita».
 - **Google por refresh token de app propia** (pegado una vez), no flujo OAuth
   con redirect en el producto ni service accounts (crear Meet con service
   account exige delegación de dominio de Workspace — mataría el caso Gmail).

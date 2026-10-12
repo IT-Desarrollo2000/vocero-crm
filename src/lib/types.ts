@@ -338,3 +338,20 @@ export type SourceDto = {
 
 /** La fija el dueño; NULL = nadie la ha decidido (no es "media"). */
 export type PriorityValue = "alta" | "media" | "baja";
+
+/* ============================================================
+ * 10 — Recordatorios de cita (fuente canónica: src/lib/reminders.ts)
+ * ============================================================ */
+
+export type {
+  BookingReminderDto,
+  BookingReminderSkipReason,
+  BookingReminderStatus,
+  ReminderDeliveryStatus,
+  ReminderField,
+  ReminderRetryResultDto,
+  ReminderSettingsDto,
+  ReminderSettingsInput,
+  ReminderTemplateSummaryDto,
+  ReminderTickResultDto,
+} from "@/lib/reminders";
