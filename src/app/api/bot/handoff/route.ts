@@ -3,8 +3,8 @@ import { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
-import { publish } from "@/server/events/bus";
 import { handoffNoteFrom, toHandoffReason } from "@/server/bot/handoff";
+import { markHandoff } from "@/server/inbox/handoff";
 
 export const dynamic = "force-dynamic";
 
@@ -61,19 +61,15 @@ export async function POST(req: Request) {
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
 
   if (!conv.handoffAt) {
-    await db
-      .update(schema.conversation)
-      .set({
-        aiEnabled: false,
-        handoffAt: new Date(),
-        handoffReason: toHandoffReason(body.data.reason),
-        handoffNote: handoffNoteFrom(body.data.reason, body.data.note),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.conversation.id, conv.id));
-    publish(organizationId, {
-      type: "conversation.updated",
-      data: { conversation: { id: conv.id } },
+    // Puerta única (05/02-0): el UPDATE es condicional, así que una carrera
+    // entre dos reintentos tampoco escribe ni publica dos veces.
+    await markHandoff({
+      organizationId,
+      conversationId: conv.id,
+      reason: toHandoffReason(body.data.reason),
+      note: handoffNoteFrom(body.data.reason, body.data.note),
+      source: "bot_externo",
+      pauseAi: true,
     });
   }
   return Response.json({ ok: true });

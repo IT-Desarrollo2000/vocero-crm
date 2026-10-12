@@ -92,6 +92,28 @@ describe("decideDelivery — asignación", () => {
     expect(await decideDelivery(roto, seller, never)).toEqual({ kind: "drop" });
   });
 
+  it("05: conversation.handoff — Propietario deliver; Vendedor según canSee (misma regla que message.new)", async () => {
+    const handoff = (conversationId: string): SseEvent => ({
+      type: "conversation.handoff",
+      data: { conversationId, reason: "cliente", handoffAt: "2026-10-12T18:00:00.000Z" },
+    });
+    expect(await decideDelivery(handoff("cv_2"), { role: "owner" }, never)).toEqual({
+      kind: "deliver",
+    });
+
+    const canSee = vi.fn(async (id: string) => id === "cv_1");
+    expect(await decideDelivery(handoff("cv_1"), seller, { canSee })).toEqual({ kind: "deliver" });
+    expect(await decideDelivery(handoff("cv_2"), seller, { canSee })).toEqual({ kind: "drop" });
+    expect(canSee).toHaveBeenCalledWith("cv_2");
+
+    const caida = vi.fn(async (_id: string): Promise<boolean> => {
+      throw new Error("timeout");
+    });
+    await expect(decideDelivery(handoff("cv_1"), seller, { canSee: caida })).resolves.toEqual({
+      kind: "drop",
+    });
+  });
+
   it("Vendedor: lab.run → drop; booking.updated → deliver", async () => {
     expect(await decideDelivery(labRun, seller, never)).toEqual({ kind: "drop" });
     expect(await decideDelivery(booking, seller, never)).toEqual({ kind: "deliver" });

@@ -12,6 +12,15 @@ export type EventHandlers = {
     error?: string | null;
   }) => void;
   onConversationUpdated?: (data: { conversation: unknown }) => void;
+  /**
+   * 05/02-0 — Una conversación pasó a necesitar humano. `reason` incluye
+   * `manual_reply` (el dueño contestó desde el teléfono): no alertar por ese.
+   */
+  onConversationHandoff?: (data: {
+    conversationId: string;
+    reason: string;
+    handoffAt: string;
+  }) => void;
   onLabRun?: (data: {
     runId: string;
     status: string;
@@ -54,7 +63,10 @@ export function useEvents(handlers: EventHandlers): void {
     listen("conversation.updated", (d) =>
       handlersRef.current.onConversationUpdated?.(d as never)
     );
-    listen("lab.run", (d) => handlersRef.current.onLabRun?.(d as never));
+    listen("conversation.handoff", (d) =>
+      handlersRef.current.onConversationHandoff?.(d as never)
+    );
+    listen("lab.run",(d) => handlersRef.current.onLabRun?.(d as never));
     listen("booking.updated", (d) =>
       handlersRef.current.onBookingUpdated?.(d as never)
     );
