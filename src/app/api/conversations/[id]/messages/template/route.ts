@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
+import { gateSend, getConversation } from "@/server/inbox/queries";
 import { SendError } from "@/server/inbox/send";
 import {
   sendTemplate,
@@ -22,6 +23,14 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const body = await parseBody(req, bodySchema);
   if (!body.ok) return body.response;
+
+  // 09: no visible → 404; Vendedor: el reclamo atómico es la compuerta del
+  // envío (RF-09-07). Si otro la tomó en medio, la plantilla no sale.
+  const conv = await getConversation(session.organizationId, id, session);
+  if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
+  if (!(await gateSend(session, id, conv.conversation.assignedUserId))) {
+    return apiError(404, "not_found", "Conversación no encontrada");
+  }
 
   try {
     const result = await sendTemplate({

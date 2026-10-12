@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import { getConversation, listMessages } from "@/server/inbox/queries";
+import { gateSend, getConversation, listMessages } from "@/server/inbox/queries";
 import { serializeMessage } from "@/server/inbox/ingest";
 import { SendError, sendStructured, sendText } from "@/server/inbox/send";
 
@@ -10,7 +10,8 @@ type Params = { params: Promise<{ id: string }> };
 
 export const GET = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
-  const row = await getConversation(session.organizationId, id);
+  // 09: no visible para quien pide → 404 (no revela existencia).
+  const row = await getConversation(session.organizationId, id, session);
   if (!row) return apiError(404, "not_found", "Conversación no encontrada");
 
   const url = new URL(req.url);
@@ -71,6 +72,14 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const body = await parseBody(req, sendSchema);
   if (!body.ok) return body.response;
+
+  // 09: no visible → 404; Vendedor: el reclamo atómico es la compuerta
+  // ("responder = tomar", RF-09-07). Si otro la tomó en medio, no sale nada.
+  const conv = await getConversation(session.organizationId, id, session);
+  if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
+  if (!(await gateSend(session, id, conv.conversation.assignedUserId))) {
+    return apiError(404, "not_found", "Conversación no encontrada");
+  }
 
   try {
     const data = body.data;

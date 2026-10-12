@@ -1,5 +1,5 @@
 import { apiError, withAuth } from "@/lib/api";
-import { getConversation } from "@/server/inbox/queries";
+import { gateSend, getConversation } from "@/server/inbox/queries";
 import { SendError, sendMediaMessage } from "@/server/inbox/send";
 import { MediaValidationError } from "@/server/whatsapp/media";
 
@@ -25,7 +25,8 @@ const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
  */
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
-  const conv = await getConversation(session.organizationId, id);
+  // 09: no visible para quien pide → 404.
+  const conv = await getConversation(session.organizationId, id, session);
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
 
   const form = await req.formData().catch(() => null);
@@ -43,6 +44,12 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       : undefined;
 
   const data = Buffer.from(await file.arrayBuffer());
+
+  // 09: Vendedor → el reclamo atómico es la compuerta del envío (RF-09-07):
+  // si otro la tomó entre que se abrió y se envió, no sale nada.
+  if (!(await gateSend(session, id, conv.conversation.assignedUserId))) {
+    return apiError(404, "not_found", "Conversación no encontrada");
+  }
 
   try {
     const result = await sendMediaMessage({
