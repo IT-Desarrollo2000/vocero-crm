@@ -1,6 +1,6 @@
 import { or, sql, type SQL } from "drizzle-orm";
 import { schema } from "@/lib/db";
-import { UNACCENT_FROM, UNACCENT_TO, digitsOnly, normalizeText } from "@/lib/search";
+import { UNACCENT_FROM, UNACCENT_TO, digitsOnly, foldLikeSql } from "@/lib/search";
 
 /**
  * Búsqueda tolerante en SQL, espejo de `matchesQuery` del cliente
@@ -23,9 +23,11 @@ export function contactSearchSql(q: string | null | undefined): SQL | undefined 
   const query = q?.trim();
   if (!query) return undefined;
   const qDigits = digitsOnly(query);
-  // El patrón viaja normalizado igual que la columna, y con los comodines de
-  // LIKE escapados para que un "%" tecleado no liste todo.
-  const qLike = normalizeText(query).replace(/[\\%_]/g, "\\$&");
+  // El patrón se pliega EXACTAMENTE como la columna (`foldLikeSql` ≡
+  // `lower(translate(...))`), no con NFD: así "šime" encuentra "Šime" (la
+  // tabla no lo pliega en ningún lado). Comodines de LIKE escapados para que
+  // un "%" tecleado no liste todo.
+  const qLike = foldLikeSql(query).replace(/[\\%_]/g, "\\$&");
   return or(
     sql`lower(translate(${schema.contact.name}, ${UNACCENT_FROM}, ${UNACCENT_TO}))
         like ${`%${qLike}%`}`,

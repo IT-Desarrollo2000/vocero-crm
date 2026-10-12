@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
+import { Hourglass, PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
 import type { ConversationCounts, ConversationDto } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
@@ -12,15 +12,18 @@ import { useStages } from "@/components/use-stages";
 import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
+import { closingRemainingMs } from "@/lib/closing-window";
 import {
   assigneeLabel,
+  formatRemaining,
   formatTime,
   initials,
   previewText,
   type ConversationFilter,
 } from "./helpers";
 import { hasActiveFilters, type InboxFilters } from "./list-state";
-import type { InboxListError } from "./use-inbox-list";
+import { CLOSING_TICK_MS, type InboxListError } from "./use-inbox-list";
+import { AlertsBanner } from "./alerts-banner";
 
 /** Pausa de la búsqueda antes de pedirla al servidor. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -244,6 +247,14 @@ export function ConversationList({
     if (typed) pushQuery(typed, true);
   }, []);
 
+  // 05: reloj de la cuenta regresiva «Cierra en …» (desde `lastInboundAt`,
+  // no del `windowRemainingMs` serializado, que envejece).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), CLOSING_TICK_MS);
+    return () => clearInterval(t);
+  }, []);
+
   const loading = conversationsProp === null;
   const visible = conversationsProp ?? [];
   const pills: { id: ConversationFilter; label: string; count: number }[] = [
@@ -260,6 +271,7 @@ export function ConversationList({
           },
         ]
       : []),
+    { id: "closing", label: "Ventana por cerrar", count: counts?.closing ?? 0 },
   ];
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
@@ -403,9 +415,12 @@ export function ConversationList({
         </div>
       </header>
 
+      <AlertsBanner />
+
       {/* Con tres pastillas no cabe todo en 360px: el selector de etapa baja
           a una segunda línea en vez de salirse por la derecha. Con las de
-          asignación (09) "Mías" y "Sin asignar" bajan juntas a esa línea. */}
+          asignación (09) "Mías" y "Sin asignar" bajan juntas a esa línea, y
+          (05) "Ventana por cerrar" detrás (D-05-7: flex-wrap). */}
       <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5">
         {pills.map((f) => (
           <button
@@ -475,12 +490,15 @@ export function ConversationList({
                 ? "No tienes conversaciones a tu nombre."
                 : filter === "unassigned"
                   ? "Todas las conversaciones tienen responsable."
-                  : "Sin resultados para este filtro."}
+                  : filter === "closing"
+                    ? "Ninguna ventana de 24 h cierra en las próximas 2 horas."
+                    : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
             {visible.map((c) => {
               const unread = c.unreadCount > 0;
+              const closesIn = closingRemainingMs(c.channel, c.lastInboundAt, now);
               const active = selectedId === c.id;
               return (
                 <li
@@ -569,6 +587,16 @@ export function ConversationList({
                             IA pausada
                           </span>
                         ) : null}
+                        {closesIn !== null && (
+                          <span
+                            data-testid="closing-chip"
+                            title="La ventana de 24 h para responder sin plantilla está por cerrar"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text"
+                          >
+                            <Hourglass className="h-3 w-3" strokeWidth={1.7} />
+                            Cierra en {formatRemaining(closesIn)}
+                          </span>
+                        )}
                         {teamMode && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
                       </span>
                     </span>

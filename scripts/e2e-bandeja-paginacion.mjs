@@ -21,6 +21,12 @@
  *   h) UI (Playwright, cookie del owner): `/inbox?contact=` de una
  *      conversación fuera de la 1.ª página → seleccionada, a la vista y con
  *      su hilo abierto (CA-06-05)
+ *   i) UI en vivo (Playwright): un entrante pide solo `?ids=` + `/counts`
+ *      (nunca la lista completa); scroll infinito hasta «No hay más
+ *      conversaciones» sin ids repetidos en el DOM; alt-tab simulado
+ *      (`visibilitychange`) y corte de red (`setOffline`) + reconexión NO
+ *      pierden lo cargado ni la posición; la página 2 que falla
+ *      (`page.route`) se recupera con «Reintentar»
  *
  * Presupuesto del limitador de login: 2 POST a /sign-in|sign-up (owner, vendedor).
  * La BD de E2E NO se limpia entre guiones: todo se compara contra los
@@ -451,6 +457,7 @@ async function main() {
   ok("la del enlace NO está en la primera página",
     !ids(r.json?.conversations ?? []).includes(old?.id), short(r));
   await deepLinkUi(old);
+  await liveListUi();
 }
 
 /**
@@ -520,3 +527,142 @@ main()
     console.log(`\n${checks - failures}/${checks} checks OK`);
     process.exit(failures > 0 ? 1 : 0);
   });
+
+/**
+ * i) La Bandeja en vivo, en el navegador (salvedades de la revisión de 06):
+ * qué pide un entrante, scroll infinito completo, alt-tab y reconexión sin
+ * perder lo cargado, y la página 2 que falla con «Reintentar».
+ */
+async function liveListUi() {
+  console.log("\n== i) UI en vivo: eventos, scroll infinito, alt-tab, red ==");
+  const browser = await chromium.launch();
+  const url = new URL(BASE);
+  const cookies = owner.jar.cookie
+    .split("; ")
+    .filter(Boolean)
+    .map((pair) => {
+      const at = pair.indexOf("=");
+      return { name: pair.slice(0, at), value: pair.slice(at + 1), domain: url.hostname, path: "/" };
+    });
+  const rowIds = (page) =>
+    page.$$eval("li[data-conversation-id]", (lis) => lis.map((li) => li.dataset.conversationId));
+  const scroller = (page) =>
+    page.locator("li[data-conversation-id]").first().evaluate((li) => {
+      let el = li.parentElement;
+      while (el && getComputedStyle(el).overflowY !== "auto") el = el.parentElement;
+      return el ? { top: el.scrollTop, height: el.scrollHeight } : null;
+    });
+  const scrollToEnd = (page) =>
+    page.locator("li[data-conversation-id]").first().evaluate((li) => {
+      let el = li.parentElement;
+      while (el && getComputedStyle(el).overflowY !== "auto") el = el.parentElement;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    await ctx.addCookies(cookies);
+    const page = await ctx.newPage();
+    const reqs = [];
+    page.on("request", (r) => {
+      const u = new URL(r.url());
+      if (u.pathname.startsWith("/api/conversations")) reqs.push(`${u.pathname}${u.search}`);
+    });
+    await page.goto(`${BASE}/inbox`, { waitUntil: "load" });
+    await page.locator("li[data-conversation-id]").first().waitFor({ timeout: 20000 });
+    await sleep(2500); // primera página, contadores y SSE conectado
+
+    // 1) Un entrante → solo `?ids=` + `/counts`.
+    reqs.length = 0;
+    ok("UI: entrante en vivo entregado", (await inbound(7, `en vivo ${S}`)).res.ok);
+    await until(async () => reqs.some((u) => u.includes("ids=")), 15000);
+    await sleep(2500);
+    const lists = reqs.filter((u) => u.startsWith("/api/conversations?") && !u.includes("ids="));
+    const idsReqs = reqs.filter((u) => u.includes("ids="));
+    const countReqs = reqs.filter((u) => u.startsWith("/api/conversations/counts"));
+    ok("UI: el entrante pide `?ids=`", idsReqs.length >= 1, JSON.stringify(reqs));
+    ok("UI: el entrante pide `/counts`", countReqs.length >= 1, JSON.stringify(reqs));
+    ok("UI: nada de lista completa ni página 1 por el evento", lists.length === 0, JSON.stringify(lists));
+    ok(
+      "UI: `/counts` como mucho uno por resolución de ids (badge/título no piden aparte)",
+      countReqs.length <= idsReqs.length,
+      JSON.stringify(reqs)
+    );
+    const all = (await counts(owner)).all;
+
+    // 2) Scroll infinito hasta el final.
+    const end = page.getByText("No hay más conversaciones");
+    const reached = await until(async () => {
+      await scrollToEnd(page);
+      return (await end.count()) > 0;
+    }, 90000);
+    ok("UI: scroll infinito hasta «No hay más conversaciones»", !!reached);
+    let dom = await rowIds(page);
+    ok("UI: sin ids repetidos en el DOM", dupes(dom).length === 0, JSON.stringify(dupes(dom)));
+    ok(`UI: todas cargadas (${dom.length} = counts.all ${all})`, dom.length === all, `${dom.length} vs ${all}`);
+    const before = await scroller(page);
+    const loaded = dom.length;
+
+    // 3) Alt-tab simulado: oculta y vuelve.
+    await page.evaluate(() => {
+      const set = (v) => Object.defineProperty(document, "visibilityState", { value: v, configurable: true });
+      set("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      set("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await sleep(3000);
+    dom = await rowIds(page);
+    const afterTab = await scroller(page);
+    ok("UI: alt-tab no descarta lo cargado", dom.length >= loaded, `${dom.length} vs ${loaded}`);
+    ok("UI: alt-tab conserva la posición del scroll", (afterTab?.top ?? 0) >= (before?.top ?? 0) * 0.8, `${JSON.stringify(before)} → ${JSON.stringify(afterTab)}`);
+    ok("UI: tras alt-tab sigue sin repetidos", dupes(dom).length === 0);
+
+    // 4) Corte de red + entrante mientras tanto + reconexión.
+    await ctx.setOffline(true);
+    await sleep(2000);
+    ok("UI: entrante con la pestaña sin red", (await inbound(9, `sin red ${S}`)).res.ok);
+    await sleep(1000);
+    reqs.length = 0;
+    await ctx.setOffline(false);
+    const caught = await until(async () => {
+      const ids = await rowIds(page);
+      const top = await page.locator("li[data-conversation-id]").first().innerText();
+      return ids.length >= loaded && top.includes(nameOf(9)) ? true : null;
+    }, 30000);
+    dom = await rowIds(page);
+    ok("UI: al reconectar se pone al día (la del entrante sube al tope)", !!caught, (await page.locator("li[data-conversation-id]").first().innerText()).slice(0, 80));
+    ok("UI: la reconexión no pierde lo cargado", dom.length >= loaded, `${dom.length} vs ${loaded}`);
+    ok("UI: tras la reconexión sin repetidos", dupes(dom).length === 0);
+    await ctx.close();
+
+    // 5) La página 2 falla → «Reintentar».
+    const rctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    await rctx.addCookies(cookies);
+    const rp = await rctx.newPage();
+    let failed = 0;
+    await rp.route(/\/api\/conversations\?.*cursor=/, async (route) => {
+      if (failed === 0) {
+        failed++;
+        return route.fulfill({ status: 500, body: "{}" });
+      }
+      return route.continue();
+    });
+    await rp.goto(`${BASE}/inbox`, { waitUntil: "load" });
+    await rp.locator("li[data-conversation-id]").first().waitFor({ timeout: 20000 });
+    const first = (await rowIds(rp)).length;
+    const retry = rp.getByRole("button", { name: "Reintentar" });
+    const shown = await until(async () => {
+      await scrollToEnd(rp);
+      return (await retry.count()) > 0;
+    }, 20000);
+    ok("UI: la página 2 falla → «Reintentar» al pie", !!shown && failed === 1);
+    ok("UI: lo ya cargado se queda", (await rowIds(rp)).length === first);
+    await retry.first().click().catch(() => {});
+    const more = await until(async () => (await rowIds(rp)).length > first, 15000);
+    ok("UI: «Reintentar» carga la página 2", !!more, `${(await rowIds(rp)).length} vs ${first}`);
+    ok("UI: sin repetidos tras reintentar", dupes(await rowIds(rp)).length === 0);
+    await rctx.close();
+  } finally {
+    await browser.close();
+  }
+}

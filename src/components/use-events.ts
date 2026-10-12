@@ -40,7 +40,9 @@ export type EventHandlers = {
  * comparte el ÚNICO `EventSource` de la pestaña (`EventsProvider`, D-05-4);
  * fuera de él abre su propia conexión, como antes. EventSource reconecta
  * solo; el servidor no garantiza replay, así que al reconectar el consumidor
- * debe refetch con `since=` (onReconnect).
+ * se pone al día en `onReconnect` (06: la Bandeja fusiona la página 1 y
+ * resuelve lo abierto con `?ids=`; `since=` quedó solo como modo legado,
+ * RF-06-13).
  */
 export function useEvents(handlers: EventHandlers): void {
   const handlersRef = useRef(handlers);

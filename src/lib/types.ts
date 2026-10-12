@@ -67,7 +67,8 @@ export type AssignedFilter = "me" | "unassigned" | "all";
  * mismo predicado que `assigned=me|unassigned` (si llegan ambos, se
  * intersectan). Valor desconocido → `all` (tolerante).
  */
-export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned";
+/** 05: `closing` = «Ventana por cerrar» (< 2 h de las 24 h, `src/lib/closing-window.ts`). */
+export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned" | "closing";
 
 /**
  * 06: respuesta de `GET /api/conversations`. `nextCursor` es opaco (lo arma
@@ -93,6 +94,8 @@ export type ConversationCounts = {
   human: number;
   mine: number;
   unassigned: number;
+  /** 05: «Ventana por cerrar» (misma capa que las demás pastillas). */
+  closing: number;
   byChannel: Record<Channel, number>;
   /** Conversaciones con `unread_count > 0`: badge del menú/pestaña (D-05-1). */
   unreadConversations: number;

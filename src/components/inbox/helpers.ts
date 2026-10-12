@@ -2,11 +2,13 @@
 
 import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
+import { isClosingSoon } from "@/lib/closing-window";
 import type { ConversationDto, InboxFilter } from "@/lib/types";
 
 /**
- * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana y (09)
- * por responsable: las mías o las que nadie ha tomado. 06: mismos nombres que
+ * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana, (09)
+ * por responsable: las mías o las que nadie ha tomado, y (05) «Ventana por
+ * cerrar». 06: mismos nombres que
  * `GET /api/conversations?filter=` (`human` = atención humana).
  */
 export type ConversationFilter = InboxFilter;
@@ -49,6 +51,8 @@ export function filterConversations(
     filter: ConversationFilter;
     /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
     viewerId?: string;
+    /** 05: reloj de «Ventana por cerrar» (ms); por defecto, ahora. */
+    now?: number;
   }
 ): {
   searched: ConversationDto[];
@@ -56,6 +60,7 @@ export function filterConversations(
   visible: ConversationDto[];
 } {
   const { query, stage, stageId, inbox, filter, viewerId } = opts;
+  const now = opts.now ?? Date.now();
   const stageOk = (c: ConversationDto): boolean => {
     if (!stageId) return stage === "all" || c.stageName === stage;
     if (c.stageId != null) return c.stageId === stageId;
@@ -82,7 +87,9 @@ export function filterConversations(
           ? inInbox.filter((c) => isMine(c, viewerId))
           : filter === "unassigned"
             ? inInbox.filter((c) => c.assignedTo === null)
-            : inInbox;
+            : filter === "closing"
+              ? inInbox.filter((c) => isClosingSoon(c.channel, c.lastInboundAt, now))
+              : inInbox;
   return { searched, inInbox, visible };
 }
 

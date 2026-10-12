@@ -457,6 +457,12 @@ async function main() {
 
     await page.goto(`${BASE}/reports?${WIN}`, { waitUntil: "load" });
     await page.getByText("Reparto de atención").first().waitFor({ timeout: 20000 });
+    // Los títulos se pintan desde la carga («…»): esperar a que llegue el
+    // reporte (en dev, la primera compilación de la ruta tarda varios s).
+    await until(async () => {
+      const t = await page.locator('[data-testid="kpi-active"]').first().innerText();
+      return !t.includes("…");
+    }, 60000);
     for (const title of [
       "Reparto de atención",
       "Volumen por día y canal",

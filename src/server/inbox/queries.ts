@@ -7,6 +7,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   ne,
   or,
   sql,
@@ -20,6 +21,7 @@ import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import { capabilitiesFor, replyModeFor } from "@/server/channels/capabilities";
 import { conversationVisibleTo, type Viewer } from "@/server/inbox/visibility";
 import { contactSearchSql } from "@/server/search";
+import { closingBounds, closingWindowGroups } from "@/lib/closing-window";
 import {
   IDS_MAX,
   encodeCursor,
@@ -75,12 +77,32 @@ function assigneeOf(
 export const SINCE_MAX = 500;
 
 /**
+ * 05 — «Ventana por cerrar»: `now − ventana < last_inbound_at ≤ now − (ventana − 2 h)`
+ * por grupo de canales con la misma ventana (`src/lib/closing-window.ts`).
+ * Cortes calculados en Node (columnas `timestamp` sin zona, nunca `now()`).
+ */
+export function closingCondition(now: Date = new Date()): SQL {
+  const c = schema.conversation;
+  const parts = closingWindowGroups().map(({ windowMs, channels }) => {
+    const { after, atOrBefore } = closingBounds(windowMs, now.getTime());
+    return and(
+      inArray(c.channel, channels),
+      gt(c.lastInboundAt, after),
+      lte(c.lastInboundAt, atOrBefore)
+    );
+  });
+  return (parts.length > 0 ? or(...parts) : undefined) ?? sql`false`;
+}
+
+/**
  * Predicado de una pastilla (contrato 06-0). `mine`/`unassigned` son el mismo
  * predicado que `assigned=me|unassigned`; si llegan ambos, se intersectan.
+ * `now` solo lo usa `closing` (05).
  */
 export function inboxFilterCondition(
   viewer: Viewer,
-  filter: InboxFilter | undefined
+  filter: InboxFilter | undefined,
+  now: Date = new Date()
 ): SQL | undefined {
   const c = schema.conversation;
   switch (filter) {
@@ -93,6 +115,8 @@ export function inboxFilterCondition(
       return assignedCondition(viewer, "me");
     case "unassigned":
       return assignedCondition(viewer, "unassigned");
+    case "closing":
+      return closingCondition(now);
     default:
       return undefined;
   }
@@ -172,6 +196,9 @@ export function toPage<T extends { sortKey: string; conversation: { id: string }
  * desempate `created_at desc, id desc`. Reemplaza la subconsulta
  * correlacionada por fila.
  */
+/** Ids por consulta de `previewsFor` (muy por debajo del tope de parámetros). */
+export const PREVIEW_BATCH = 1000;
+
 async function previewsFor(
   organizationId: string,
   conversationIds: string[]
@@ -179,17 +206,20 @@ async function previewsFor(
   const out = new Map<string, string | null>();
   if (conversationIds.length === 0) return out;
   const m = schema.message;
-  const rows = await getDb()
-    .selectDistinctOn([m.conversationId], {
-      conversationId: m.conversationId,
-      preview: sql<string | null>`coalesce(${m.text}, ${m.type})`,
-    })
-    .from(m)
-    .where(
-      scoped(m.organizationId, organizationId, inArray(m.conversationId, conversationIds))
-    )
-    .orderBy(m.conversationId, desc(m.createdAt), desc(m.id));
-  for (const r of rows) out.set(r.conversationId, r.preview);
+  // En lotes: la lista completa (sin `limit`, D-06-1) puede traer más ids de
+  // los ~65k parámetros que admite una consulta de Postgres.
+  for (let i = 0; i < conversationIds.length; i += PREVIEW_BATCH) {
+    const batch = conversationIds.slice(i, i + PREVIEW_BATCH);
+    const rows = await getDb()
+      .selectDistinctOn([m.conversationId], {
+        conversationId: m.conversationId,
+        preview: sql<string | null>`coalesce(${m.text}, ${m.type})`,
+      })
+      .from(m)
+      .where(scoped(m.organizationId, organizationId, inArray(m.conversationId, batch)))
+      .orderBy(m.conversationId, desc(m.createdAt), desc(m.id));
+    for (const r of rows) out.set(r.conversationId, r.preview);
+  }
   return out;
 }
 
@@ -314,6 +344,7 @@ export async function countConversations(
   const c = schema.conversation;
   const db = getDb();
   const always = sql`true`;
+  const now = new Date();
   const base = and(...baseFilters(viewer, query));
   const inChannel = query.channel ? eq(c.channel, query.channel) : undefined;
   const countWhere = (...conds: (SQL | undefined)[]) =>
@@ -330,6 +361,7 @@ export async function countConversations(
         inChannel,
         inboxFilterCondition(viewer, "unassigned")
       ),
+      closing: countWhere(base, inChannel, inboxFilterCondition(viewer, "closing", now)),
       whatsapp: countWhere(base, eq(c.channel, "whatsapp")),
       instagram: countWhere(base, eq(c.channel, "instagram")),
       messenger: countWhere(base, eq(c.channel, "messenger")),
@@ -364,6 +396,7 @@ export async function countConversations(
     human: n(agg?.human),
     mine: n(agg?.mine),
     unassigned: n(agg?.unassigned),
+    closing: n(agg?.closing),
     byChannel: {
       whatsapp: n(agg?.whatsapp),
       instagram: n(agg?.instagram),

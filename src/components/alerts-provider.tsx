@@ -5,6 +5,7 @@ import { acquireAlertsCoordinator } from "@/components/alerts-coordinator";
 import { installAudioUnlock } from "@/components/alert-sound";
 import { useAlertPrefs } from "@/components/use-alert-prefs";
 import { useUnreadIndicator } from "@/components/use-unread-indicator";
+import { useInboxAlerts } from "@/components/use-inbox-alerts";
 
 /**
  * Lo de alertas que corre en TODAS las pestañas (dev-tasks/05), montado en
@@ -15,7 +16,8 @@ import { useUnreadIndicator } from "@/components/use-unread-indicator";
  * - `(N)` en el título + punto en el favicon, y el mismo N para el badge del
  *   menú vía `useUnreadCount()` (así no se piden los contadores dos veces).
  *
- * Las notificaciones las decide `useInboxAlerts()` (lo monta 05-inbox).
+ * - notificaciones del navegador y sonido: `useInboxAlerts()`, montado UNA
+ *   vez por pestaña aquí mismo (solo la pestaña líder avisa).
  */
 
 const UnreadCountContext = createContext<number | null>(null);
@@ -28,8 +30,17 @@ export function AlertsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => installAudioUnlock(), []);
 
   return (
-    <UnreadCountContext.Provider value={unread}>{children}</UnreadCountContext.Provider>
+    <UnreadCountContext.Provider value={unread}>
+      <InboxAlerts />
+      {children}
+    </UnreadCountContext.Provider>
   );
+}
+
+/** Hijo sin pintura: un componente aparte para no re-renderizar a `children`. */
+function InboxAlerts() {
+  useInboxAlerts();
+  return null;
 }
 
 /**

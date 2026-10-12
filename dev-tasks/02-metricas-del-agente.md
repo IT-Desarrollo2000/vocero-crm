@@ -409,29 +409,36 @@ ON CONFLICT ("id") DO NOTHING;
 
 ### Tareas ordenadas
 
-- [ ] **T-02-01** Decidir V1/V2 (D-02-1) y zona horaria (D-02-2) con el dueño. *(—)*
-- [ ] **T-02-02** Migración: índice `message_org_created_idx`; en V2 tabla
+- [x] **T-02-01** Decidir V1/V2 (D-02-1) y zona horaria (D-02-2) con el dueño. *(—)* — contrato 05/02-0: V2 y `calendar_settings` → `America/Mexico_City`.
+- [x] **T-02-02** Migración: índice `message_org_created_idx`; en V2 tabla
   `conversation_handoff_event` + índices + siembra; `schema.ts` + prefijo de id;
-  `pnpm db:generate` sin diff. *(T-02-01)*
-- [ ] **T-02-03** (V2) `src/server/inbox/handoff.ts` `markHandoff`/
+  `pnpm db:generate` sin diff. *(T-02-01)* — contrato 05/02-0 (0017).
+  Verificada 2× en la BD aislada (borrando su fila de
+  `drizzle.__drizzle_migrations`): sin error, tabla + 3 índices; la siembra
+  ahora omite handoffs que ya tienen su evento exacto (re-ejecutar no
+  duplica).
+- [x] **T-02-03** (V2) `src/server/inbox/handoff.ts` `markHandoff`/
   `clearHandoff` con inserción del evento; reemplazar las 5 escrituras/cierres;
   test de vigilancia append-only. *(T-02-02; si 05 ya creó el helper, solo se
-  agrega la inserción)*
+  agrega la inserción)* — contrato 05/02-0: `markHandoff` inserta `opened`;
+  sin `clearHandoff` (recortado: reactivar no registra `closed`).
 - [x] **T-02-04** `src/server/reports/range.ts` + `timezone.ts` + `run.ts` con
   unit tests. *(T-02-01)*
 - [x] **T-02-05** `src/server/reports/agent.ts` M1–M8 + `src/lib/reports.ts`. *(T-02-02, T-02-04)*
 - [x] **T-02-06** `GET /api/reports/agent` con gate de Propietario. *(00, T-02-05)*
 - [x] **T-02-07** Ítem de menú `ownerOnly` + páginas en `(app)/(owner)/reports/`. *(00: T-00-13)*
 - [x] **T-02-08** Componentes de `src/components/reports/` + cliente. *(T-02-06, T-02-07)*
-  — DTO provisional en `src/components/reports/types.ts` hasta integrar
-  `src/lib/reports.ts` (02-A); unit `tests/unit/reports-ui.test.ts`.
+  — integrado: `src/components/reports/types.ts` = `export * from
+  "@/lib/reports"` (mismos nombres; `exactSince` opcional y no enviado;
+  `error` = `ReportBlockError`); unit `tests/unit/reports-ui.test.ts`.
 - [ ] **T-02-09** `EXPLAIN ANALYZE` con 100 000 mensajes sembrados en la BD de
   E2E; ajustar índices si algún bloque pasa de 500 ms. *(T-02-05)*
-- [ ] **T-02-10** Pruebas (abajo), contrato `api.md`, gate `pnpm typecheck &&
+- [x] **T-02-10** Pruebas (abajo), contrato `api.md`, gate `pnpm typecheck &&
   pnpm lint && pnpm build && pnpm test` + E2E en BD aislada. *(todo)*
   - [x] 02-A: unit (`report-range`, `agent-report-sql`, `agent-report-format`,
     `report-run`), contrato `api.md`, `scripts/e2e-metricas.mjs` +
-    `tests/e2e/us-metricas.md` (solo `node --check`; falta correrlo en vivo).
+    `tests/e2e/us-metricas.md` — corrido en vivo, verde (también con
+    `CHANNELS=off AGENDA=off ATRIBUCION=off`).
 
 ### Pruebas
 

@@ -15,6 +15,7 @@ import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { useEvents } from "@/components/use-events";
 import { useViewer } from "@/components/viewer-context";
+import { reportOpenConversation } from "@/components/alerts-coordinator";
 import { isOwner } from "@/lib/roles";
 import { ConversationList } from "./conversation-list";
 import { MessageThread } from "./message-thread";
@@ -91,6 +92,13 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   }, []);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
+
+  // 05 (RF-05-04): la pestaña informa qué conversación tiene abierta para que
+  // la líder no avise de lo que alguien ya está viendo. Al salir, ninguna.
+  useEffect(() => {
+    reportOpenConversation(selectedId);
+    return () => reportOpenConversation(null);
+  }, [selectedId]);
   const tmpSeq = useRef(0);
   // Los envíos salen en fila: el compositor ya no espera, pero WhatsApp debe
   // recibir "hola" antes que el renglón siguiente. Sin esta cadena, dos POST
@@ -159,7 +167,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       if (gone.includes(sel)) closeLost(sel, true);
     },
   });
-  const { resolveIds, refreshCounts, loadFirst } = list;
+  const { resolveIds, refreshCounts, loadFirst, refreshFirst } = list;
 
   /** Una conversación cambió por algo que hicimos aquí: se relee solo esa. */
   const refreshOne = useCallback(
@@ -171,16 +179,31 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   );
 
   /**
-   * Reconexión del SSE o pestaña que vuelve a estar visible: primera página
-   * con los filtros activos + contadores (sin `since`, RF-06-13). La abierta
-   * se conserva aunque no venga en la página, salvo que `?ids=` diga que ya
-   * no es visible.
+   * Recarga desde cero (sin datos, "Reintentar", demo recién sembrada):
+   * primera página con los filtros activos + contadores (sin `since`,
+   * RF-06-13). La abierta se conserva aunque no venga en la página, salvo que
+   * `?ids=` diga que ya no es visible.
    */
   const reloadList = useCallback(() => {
     void loadFirst();
     refreshCounts({ now: true });
     if (selectedIdRef.current) resolveIds([selectedIdRef.current]);
   }, [loadFirst, refreshCounts, resolveIds]);
+
+  /**
+   * Puesta al día SIN perder la posición (pestaña que vuelve a estar visible
+   * o reconexión del SSE): la página 1 se FUSIONA sobre lo cargado
+   * (`refreshFirst`, conserva las páginas siguientes, su cursor y el
+   * scroll), + contadores + la abierta por `?ids=`. Antes se reemplazaba
+   * todo por la página 1 y un alt-tab devolvía al agente al principio.
+   */
+  const catchUp = useCallback(() => {
+    void refreshFirst();
+    refreshCounts({ now: true });
+    // Siempre se llama: además de la abierta, despacha los ids que quedaron
+    // en cola porque su `?ids=` falló sin red.
+    resolveIds(selectedIdRef.current ? [selectedIdRef.current] : []);
+  }, [refreshFirst, refreshCounts, resolveIds]);
 
 
   const refetchMessages = useCallback(
@@ -311,14 +334,21 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
     [closeLost, refreshOne]
   );
 
-  // SSE caído: al volver a la pestaña se recarga lo que se vea (RF-06-13).
+  // SSE caído: al volver a la pestaña se pone al día lo que se vea
+  // (RF-06-13) sin perder lo cargado. Igual al volver la red: sin red el
+  // `EventSource` puede seguir abierto (no hay `onReconnect`) mientras las
+  // peticiones de `?ids=`/`/counts` fallan.
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible") reloadList();
+      if (document.visibilityState === "visible") catchUp();
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [reloadList]);
+    window.addEventListener("online", catchUp);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", catchUp);
+    };
+  }, [catchUp]);
 
   useEvents({
     onMessageNew: ({ conversationId, message }) => {
@@ -352,13 +382,14 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       // aplica visibilidad). Sin id legible, se recarga la primera página.
       const id = (conversation as { id?: unknown } | null)?.id;
       if (typeof id === "string" && id) refreshOne(id);
-      else reloadList();
+      else catchUp();
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
       setDetailRev((v) => v + 1);
     },
     onReconnect: () => {
-      // Catch-up tras reconexión: primera página + contadores, sin `since`.
-      reloadList();
+      // Catch-up tras reconexión: página 1 fusionada + contadores, sin
+      // `since` y sin perder las páginas ya cargadas.
+      catchUp();
       if (selectedIdRef.current) void refetchMessages(selectedIdRef.current);
       setDetailRev((v) => v + 1);
     },

@@ -60,7 +60,9 @@ export function matchesQuery(
   query: string,
   fields: { text?: (string | null | undefined)[]; phone?: string | null }
 ): boolean {
-  const q = normalizeText(query.trim());
+  // La consulta se pliega igual que la columna y que el patrón del SQL
+  // (`foldLikeSql`): "šime" encuentra "Šime" en ambos lados.
+  const q = foldLikeSql(query.trim());
   if (!q) return true;
 
   // El texto se pliega como lo pliega el SQL (`contactSearchSql`), no con

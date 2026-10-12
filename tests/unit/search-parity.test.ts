@@ -113,6 +113,10 @@ describe("búsqueda: el espejo del cliente ≡ el SQL del servidor", () => {
     ["a_a", "Ana", "5299", false],
     // Fuera de la tabla de `translate`: el servidor NO los pliega, el espejo tampoco.
     ["sime", "Šime Ćorić", null, false],
+    // …pero la consulta se pliega como la columna: con el mismo carácter, sí.
+    ["šime", "Šime Ćorić", null, true],
+    ["ŠIME", "Šime Ćorić", null, true],
+    ["ýago", "Ýago Øster", null, true],
     ["yago", "Ýago Øster", null, false],
     ["josé decomp", "José Decompuesto", null, false],
   ] as const)("%j en %j → %s (Postgres)", (q, name, phone, expected) => {

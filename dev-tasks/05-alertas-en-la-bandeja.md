@@ -1,6 +1,6 @@
 # 05 — Alertas en la Bandeja
 
-> Estado: en curso (contrato 05/02-0 fijado; migración oficial `0017`) · Prioridad: alta · Esfuerzo: M · Migración: no (índice opcional para «Ventana por cerrar», ver Cambios de datos) · Bandera: no (cada usuario la activa en su navegador; apagada por defecto)
+> Estado: hecha (contrato 05/02-0; migración oficial `0017`; 05-core + 05-inbox integrados y verificados en vivo) · Prioridad: alta · Esfuerzo: M · Migración: no (índice opcional para «Ventana por cerrar», ver Cambios de datos) · Bandera: no (cada usuario la activa en su navegador; apagada por defecto)
 >
 > **Manda la sección [«Contrato 05/02-0»](#contrato-0502-0)** sobre cualquier
 > detalle anterior que la contradiga (helper `markHandoff`, evento
@@ -350,21 +350,35 @@ Fuera de alcance:
   `AlertsProvider` (`AppShell`); N = `counts.unreadConversations` con
   respaldo en la lista completa mientras `counts` responda 501;
   `useUnreadCount()` listo para el badge del menú (lo cablea 05-inbox).
-- [ ] **T-05-06** `use-inbox-alerts.ts`: líder entre pestañas, notificación,
+- [x] **T-05-06** `use-inbox-alerts.ts`: líder entre pestañas, notificación,
   sonido, clic → `/inbox?contact=`. *(T-05-01, T-05-02, T-05-04)* — 05-core
   dejó el hook (`src/components/use-inbox-alerts.ts`), el coordinador
   (`alerts-coordinator.ts`: Web Locks + `BroadcastChannel`, dedupe y
-  presencia) y el sonido (`alert-sound.ts`); falta (05-inbox) montar
-  `useInboxAlerts()` y llamar `reportOpenConversation(selectedId)` desde la
-  Bandeja.
-- [ ] **T-05-07** `alerts-menu.tsx` + aviso en Bandeja + estados de permiso.
+  presencia) y el sonido (`alert-sound.ts`); 05-inbox: `useInboxAlerts()`
+  montado una vez por pestaña dentro de `AlertsProvider` y la Bandeja llama
+  `reportOpenConversation(selectedId)` (con limpieza al desmontar). Badge del
+  menú = `useUnreadCount()` (mismo N que título/favicon, `unread-store.ts`;
+  401 → /login desde el indicador).
+- [x] **T-05-07** `alerts-menu.tsx` + aviso en Bandeja + estados de permiso.
   *(T-05-06)* — 05-core: `alerts-menu.tsx` con estados de permiso, montado
-  como tarjeta en «Mi cuenta»; falta (05-inbox) el aviso descartable en la
-  Bandeja y, si se quiere, la campana en el pie del lateral.
-- [ ] **T-05-08** Filtro `closing` en servidor + `counts.closing` + pastilla y
-  cuenta regresiva en la lista. *(06)*
-- [ ] **T-05-09** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
-  build && pnpm test` + E2E en BD aislada (`.env.e2e`). *(todo)*
+  como tarjeta en «Mi cuenta»; 05-inbox: aviso descartable
+  (`src/components/inbox/alerts-banner.tsx`, «Activar avisos» corre el mismo
+  flujo `useAlertsActivation`) mientras el permiso esté en `default`. La
+  campana opcional en el pie del lateral NO se hizo (queda en «Mi cuenta»).
+- [x] **T-05-08** Filtro `closing` en servidor + `counts.closing` + pastilla y
+  cuenta regresiva en la lista. *(06)* — regla única en
+  `src/lib/closing-window.ts` (cortes en Node, por canal con ventana);
+  `closingCondition` en `queries.ts`; espejo en `filterConversations`;
+  chip «Cierra en …» con reloj de 60 s desde `lastInboundAt`; con la pastilla
+  activa, cada minuto salen las vencidas y se refrescan contadores. Sin
+  índice nuevo (opcional, no hizo falta).
+- [x] **T-05-09** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
+  build && pnpm test` + E2E en BD aislada (`.env.e2e`). *(todo)* — unit
+  `tests/unit/inbox-closing.test.ts` (bordes y paridad SQL/cliente);
+  `scripts/e2e-alertas.mjs` + `tests/e2e/us-alertas.md` en vivo. El guion
+  queda separado: `scripts/e2e-selftest.mjs` es un monolito que no invoca a
+  los demás. Pendiente (no automatizado): corrida del Laboratorio sin aviso y
+  `setOffline` sin avisos retroactivos.
 
 ### Pruebas
 

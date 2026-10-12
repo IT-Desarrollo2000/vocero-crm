@@ -133,13 +133,40 @@ export function removeConversations(
   return items.filter((c) => !drop.has(c.id));
 }
 
+/**
+ * 06/05 — Refresco SIN perder la posición (alt-tab, reconexión del SSE): la
+ * página 1 recién pedida manda en SU tramo del orden (de su primera a su
+ * última fila); lo cargado más abajo se conserva tal cual (y el cursor con
+ * él), así el scroll infinito sigue desde donde iba. `complete` = la página
+ * no trae `nextCursor`: es TODA la lista y la reemplaza.
+ *
+ * Una fila del tramo que no volvió ya no cumple el filtro (o se movió): sale.
+ * Una de más abajo que cambió sin moverse se queda como estaba hasta que un
+ * evento la resuelva con `?ids=` (`sortAt` solo crece: lo nuevo sube al tramo).
+ */
+export function mergeFirstPage(
+  items: readonly ConversationDto[],
+  page: readonly ConversationDto[],
+  complete: boolean
+): ConversationDto[] {
+  const fresh = mergeConversations([], page);
+  if (complete || fresh.length === 0) return fresh;
+  const boundary = fresh[fresh.length - 1]!;
+  const inPage = new Set(fresh.map((c) => c.id));
+  const below = items.filter(
+    (c) => !inPage.has(c.id) && compareConversations(boundary, c) < 0
+  );
+  return mergeConversations(below, fresh);
+}
+
 /** Espejo cliente del filtro del servidor, para una fila suelta. */
 export function matchesFilters(
   c: ConversationDto,
   f: InboxFilters,
-  viewerId: string | undefined
+  viewerId: string | undefined,
+  now: number = Date.now()
 ): boolean {
-  return visibleConversations([c], f, viewerId).length === 1;
+  return visibleConversations([c], f, viewerId, now).length === 1;
 }
 
 /**
@@ -150,7 +177,8 @@ export function matchesFilters(
 export function visibleConversations(
   items: readonly ConversationDto[],
   f: InboxFilters,
-  viewerId: string | undefined
+  viewerId: string | undefined,
+  now: number = Date.now()
 ): ConversationDto[] {
   return filterConversations(items, {
     query: f.q,
@@ -159,6 +187,7 @@ export function visibleConversations(
     inbox: f.channel ?? "all",
     filter: f.filter,
     viewerId,
+    now,
   }).visible;
 }
 
@@ -177,10 +206,16 @@ export function displayedConversations(
   items: readonly ConversationDto[],
   loadedKey: string | null,
   f: InboxFilters,
-  viewerId: string | undefined
+  viewerId: string | undefined,
+  now: number = Date.now()
 ): ConversationDto[] {
   const serverFiltered = loadedKey !== null && loadedKey === buildListQuery(f);
-  return visibleConversations(items, serverFiltered ? { ...f, q: "" } : f, viewerId);
+  return visibleConversations(
+    items,
+    serverFiltered ? { ...f, q: "" } : f,
+    viewerId,
+    now
+  );
 }
 
 /**
@@ -272,6 +307,7 @@ export function countsFromLoaded(
     human: count("human"),
     mine: count("mine"),
     unassigned: count("unassigned"),
+    closing: count("closing"),
     byChannel,
     unreadConversations: items.filter((c) => c.unreadCount > 0).length,
     unreadMessages: items.reduce((a, c) => a + c.unreadCount, 0),

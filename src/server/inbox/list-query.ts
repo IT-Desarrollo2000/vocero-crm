@@ -21,6 +21,7 @@ export const INBOX_FILTERS: readonly InboxFilter[] = [
   "human",
   "mine",
   "unassigned",
+  "closing",
 ];
 
 /** Tope de ids por `?ids=` (los extra se descartan, sin error). */

@@ -1,6 +1,6 @@
 # 06 — Paginación de la Bandeja
 
-> Estado: en curso (contrato 06-0 fijado; 06-A servidor y 06-B UI en paralelo) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0016`, solo el índice de orden) · Bandera: no (cambio del núcleo, sin superficie opcional)
+> Estado: hecha (contrato 06-0; 06-A servidor, 06-B UI y salvedades de la revisión integradas y verificadas en vivo) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0016`, solo el índice de orden) · Bandera: no (cambio del núcleo, sin superficie opcional)
 >
 > **Manda la sección [«Contrato 06-0»](#contrato-06-0)** sobre cualquier
 > detalle anterior que la contradiga (nombres `handoff` → `human`, badge por
@@ -161,6 +161,10 @@ Fuera de alcance:
   entra un mensaje en una conversación de la página 3, entonces esa
   conversación aparece al tope, ninguna otra fila cambia de posición relativa y
   no se dispara un `GET /api/conversations` sin `ids`/`since`/`cursor`.
+  **Excepción aceptada (ancla del enlace directo):** mientras una conversación
+  abierta por `/inbox?contact=` sigue anclada al tope (CA-06-05, `pinFirst`),
+  la que recibe el mensaje queda SEGUNDA, justo debajo del ancla; el ancla se
+  suelta al elegir otra conversación y la lista vuelve al orden puro.
 - **CA-06-04** Dado el filtro «No leídas» activo, cuando abro una conversación
   (markRead), entonces sale de la lista y el contador baja en 1.
 - **CA-06-05** Dado `/inbox?contact=<id>` de una conversación que no está en la
@@ -171,8 +175,10 @@ Fuera de alcance:
   recibe 404, y esa conversación no aparece en lista, contadores ni `since`.
 - **CA-06-07** Dado que corto la red 30 s y entra un mensaje en ese lapso,
   cuando el SSE reconecta, entonces la conversación aparece actualizada (al
-  tope, vía recarga de la primera página + `counts`) sin recargar la página
-  del navegador.
+  tope, vía la primera página FUSIONADA sobre lo cargado + `counts`) sin
+  recargar la página del navegador ni perder las páginas ya cargadas. Igual al
+  volver la red (`online`) aunque el SSE no se haya caído, y al volver a la
+  pestaña (`visibilitychange`): ver «Revisión de 06» abajo.
 - **CA-06-08** Dado el guion `scripts/e2e-selftest.mjs` sin modificar (o con el
   helper de D-06-1), cuando corre contra la app, entonces sigue en verde.
 - **CA-06-09** Dado 5 000 conversaciones sembradas, cuando pido la primera
@@ -448,8 +454,16 @@ posterior.
 - [x] **T-06-11** `conversation-list.tsx`: filtros a servidor, contadores de
   `counts`, etapas de `useStages`, scroll infinito. *(T-06-10)*
 - [x] **T-06-12** `inbox-client.tsx`: SSE con upsert, `loadFirst` al reconectar (sin `since`),
-  `?contact=` fuera de página. *(T-06-10)*
-- [x] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)*
+  `?contact=` fuera de página. *(T-06-10)* — revisión: al reconectar, al
+  volver la red y al volver a la pestaña ya NO se reemplaza la lista: se
+  fusiona la página 1 (`refreshFirst` + `mergeFirstPage` en
+  `list-state.ts`), conservando páginas siguientes, cursor y scroll; los
+  `?ids=` que fallan sin red vuelven a la cola.
+- [x] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)* — revisión
+  (con 05): el badge lee `useUnreadCount()` del `AlertsProvider` (mismo N que
+  título y favicon, `src/components/unread-store.ts`); sin respaldo a la
+  lista completa si `/counts` falla; en la Bandeja la fuente es la propia
+  lista (una sola petición de `/counts` por evento y pestaña).
 - [x] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
   según D-06-1. *(T-06-08)* — 06-A: `api.md` al día; con D-06-1 = (a) los
   guiones existentes no cambian.
@@ -755,6 +769,30 @@ queda en la forma fila-valor. `/counts`: Seq Scan + Hash Join, 5.2 ms. Preview:
   (debounce).
 - `onReconnect` y `visibilitychange` → **recargar la primera página** con los
   filtros activos + `counts`. **Sin `since`** en el cliente.
+
+### Revisión de 06 (salvedades integradas)
+
+1. **Alt-tab / reconexión sin perder posición**: `visibilitychange`, `onReconnect` y
+   `online` llaman `catchUp` (`inbox-client.tsx`): página 1 fusionada con
+   `mergeFirstPage` (manda en su tramo del orden; lo de más abajo y su cursor se
+   conservan) + `counts` + `?ids=` pendientes. `loadFirst` (reemplazo) queda solo
+   para cambio de filtros, «Reintentar» y demo recién sembrada. Límite aceptado:
+   una fila de más abajo que cambió sin moverse (p. ej. leída en otra pestaña con
+   «No leídas» activa) se corrige con su próximo evento.
+2. **Un solo `/counts` por evento y pestaña**: título, favicon y badge comparten N
+   (`unread-store.ts`); dentro de la Bandeja la fuente es la lista (`unreadConversations`
+   no depende de filtros); fuera, `useUnreadIndicator`. Sin respaldo a la lista completa.
+3. **Búsqueda**: la consulta se pliega con `foldLikeSql` en `contactSearchSql` y en
+   `matchesQuery` («šime» encuentra «Šime»; casos en `search-parity.test.ts`).
+4. **`previewsFor`** en lotes de 1000 ids (`PREVIEW_BATCH`): la lista completa sin
+   `limit` ya no puede pasar el tope de parámetros de Postgres.
+5. **Verificación en vivo** en `scripts/e2e-bandeja-paginacion.mjs` (sección i):
+   un entrante → solo `?ids=` + `/counts`; scroll infinito hasta «No hay más
+   conversaciones» sin ids repetidos; página 2 que falla → «Reintentar»; `setOffline`
+   + reconexión y alt-tab simulado sin perder lo cargado. Hallazgo: sin red el
+   `EventSource` de Chromium puede seguir abierto (no hay `onReconnect`) mientras
+   `?ids=` falla → ahora esos ids vuelven a la cola y `online` dispara `catchUp`.
+6. Excepción a CA-06-03 por el ancla del enlace directo: documentada en el criterio.
 
 ## 3. Dependencias con otras tareas
 

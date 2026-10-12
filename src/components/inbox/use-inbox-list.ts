@@ -16,15 +16,19 @@ import {
   displayedConversations,
   effectiveFilters,
   mergeConversations,
+  mergeFirstPage,
   pinFirst,
   type InboxFilters,
   type ResolvedIds,
 } from "./list-state";
+import { claimUnreadSource, publishUnread } from "@/components/unread-store";
 
 /** Ventana para juntar ids de una ráfaga SSE en un solo `?ids=`. */
 const RESOLVE_BATCH_MS = 250;
 /** Debounce de los contadores tras eventos. */
 const COUNTS_DEBOUNCE_MS = 500;
+/** 05: reloj de «Ventana por cerrar» (las filas vencen solas, CA-05-08). */
+export const CLOSING_TICK_MS = 60_000;
 
 export type InboxListError = "first" | "more" | null;
 
@@ -115,6 +119,37 @@ export function useInboxList({
     setNextCursor(data.nextCursor ?? null);
   }, [setList]);
 
+  /**
+   * Refresco que NO pierde la posición (alt-tab, reconexión del SSE): pide la
+   * página 1 con los filtros activos y la FUSIONA sobre lo cargado
+   * (`mergeFirstPage`), conservando las páginas siguientes y su cursor. Si
+   * lo cargado es de otros filtros (o aún no hay nada), es un `loadFirst`.
+   * Un fallo de red deja la lista como estaba.
+   */
+  const loadedKeyRef = useRef(loadedKey);
+  loadedKeyRef.current = loadedKey;
+  const refreshFirst = useCallback(async () => {
+    const f = activeRef.current;
+    if (itemsRef.current === null || loadedKeyRef.current !== buildListQuery(f)) {
+      return loadFirst();
+    }
+    const g = gen.current;
+    const res = await fetch(`/api/conversations?${buildListQuery(f)}`).catch(
+      () => null
+    );
+    if (g !== gen.current || !res?.ok) return;
+    const data = (await res.json().catch(() => null)) as ConversationsPage | null;
+    if (g !== gen.current || !data?.conversations) return;
+    const complete = (data.nextCursor ?? null) === null;
+    setError(null);
+    setList(mergeFirstPage(itemsRef.current ?? [], data.conversations, complete));
+    // Cursor: el de la página más honda cargada sigue valiendo (keyset). Solo
+    // si antes TODO cabía (sin cursor) y ahora hay más, se toma el de la 1;
+    // lo repetido se descarta al fusionar por id.
+    if (complete) setNextCursor(null);
+    else if (cursorRef.current === null) setNextCursor(data.nextCursor);
+  }, [loadFirst, setList]);
+
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
     if (!cursor || loadingMoreRef.current) return;
@@ -154,12 +189,19 @@ export function useInboxList({
       `/api/conversations/counts?${buildCountsQuery(activeRef.current)}`
     ).catch(() => null);
     if (seq !== countsSeq.current) return;
+    // 401: sesión revocada → el indicador global manda a /login.
+    if (res?.status === 401) publishUnread("unauthorized");
     const data = res?.ok
       ? ((await res.json().catch(() => null)) as ConversationCounts | null)
       : null;
     if (seq !== countsSeq.current) return;
     // 501 (servidor anterior a 06) o error: se cuenta sobre lo cargado.
     setServerCounts(data && typeof data.all === "number" ? data : null);
+    // 05: `unreadConversations` no depende de los filtros: es el N del
+    // título/favicon/menú de esta pestaña (una sola petición por evento).
+    if (data && typeof data.unreadConversations === "number") {
+      publishUnread(data.unreadConversations);
+    }
   }, []);
   const refreshCounts = useCallback(
     (opts: { now?: boolean } = {}) => {
@@ -190,10 +232,17 @@ export function useInboxList({
         () => null
       );
       // Sin respuesta no se concluye nada: retirar por un error de red
-      // cerraría hilos que siguen siendo visibles.
-      if (!res?.ok) continue;
-      const data = (await res.json().catch(() => null)) as ConversationsPage | null;
-      if (!data?.conversations) continue;
+      // cerraría hilos que siguen siendo visibles. Los ids vuelven a la cola
+      // y se resuelven con el próximo lote (otro evento, la vuelta de la red
+      // o de la pestaña): sin red el SSE puede seguir vivo, así que no habrá
+      // `onReconnect` que los rescate.
+      const data = res?.ok
+        ? ((await res.json().catch(() => null)) as ConversationsPage | null)
+        : null;
+      if (!data?.conversations) {
+        for (const id of chunk) pendingIds.current.add(id);
+        continue;
+      }
       const r = applyResolvedIds(
         itemsRef.current ?? [],
         chunk,
@@ -235,6 +284,9 @@ export function useInboxList({
     setPinnedId((prev) => (prev === selectedId ? prev : null));
   }, []);
 
+  // Mientras la Bandeja está montada, ella es la fuente del N compartido.
+  useEffect(() => claimUnreadSource(), []);
+
   useEffect(
     () => () => {
       if (countsTimer.current) clearTimeout(countsTimer.current);
@@ -255,12 +307,31 @@ export function useInboxList({
     setFiltersState((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  // 05 — Con «Ventana por cerrar» activa, cada minuto: las filas que ya
+  // pasaron las 24 h salen (espejo con el reloj nuevo), entran las que
+  // acaban de cruzar las 22 h (página 1 fusionada) y se corrigen contadores.
+  const [clock, setClock] = useState(() => Date.now());
+  const closingActive = active.filter === "closing";
+  useEffect(() => {
+    if (!closingActive) return;
+    setClock(Date.now());
+    const t = setInterval(() => {
+      setClock(Date.now());
+      void refreshFirst();
+      refreshCounts({ now: true });
+    }, CLOSING_TICK_MS);
+    return () => clearInterval(t);
+  }, [closingActive, refreshFirst, refreshCounts]);
+
   const visible = useMemo(
     () =>
       items
-        ? pinFirst(displayedConversations(items, loadedKey, active, viewerId), pinnedId)
+        ? pinFirst(
+            displayedConversations(items, loadedKey, active, viewerId, clock),
+            pinnedId
+          )
         : null,
-    [items, loadedKey, active, viewerId, pinnedId]
+    [items, loadedKey, active, viewerId, pinnedId, clock]
   );
   const counts = useMemo<ConversationCounts | null>(() => {
     if (serverCounts) return serverCounts;
@@ -285,6 +356,7 @@ export function useInboxList({
     loadingMore,
     error,
     loadFirst,
+    refreshFirst,
     loadMore,
     resolveIds,
     refreshCounts,

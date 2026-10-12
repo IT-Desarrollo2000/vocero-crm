@@ -16,7 +16,9 @@
 -- created_at = handoff_at, source = 'migracion', approximate = true (cuenta
 -- para totales, jamás para promedios de tiempo). El id es determinista
 -- ('hoe_seed_' || conversation.id) y ON CONFLICT DO NOTHING: re-ejecutar no
--- duplica.
+-- duplica. Tampoco siembra un handoff que ya tiene su evento exacto (markHandoff
+-- escribe "opened" con created_at = handoff_at): re-correr 0017 con datos vivos
+-- no cuenta dos veces el mismo escalamiento.
 --
 -- Editada a mano sobre la generada para ser RE-EJECUTABLE (Constitución IV):
 -- IF NOT EXISTS en tabla e índices, y DO-block en cada clave foránea.
@@ -55,4 +57,8 @@ SELECT 'hoe_seed_' || c."id", c."organization_id", c."id", 'opened', c."handoff_
 	c."handoff_note", 'migracion', NULL, true, c."handoff_at"
 FROM "conversation" c
 WHERE c."handoff_at" IS NOT NULL AND c."is_test" = false
+	AND NOT EXISTS (
+		SELECT 1 FROM "conversation_handoff_event" e
+		WHERE e."conversation_id" = c."id" AND e."kind" = 'opened' AND e."created_at" = c."handoff_at"
+	)
 ON CONFLICT ("id") DO NOTHING;

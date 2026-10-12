@@ -406,6 +406,7 @@ describe("countConversations — capas del contrato 06-0", () => {
     "human",
     "mine",
     "unassigned",
+    "closing",
     "whatsapp",
     "instagram",
     "messenger",
@@ -428,7 +429,7 @@ describe("countConversations — capas del contrato 06-0", () => {
 
     const seg = Object.fromEntries(KEYS.map((k, i) => [k, segments(q.sql)[i]!]));
     // Pastillas = base ∧ channel ∧ predicado.
-    for (const k of ["all", "unread", "human", "mine", "unassigned"] as const) {
+    for (const k of ["all", "unread", "human", "mine", "unassigned", "closing"] as const) {
       expect(seg[k]).toContain("like");
       expect(seg[k]).toContain('"lead"."stage_id" = $');
       expect(seg[k]).toContain('"conversation"."channel" = $');
@@ -436,6 +437,10 @@ describe("countConversations — capas del contrato 06-0", () => {
     expect(seg.unread).toContain('"unread_count" > $');
     expect(seg.human).toContain('"handoff_at" is not null');
     expect(seg.unassigned).toContain('"assigned_user_id" is null');
+    // 05: «Ventana por cerrar» con cortes enlazados (calculados en Node).
+    expect(seg.closing).toMatch(/"last_inbound_at" > \$\d+/);
+    expect(seg.closing).toMatch(/"last_inbound_at" <= \$\d+/);
+    expect(seg.closing).not.toContain("now()");
     // byChannel = base ∧ channel = x (un solo predicado de canal: el suyo).
     for (const k of ["whatsapp", "instagram", "messenger"] as const) {
       expect(seg[k]).toContain("like");
@@ -452,12 +457,12 @@ describe("countConversations — capas del contrato 06-0", () => {
     await countConversations("org_1", owner, {});
     const seg = segments(calls.find(isCounts)!.sql);
     expect(seg[0]).toBe("true");
-    expect(seg[5]).toMatch(/^"conversation"\."channel" = \$\d+$/);
+    expect(seg[6]).toMatch(/^"conversation"\."channel" = \$\d+$/);
   });
 
   it("los números vuelven como Number aunque el driver mande texto", async () => {
     responder = (c) => {
-      if (isCounts(c)) return [["9", "2", "3", "1", "4", "7", "1", "1", "5", "12", false]];
+      if (isCounts(c)) return [["9", "2", "3", "1", "4", "2", "7", "1", "1", "5", "12", false]];
       if (isMembers(c)) return [["1"]];
       return [];
     };
@@ -468,6 +473,7 @@ describe("countConversations — capas del contrato 06-0", () => {
       human: 3,
       mine: 1,
       unassigned: 4,
+      closing: 2,
       byChannel: { whatsapp: 7, instagram: 1, messenger: 1 },
       unreadConversations: 5,
       unreadMessages: 12,
@@ -478,7 +484,7 @@ describe("countConversations — capas del contrato 06-0", () => {
   it("teamMode: owner solo y sin asignadas → false; con 2 miembros o una asignada → true; vendedor → true", async () => {
     const run = async (viewer: typeof owner | typeof seller, members: string, any: boolean) => {
       responder = (c) => {
-        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
+        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
         if (isMembers(c)) return [[members]];
         return [];
       };

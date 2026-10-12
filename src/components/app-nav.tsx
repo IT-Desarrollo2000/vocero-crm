@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -24,7 +24,7 @@ import { cn, initials } from "@/lib/utils";
 import { signOut } from "@/lib/auth/client";
 import { roleLabel, type Role } from "@/lib/roles";
 import { filterNavForRole } from "@/components/nav-items";
-import { useEvents } from "@/components/use-events";
+import { useUnreadCount } from "@/components/alerts-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
 
@@ -90,7 +90,10 @@ export function AppNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [unread, setUnread] = useState(0);
+  // 05: el MISMO N que el título y el favicon (`AlertsProvider`): una sola
+  // petición de `/counts` por evento y por pestaña. El 401 → /login lo
+  // atiende el indicador.
+  const unread = useUnreadCount() ?? 0;
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   function toggleCollapsed() {
@@ -98,69 +101,6 @@ export function AppNav({
     setCollapsed(value);
     document.cookie = `${NAV_COLLAPSED_COOKIE}=${value ? "1" : "0"};path=/;max-age=${NAV_COLLAPSED_COOKIE_MAX_AGE};samesite=lax`;
   }
-
-  /**
-   * 06 — Badge = CONVERSACIONES sin leer (D-05-1), de `/counts`. Si el
-   * servidor aún no lo sirve (501) o falla, se cuenta sobre la lista.
-   */
-  const refetchUnread = useCallback(async () => {
-    const res = await fetch("/api/conversations/counts").catch(() => null);
-    // Sesión revocada (dado de baja, contraseña restablecida): a la entrada,
-    // en vez de dejar la pantalla viva contra una API que ya no responde.
-    if (res?.status === 401) {
-      router.replace("/login");
-      return;
-    }
-    if (res?.ok) {
-      const data = (await res.json().catch(() => null)) as {
-        unreadConversations?: unknown;
-      } | null;
-      if (typeof data?.unreadConversations === "number") {
-        setUnread(data.unreadConversations);
-        return;
-      }
-    }
-    const list = await fetch("/api/conversations").catch(() => null);
-    if (list?.status === 401) {
-      router.replace("/login");
-      return;
-    }
-    if (!list?.ok) return;
-    const data = (await list.json().catch(() => null)) as {
-      conversations?: { unreadCount: number }[];
-    } | null;
-    if (!data?.conversations) return;
-    setUnread(data.conversations.filter((c) => c.unreadCount > 0).length);
-  }, [router]);
-
-  // Las ráfagas de eventos se juntan en una sola petición.
-  const unreadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleUnread = useCallback(() => {
-    if (unreadTimer.current) clearTimeout(unreadTimer.current);
-    unreadTimer.current = setTimeout(() => {
-      unreadTimer.current = null;
-      void refetchUnread();
-    }, 500);
-  }, [refetchUnread]);
-
-  useEffect(() => {
-    void refetchUnread();
-    // SSE caído: al volver a la pestaña el badge se pone al día.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") scheduleUnread();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      if (unreadTimer.current) clearTimeout(unreadTimer.current);
-    };
-  }, [refetchUnread, scheduleUnread]);
-
-  useEvents({
-    onMessageNew: scheduleUnread,
-    onConversationUpdated: scheduleUnread,
-    onReconnect: scheduleUnread,
-  });
 
   const sha = commit || BUILD_COMMIT;
   // Citas va después de Pipeline: es el paso siguiente de un trato, no una

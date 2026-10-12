@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  * lo envuelve como tarjeta de «Mi cuenta».
  */
 
-function readSupport(): NotificationSupport {
+export function readSupport(): NotificationSupport {
   if (typeof window === "undefined") return "unsupported";
   const has = typeof Notification !== "undefined";
   return notificationSupport({
@@ -37,7 +37,14 @@ const SUPPORT_TEXT: Record<Exclude<NotificationSupport, "granted" | "default">, 
     "Bloqueaste las notificaciones en este navegador. Para volver a permitirlas, toca el candado junto a la dirección, busca «Notificaciones» y elige «Permitir»; luego recarga la página.",
 };
 
-export function AlertsMenu() {
+/**
+ * Flujo de activación compartido por el panel y el aviso de la Bandeja:
+ * estado del permiso (releído al volver a la pestaña) y `activate()`, que
+ * pide el permiso SOLO dentro del clic (RF-05-01), desbloquea el audio en el
+ * mismo gesto y enciende la preferencia si se concede. `ready` = ya se leyó
+ * en el navegador (antes, nada que pintar: sin diferencias de hidratación).
+ */
+export function useAlertsActivation() {
   const [prefs, update] = useAlertPrefs();
   const [support, setSupport] = useState<NotificationSupport>("unsupported");
   const [ready, setReady] = useState(false);
@@ -78,6 +85,13 @@ export function AlertsMenu() {
     }
   }, [update]);
 
+  return { prefs, update, support, setSupport, ready, asking, activate, notice, setNotice };
+}
+
+export function AlertsMenu() {
+  const { prefs, update, support, ready, asking, activate, notice, setNotice } =
+    useAlertsActivation();
+
   const test = useCallback(() => {
     unlockAudio();
     setNotice(null);
@@ -105,7 +119,7 @@ export function AlertsMenu() {
             : "Activa las notificaciones o el sonido para probar."
       );
     }
-  }, [support, prefs.sound]);
+  }, [support, prefs.sound, setNotice]);
 
   if (!ready) return null;
 
