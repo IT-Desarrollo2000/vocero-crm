@@ -30,8 +30,9 @@ const AgentAction = z.discriminatedUnion('action', [
   `ficha` que no sea objeto se descarta sin invalidar la acción (jamás
   provoca reintentos ni handoff `error`). Antes de validar (`z.preprocess`):
   `{"action":"update_ficha", ficha, text|reply?}` se traduce a `reply` (con
-  texto) o `none`; `reply` sin `text` toma `reply`; y un `reply` que sigue sin
-  texto pero trae `ficha` objeto se degrada a `none` conservando la ficha. La
+  texto) o `none`; `reply` sin `text` toma `reply`. Un `reply` que sigue sin
+  texto es inválido aunque traiga `ficha` (reintento; tras 3 fallos, handoff
+  `error`): nunca se vuelve `none` en silencio. La
   ficha se escribe DESPUÉS de entregar la respuesta, por `upsertFicha({ source:
   "ia" })` (coerción por tipo, "el humano gana", bitácora `ficha_event`), en
   `try/catch` con logs sin valores. Sin campos con `agentFills`, el prompt no

@@ -19,6 +19,9 @@
  *      candado → 200 con `ignored` y valor intacto
  *   8) historial con eventos; Vendedor: 403 en PUT ficha-fields, 200 en el
  *      historial y en el PATCH de ficha
+ *  8b) Laboratorio (AC-12): sin corridas en curso, POST /api/lab/runs → poll
+ *      hasta done/failed (≤180 s) → el caso `comprador_decidido` trae
+ *      `fichaCheck.cumplidos` ⊇ [modelo_interes, ciudad]
  *   9) sin definición (PUT null) el agente ya no llena nada — y deja la BD
  *      compartida como estaba para los demás guiones
  *
@@ -401,6 +404,8 @@ async function flujo() {
     `${vp.res.status} ${JSON.stringify(vp.json?.contact?.fichaMeta)}`
   );
 
+  await laboratorio();
+
   console.log("\n== 9a) sin definición el agente ya no llena nada ==");
   await owner("/api/agent/ficha-fields", { method: "PUT", body: JSON.stringify({ fields: [] }) });
   const before9 = (await aiOuts(convId)).length;
@@ -413,6 +418,55 @@ async function flujo() {
     "fichaFields null y la ficha no cambió",
     d9?.fichaFields === null && d9?.contact?.ficha?.modelo_interes === "T03",
     JSON.stringify({ f: d9?.fichaFields, ficha: d9?.contact?.ficha })
+  );
+}
+
+/** Corridas del Laboratorio que siguen en curso. */
+async function corridasEnCurso() {
+  const runs = (await owner("/api/lab/runs")).json?.runs ?? [];
+  return runs.filter((r) => r.status === "running");
+}
+
+/**
+ * AC-12 — Con la plantilla aplicada, una corrida del Laboratorio deja en el
+ * caso de `comprador_decidido` un `fichaCheck` con modelo y ciudad cumplidos
+ * (el ai-mock llena ambos con el guion de la persona).
+ */
+async function laboratorio() {
+  console.log("\n== 8b) Laboratorio: fichaCheck por caso (AC-12) ==");
+  const libreHasta = Date.now() + 180_000;
+  while ((await corridasEnCurso()).length > 0 && Date.now() < libreHasta) {
+    await sleep(2_000);
+  }
+  ok("sin corridas en curso antes de lanzar", (await corridasEnCurso()).length === 0);
+
+  const post = await owner("/api/lab/runs", { method: "POST" });
+  ok(
+    "POST /api/lab/runs → 202 con runId",
+    post.res.status === 202 && !!post.json?.runId,
+    `${post.res.status} ${JSON.stringify(post.json)}`
+  );
+  const runId = post.json?.runId;
+  if (!runId) return;
+
+  const t0 = Date.now();
+  let detalle = null;
+  while (Date.now() - t0 < 180_000) {
+    detalle = (await owner(`/api/lab/runs/${runId}`)).json;
+    if (detalle?.run?.status && detalle.run.status !== "running") break;
+    await sleep(2_000);
+  }
+  const status = detalle?.run?.status;
+  console.log(`  ..  corrida ${runId} terminó en ${((Date.now() - t0) / 1000).toFixed(1)}s (status=${status})`);
+  ok("la corrida termina (done/failed) en ≤180 s", status === "done" || status === "failed", String(status));
+
+  const caso = (detalle?.cases ?? []).find((c) => c.persona === "comprador_decidido");
+  ok("el detalle trae el caso de comprador_decidido", !!caso);
+  const cumplidos = caso?.fichaCheck?.cumplidos ?? [];
+  ok(
+    "fichaCheck.cumplidos ⊇ [modelo_interes, ciudad]",
+    cumplidos.includes("modelo_interes") && cumplidos.includes("ciudad"),
+    JSON.stringify(caso?.fichaCheck ?? null)
   );
 }
 

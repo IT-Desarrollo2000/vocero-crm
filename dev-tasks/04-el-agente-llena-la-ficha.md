@@ -1,6 +1,6 @@
 # 04 — El agente llena la ficha
 
-> Estado: en curso (contrato 04-0 fijado) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0014_ficha_campos`) · Bandera: no de despliegue — el llenado se activa por campo al definir la ficha (sin campos definidos, el agente no llena nada)
+> Estado: hecha (2026-10-12; pendiente corrida con modelo real) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0014_ficha_campos`) · Bandera: no de despliegue — el llenado se activa por campo al definir la ficha (sin campos definidos, el agente no llena nada)
 
 ## 1. Especificación
 
@@ -395,7 +395,7 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
 - [x] T-04-11 UI Bandeja: `FichaPanel` con campos, chips, candado, controles por tipo, historial. Extender `tests/unit/ficha-ui.test.ts`.
 - [x] T-04-12 ai-mock: ramas de ficha, ficha-rota, update_ficha.
 - [x] T-04-13 Laboratorio: `expectFicha` + `fichaCheck` en el caso + línea en el reporte. — Servidor (`expectFicha`, `computeFichaCheck`) y UI ("Ficha N/M" en el reporte) hechos.
-- [ ] T-04-14 E2E `scripts/e2e-agente-ficha.mjs` (nuevo) + guion `tests/e2e/us-agente-ficha.md` (nuevo); enganchar en `scripts/e2e-selftest.mjs`; ajustar `scripts/e2e-ficha-lead.mjs` si cambia la regla del bot (decisión abierta). — Escritos como `scripts/e2e-ficha-agente.mjs` + `tests/e2e/us-ficha-agente.md` y paso del candado en `e2e-ficha-lead.mjs` (solo `node --check`); falta correrlos en vivo. `e2e-selftest.mjs` es un guion monolítico sin registro de guiones externos: el nuevo corre aparte, como `e2e-contexto-agente.mjs`.
+- [x] T-04-14 E2E `scripts/e2e-ficha-agente.mjs` (nuevo) + guion `tests/e2e/us-ficha-agente.md` (nuevo); paso del candado del bot en `scripts/e2e-ficha-lead.mjs` (D-04-4). Incluye el paso del Laboratorio (AC-12): corrida real con el ai-mock y `fichaCheck.cumplidos` ⊇ `[modelo_interes, ciudad]` en `comprador_decidido`. **Corre aparte del selftest** (`e2e-selftest.mjs` es un guion monolítico sin registro de guiones externos, igual que `e2e-contexto-agente.mjs`): con la app viva en BD aislada y mocks encendidos, `node --env-file=.env.e2e scripts/e2e-ficha-agente.mjs` — 40/40 checks en verde (BD limpia + server recién arrancado).
 - [x] T-04-15 Docs: `README.md` (contrato `/api/bot/*`), `specs/001-vocero-core/contracts/ai.md`, `tests/e2e/us-bot-api.md`.
 - [ ] T-04-16 Gate completo + `pnpm test:e2e` en BD aislada + corrida del Laboratorio con modelo real.
 
@@ -406,8 +406,8 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
   `bot-gateway.test.ts` (aditivos) y `ficha-guard.test.ts` intacto (la nueva
   escritura vive dentro de la puerta). Un test de vigilancia análogo al de
   etapas: nadie inserta en `ficha_event` fuera de `src/server/bot/ficha.ts`.
-- **E2E con ai-mock** — `scripts/e2e-agente-ficha.mjs` (nuevo) + guion
-  `tests/e2e/us-agente-ficha.md` (nuevo), app viva con mocks en Postgres :5433:
+- **E2E con ai-mock** — `scripts/e2e-ficha-agente.mjs` + guion
+  `tests/e2e/us-ficha-agente.md`, app viva con mocks en Postgres :5433:
   1. `PUT /api/agent/ficha-fields` con la plantilla (como Propietario).
   2. inbound "me interesa el Leapmotor T03, vivo en Villahermosa" → saliente IA
      existe; `GET /api/contacts/:id` → `ficha.modelo_interes`, `ficha.ciudad`,
@@ -464,7 +464,28 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
 - **D-04-1 · Decisión tomada aquí (revisable)**: `ficha` como campo acompañante de
   cualquier acción en vez de una acción `update_ficha` propia, porque el
   contrato es UNA acción por turno y una acción aparte le robaría la respuesta
-  al cliente. `update_ficha` se tolera como alias.
+  al cliente. `update_ficha` se tolera como alias. Un `reply` sin texto sigue
+  siendo inválido aunque traiga `ficha` (→ reintento; tras 3 fallos, handoff
+  `error`): nunca se vuelve `none` en silencio.
+
+### Notas de despliegue
+
+- **D-04-4 aplica desde el deploy al cerebro externo**: `PUT /api/bot/ficha`
+  ya no pisa claves editadas por humanos (`fichaMeta.<clave>.by = "humano"`);
+  las devuelve en `ignored` con `reason: "candado_humano"` y escribe el resto.
+  Un bot que antes sobrescribía esos campos verá su valor ignorado (200, no
+  error).
+- **Bitácora desde el primer uso**: cada edición humana (`PATCH
+  /api/contacts/[id]` con `ficha`) y cada `PUT /api/bot/ficha` escriben
+  `contact.ficha_meta` y una fila en `ficha_event` (igual que el agente).
+- **Datos previos (legado)**: al aplicar la plantilla, las claves definidas que
+  ya tenían valor (sin procedencia) aparecen en la ficha con candado "legado"
+  ("Dato previo al agente") y el agente las ve marcadas "(confirmado por el
+  equipo)", así que no las cambia. Se liberan con "Dejar que el agente lo
+  actualice" (`fichaUnlock`), que conserva el valor.
+- **Sin campos definidos el agente no llena nada**: la sección de campos no
+  entra al prompt y cualquier `ficha` del modelo se descarta hasta que el
+  Propietario defina campos (o aplique la plantilla) en Agente.
 
 ## Contrato 04-0 (fijado — servidor y UI trabajan contra esto)
 

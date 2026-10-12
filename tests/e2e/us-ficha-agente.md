@@ -69,11 +69,15 @@ y "ficha-rota" → `{"action":"reply","text":"ok","ficha":"no soy un objeto"}`.
     SIEMPRE con `fields: null` para no afectar a los demás guiones de la BD
     compartida.
 
-## Laboratorio (manual / modelo real)
+## Laboratorio (AC-12)
 
-12. Con la plantilla aplicada, una corrida del Laboratorio: el detalle
-    (`GET /api/lab/runs/{id}`) trae `fichaCheck` por caso —
-    `comprador_decidido` espera `modelo_interes ≈ T03` y
-    `ciudad ≈ Villahermosa`; `pregunton_precios`, `modelo_interes ≈
-    Macaron|Bingo`. Es informativo: no entra al score del juez. Con el
-    ai-mock, `comprador_decidido` cumple ambos.
+12. Con la plantilla aplicada (antes del paso 11), el guion espera a que no
+    haya corridas en curso (`GET /api/lab/runs`, ninguna `running`), lanza
+    `POST /api/lab/runs` → 202 con `runId` y sondea
+    `GET /api/lab/runs/{id}` hasta `done`/`failed` (tope 180 s). En el
+    detalle, el caso de `comprador_decidido` trae `fichaCheck` con
+    `cumplidos` ⊇ `["modelo_interes","ciudad"]` (el ai-mock llena el modelo
+    con "Me interesa el Leapmotor T03…" y la ciudad con "…aquí en
+    Villahermosa"). Con modelo real (manual): `pregunton_precios` espera
+    `modelo_interes ≈ Macaron|Bingo`. Es informativo: no entra al score del
+    juez.

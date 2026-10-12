@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { chatJson } from "@/lib/ai";
 import { agentActionSchema, degradeAction } from "@/server/ai/actions";
 
 /**
@@ -74,9 +75,11 @@ describe("acciones con ficha", () => {
     expect(r.success && r.data).toMatchObject({ action: "reply", text: "Hola" });
   });
 
-  it("reply sin texto pero con ficha → none conservando la ficha", () => {
-    const r = base.safeParse({ action: "reply", ficha: { ciudad: "X" } });
-    expect(r.success && r.data).toEqual({ action: "none", ficha: { ciudad: "X" } });
+  it("reply sin texto pero con ficha → inválido (no se vuelve `none` en silencio)", () => {
+    expect(base.safeParse({ action: "reply", ficha: { ciudad: "X" } }).success).toBe(false);
+    expect(
+      conAgenda.safeParse({ action: "reply", text: "", ficha: { ciudad: "X" } }).success
+    ).toBe(false);
   });
 
   it("reply sin texto ni ficha → sigue siendo inválido (como antes)", () => {
@@ -95,5 +98,68 @@ describe("acciones con ficha", () => {
       action: "none",
       ficha: { a: 1 },
     });
+  });
+});
+
+/**
+ * El `reply` sin texto con ficha entra al mismo carril que cualquier salida
+ * inválida: `chatJson` reintenta con el esquema real del agente y, si nunca
+ * cumple, devuelve `invalid_output` (→ handoff `error` en el pipeline).
+ */
+describe("reply sin texto con ficha → reintento", () => {
+  beforeEach(() => {
+    vi.stubEnv("APP_BASE_URL", "http://localhost:3000");
+    vi.stubEnv("DATABASE_URL", "postgresql://t:t@localhost:5432/t");
+    vi.stubEnv("BETTER_AUTH_SECRET", "secret-de-test-suficiente");
+    vi.stubEnv("ENCRYPTION_KEY", Buffer.alloc(32, 3).toString("base64"));
+    vi.stubEnv("META_WEBHOOK_VERIFY_TOKEN", "verify-test");
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    vi.stubEnv("OPENROUTER_MODEL", "modelo-test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function providerResponse(content: string) {
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content } }] }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  const SIN_TEXTO = JSON.stringify({ action: "reply", ficha: { ciudad: "Villahermosa" } });
+
+  it("primer intento sin texto → reintenta y entrega la respuesta del segundo", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(providerResponse(SIN_TEXTO))
+      .mockResolvedValueOnce(
+        providerResponse(
+          JSON.stringify({ action: "reply", text: "¡Claro!", ficha: { ciudad: "Villahermosa" } })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await chatJson(base, [{ role: "user", content: "soy de Villahermosa" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.ok && result.data).toEqual({
+      action: "reply",
+      text: "¡Claro!",
+      ficha: { ciudad: "Villahermosa" },
+    });
+  });
+
+  it("siempre sin texto → invalid_output tras agotar los intentos", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(providerResponse(SIN_TEXTO)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await chatJson(base, [{ role: "user", content: "soy de Villahermosa" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("invalid_output");
   });
 });

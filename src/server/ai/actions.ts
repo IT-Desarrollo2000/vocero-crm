@@ -76,10 +76,9 @@ const nonEmptyText = (v: unknown): v is string =>
  *   texto, o `none` si no trae; conserva `ficha`.
  * - `reply` sin `text` pero con `reply` → `text = reply` (los modelos mezclan
  *   las dos claves).
- * - `reply` que sigue sin texto pero trae una `ficha` objeto → `none` con la
- *   ficha: el dato se guarda y el turno no se pierde en reintentos.
- * Todo lo demás pasa tal cual (un `reply` sin texto ni ficha sigue siendo
- * inválido, como antes).
+ * Todo lo demás pasa tal cual: un `reply` que sigue sin texto es inválido
+ * AUNQUE traiga `ficha` (→ reintento; tras 3 fallos, handoff `error`
+ * visible). Volverlo `none` dejaría al cliente sin respuesta en silencio.
  */
 export function normalizeAgentOutput(raw: unknown): unknown {
   if (!isPlainObject(raw)) return raw;
@@ -95,7 +94,6 @@ export function normalizeAgentOutput(raw: unknown): unknown {
   }
   if (raw.action === "reply" && !nonEmptyText(raw.text)) {
     if (nonEmptyText(raw.reply)) return { ...raw, text: raw.reply };
-    if (isPlainObject(raw.ficha)) return { action: "none", ficha: raw.ficha };
   }
   return raw;
 }
