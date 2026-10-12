@@ -6,6 +6,7 @@ import { runAgentTurn } from "@/server/ai/pipeline";
 import { renderKb } from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import { PERSONAS, type Persona } from "@/server/lab/personas";
+import { resetTestContact } from "@/server/bot/ficha";
 
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
@@ -230,6 +231,8 @@ async function runAllCases(
     signal.throwIfAborted();
     const outcome = await judgeCase({
       personaKey: persona.key,
+      personaDescription: persona.description,
+      seedText: seedText(persona),
       transcript,
       kbText,
       behaviorText,
@@ -285,6 +288,10 @@ async function runConversation(
   // Contacto sintético ARCHIVADO (no aparece en la lista ni genera leads).
   signal.throwIfAborted();
   const contactId = await upsertTestContact(organizationId, persona);
+  // 03 — Cada caso arranca del estado semilla de la persona: una corrida no
+  // hereda las notas ni la ficha que el agente escribió en la anterior.
+  signal.throwIfAborted();
+  await resetTestContact({ organizationId, contactId, seed: persona.seed });
 
   const convId = newId("conversation");
   signal.throwIfAborted();
@@ -351,6 +358,16 @@ async function runConversation(
         text: m.text!,
       })),
   };
+}
+
+/** 03 — La semilla en texto para el juez ("el agente tenía estos datos"). */
+function seedText(persona: Persona): string | undefined {
+  const s = persona.seed;
+  if (!s) return undefined;
+  const lines: string[] = [];
+  for (const [k, v] of Object.entries(s.ficha ?? {})) lines.push(`- ${k}: ${v}`);
+  if (s.notes) lines.push(`- notas: ${s.notes}`);
+  return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
 async function upsertTestContact(

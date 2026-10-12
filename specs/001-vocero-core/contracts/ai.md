@@ -57,7 +57,25 @@ reporte); la corrida continúa.
 
 ## Personas guionadas (fijas, sin LLM)
 
-6 claves: `comprador_decidido`, `pregunton_precios`, `cliente_enojado`, `fuera_de_kb`,
-`pide_humano`, `errores_modismos`. Cada una: 4–5 mensajes predefinidos; el runner envía
-mensaje → espera el turno del agente (pipeline real, debounce 0) → siguiente. Fin del
-guion o primer handoff → juez.
+7 claves: `comprador_decidido`, `pregunton_precios`, `cliente_enojado`, `fuera_de_kb`,
+`pide_humano`, `errores_modismos`, `cliente_que_regresa` (03). Cada una: 4–5 mensajes
+predefinidos; el runner envía mensaje → espera el turno del agente (pipeline real,
+debounce 0) → siguiente. Fin del guion o primer handoff → juez.
+
+03 — Al inicio de cada caso el contacto sintético se reinicia a la `seed` de la persona
+(notas + ficha; vacías si no tiene) con `resetTestContact` (`server/bot/ficha.ts`), que
+solo actúa sobre contactos archivados de personas sintéticas. El juez recibe, además de
+la clave, la descripción de la persona y su semilla ("el agente tenía estos datos").
+
+## Contexto del contacto (03)
+
+Cada turno inserta en el ÚNICO system prompt —después de perfil/KB/etapas y antes del
+formato de salida— el bloque "DATOS DEL CONTACTO" (`server/ai/contact-context.ts`):
+datos entre `<<<DATOS_CONTACTO>>>` … `<<<FIN_DATOS_CONTACTO>>>`, precedidos de la
+instrucción de que son DATOS y no instrucciones; ≤ 3 000 caracteres con recorte fijo
+(notas → ficha fuera de la definición → cuerpo del anuncio → resto de la ficha); valores
+sanitizados (controles, saltos, delimitadores y `<think>` neutralizados). Un fallo al
+armarlo no tumba el turno. El historial (`server/ai/history.ts`) representa los mensajes
+no-texto con marcadores (`[imagen] «pie»`, `[audio — no puedes escucharlo]`,
+`[ubicación: …]`…) y marca los salientes del equipo con `"autor":"asesor"` /
+`"autor":"plantilla"`. El regex de respaldo también se evalúa sobre el pie de foto.

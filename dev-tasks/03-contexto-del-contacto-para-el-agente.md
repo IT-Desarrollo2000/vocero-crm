@@ -343,18 +343,18 @@ muestra `agentContext.block`. Útil para depurar sin abrir logs.
 
 ### Tareas ordenadas
 
-- [ ] T-03-01 `sanitizeContextValue` + `renderContactContext` puros en `src/server/ai/contact-context.ts` (nuevo) con topes y orden de recorte (RF-03-06/07).
-- [ ] T-03-02 Unit `tests/unit/contact-context.test.ts` (nuevo): topes, recorte por prioridad, delimitador neutralizado, omisión de vacíos, banderas apagadas sin mención.
-- [ ] T-03-03 `loadContactContext` con `Promise.allSettled` + `scoped()`; recurrente por `lead_stage_event` won (y `booking realizada` con AGENDA); citas filtradas por `is_test`; zona horaria con fallback.
-- [ ] T-03-04 `toChatHistory` en `src/server/ai/history.ts` (nuevo): marcadores por `kind`, pie sanitizado, `"autor"` en salientes no-IA; `lastInboundText`.
-- [ ] T-03-05 Unit `tests/unit/agent-history.test.ts` (nuevo): cada `kind`, imagen con pie, tipo desconocido, saliente operador/manual/plantilla, último mensaje = marcador.
-- [ ] T-03-06 `buildAgentSystemPrompt` acepta `contactBlock`; reglas nuevas en "Reglas duras".
-- [ ] T-03-07 `pipeline.ts`: join a `media_asset`, regex sobre pie, bloque con `try/catch`, historial nuevo.
-- [ ] T-03-08 Unit: un turno con la carga de citas que lanza → responde sin handoff `error` (mock de `chatJson`, patrón de `tests/unit/handoff-note.test.ts`).
-- [ ] T-03-09 `/api/bot/context`: campos aditivos + `agentContext.block` + `scoped()`; actualizar `tests/unit/bot-gateway.test.ts` y la sección de contexto en `tests/e2e/us-bot-api.md` y `README.md`.
-- [ ] T-03-10 `resetTestContact` en `src/server/bot/ficha.ts` (notas + ficha en un solo update) llamado por `runner.ts` al inicio de cada caso; `seed` en `Persona`; persona `cliente_que_regresa`; juez con descripción + semilla. Actualizar `specs/001-vocero-core/contracts/ai.md` (7 personas).
-- [ ] T-03-11 Rama "qué sabes de mí" en el ai-mock.
-- [ ] T-03-12 E2E `scripts/e2e-contexto-agente.mjs` (nuevo) + guion `tests/e2e/us-contexto-agente.md` (nuevo); engancharlo en `scripts/e2e-selftest.mjs`.
+- [x] T-03-01 `sanitizeContextValue` + `renderContactContext` puros en `src/server/ai/contact-context.ts` (nuevo) con topes y orden de recorte (RF-03-06/07).
+- [x] T-03-02 Unit `tests/unit/contact-context.test.ts` (nuevo): topes, recorte por prioridad, delimitador neutralizado, omisión de vacíos, banderas apagadas sin mención.
+- [x] T-03-03 `loadContactContext` con `Promise.allSettled` + `scoped()`; recurrente por `lead_stage_event` won (y `booking realizada` con AGENDA); citas filtradas por `is_test`; zona horaria con fallback.
+- [x] T-03-04 `toChatHistory` en `src/server/ai/history.ts` (nuevo): marcadores por `kind`, pie sanitizado, `"autor"` en salientes no-IA; `lastInboundText`. (La consulta con `leftJoin` vive ahí también, `loadHistoryRows`, para que los tests del turno la simulen.)
+- [x] T-03-05 Unit `tests/unit/agent-history.test.ts` (nuevo): cada `kind`, imagen con pie, tipo desconocido, saliente operador/manual/plantilla, último mensaje = marcador.
+- [x] T-03-06 `buildAgentSystemPrompt` acepta `contactBlock`; reglas nuevas en "Reglas duras".
+- [x] T-03-07 `pipeline.ts`: join a `media_asset`, regex sobre pie, bloque con `try/catch`, historial nuevo.
+- [x] T-03-08 Unit: un turno con la carga de citas que lanza → responde sin handoff `error` (`tests/unit/lab-sandbox.test.ts` a nivel turno + `tests/unit/contact-context.test.ts` a nivel cargador). Contrato del array `messages` real en `lab-sandbox.test.ts`; fixtures con forma MiniMax en `tests/unit/agent-output-shapes.test.ts`.
+- [x] T-03-09 `/api/bot/context`: campos aditivos + `agentContext.block` + `scoped()`; contrato aditivo probado en `tests/unit/bot-context.test.ts` (nuevo; el armado del JSON se extrajo a `src/server/bot/context.ts`); sección de contexto en `tests/e2e/us-bot-api.md` y `README.md`.
+- [x] T-03-10 `resetTestContact` en `src/server/bot/ficha.ts` (notas + ficha en un solo update, con guarda: solo contactos archivados de personas sintéticas) llamado por `runner.ts` al inicio de cada caso; `seed` en `Persona`; persona `cliente_que_regresa`; juez con descripción + semilla. Actualizado `specs/001-vocero-core/contracts/ai.md` (7 personas).
+- [x] T-03-11 Rama "qué sabes de mí" en el ai-mock.
+- [x] T-03-12 E2E `scripts/e2e-contexto-agente.mjs` (nuevo) + guion `tests/e2e/us-contexto-agente.md` (nuevo). Standalone como los demás `e2e-*.mjs` (no enganchado en `scripts/e2e-selftest.mjs`). Sin correr aún contra la app viva.
 - [ ] T-03-13 (opcional) Vista previa "Lo que ve el agente" en `/agent` + `GET /api/agent/context-preview` (solo Propietario).
 - [ ] T-03-14 Corrida del Laboratorio ANTES (en `main`, modelo real) y DESPUÉS; registrar score por persona y hallazgos en `specs/` (tabla en el spec de la feature).
 - [ ] T-03-15 Gate: `pnpm typecheck && pnpm lint && pnpm build && pnpm test` + `pnpm test:e2e` en BD aislada (`.env.e2e`), con `AGENDA`/`ATRIBUCION` apagadas y encendidas.
@@ -408,7 +408,9 @@ muestra `agentContext.block`. Útil para depurar sin abrir logs.
 - **D-03-1 · Decisión abierta (dueño)**: ¿las **notas internas** deben llegar al
   agente y al cerebro externo? Son escritas por el equipo y a veces contienen
   opiniones ("cliente difícil"). Propuesta: sí, recortadas, porque el agente ya
-  escribe ahí; alternativa: solo las líneas `[IA]`.
+  escribe ahí; alternativa: solo las líneas `[IA]`. **Decidido: sí, recortadas**
+  (las más recientes hasta 800 caracteres). Las otras dos decisiones abiertas
+  se implementaron con la propuesta del propio archivo.
 - **Decisión abierta (dueño)**: definición de "cliente recurrente" (propuesta:
   compra ganada previa; con AGENDA también cita realizada).
 - **Decisión abierta (dueño)**: ¿mostrar el nombre del contacto al modelo cuando

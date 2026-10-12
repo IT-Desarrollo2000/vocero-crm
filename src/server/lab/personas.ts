@@ -1,8 +1,19 @@
 /**
- * Las 6 personas GUIONADAS del Laboratorio (FR-030). El cliente simulado no
+ * Las 7 personas GUIONADAS del Laboratorio (FR-030). El cliente simulado no
  * usa LLM: son secuencias fijas — determinismo total del lado del cliente.
  * El agente que responde es el REAL (mismo pipeline de US3).
  */
+
+/**
+ * 03 — Estado inicial del contacto sintético en cada caso: el runner lo
+ * reinicia a esto (`resetTestContact`) antes del guion. Sin semilla, notas y
+ * ficha quedan vacías.
+ */
+export type PersonaSeed = {
+  ficha?: Record<string, string | number | boolean>;
+  notes?: string;
+  name?: string;
+};
 
 export type Persona = {
   key: string;
@@ -12,6 +23,7 @@ export type Persona = {
   phone: string;
   contactName: string;
   script: string[];
+  seed?: PersonaSeed;
 };
 
 export const PERSONAS: Persona[] = [
@@ -98,6 +110,31 @@ export const PERSONAS: Persona[] = [
       "y cuanto aguanta la bateria, no se acaba rapido con el calor de aki?",
       "oiga y si se mete al agua cuando se inunda la calle no le pasa nada?",
       "va, orita paso a verlos, sale",
+    ],
+  },
+  {
+    // 03 — Solo se responde bien USANDO el contexto (ficha + notas). No
+    // ejercita "recurrente" ni etapa: los contactos del Laboratorio no tienen
+    // lead.
+    key: "cliente_que_regresa",
+    label: "Cliente que regresa",
+    description:
+      "Ya había preguntado antes (ficha y notas sembradas): debe reconocer el T03 y el financiamiento sin volver a preguntarlos y no inventar mensualidades fuera del conocimiento.",
+    phone: "5210000000007",
+    contactName: "[Prueba] Cliente que regresa",
+    seed: {
+      ficha: {
+        modelo_interes: "Leapmotor T03",
+        ciudad: "Villahermosa",
+        forma_pago: "financiamiento",
+      },
+      notes: "[IA] Preguntó por el T03, maneja 60 km diarios",
+    },
+    script: [
+      "Hola, ya regresé 👋",
+      "¿Siguen teniendo el que les pregunté?",
+      "¿Y cuánto quedaría la mensualidad como les dije?",
+      "Va, ¿cuándo puedo pasar a verlo?",
     ],
   },
 ];
