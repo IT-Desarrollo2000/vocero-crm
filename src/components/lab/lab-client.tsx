@@ -21,6 +21,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { fichaCheckView } from "@/components/ficha-view";
+import type { FichaCheck } from "@/lib/ficha-fields";
 
 type Run = {
   id: string;
@@ -46,6 +48,8 @@ type Case = {
   veredicto: "verde" | "amarillo" | "rojo" | null;
   hallazgos: Hallazgo[];
   transcript: { role: "cliente" | "agente"; text: string }[];
+  /** 04: qué debía quedar en la ficha y qué quedó. Ausente en corridas viejas. */
+  fichaCheck?: FichaCheck | null;
 };
 
 const TIPO_LABELS: Record<Hallazgo["tipo"], string> = {
@@ -454,6 +458,7 @@ function Report({
 function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => void }) {
   const [open, setOpen] = useState(false);
   const c = testCase;
+  const ficha = c.fichaCheck ? fichaCheckView(c.fichaCheck) : null;
   const icon =
     c.veredicto === "verde" ? (
       <CheckCircle2 className="h-4 w-4 text-success" />
@@ -480,6 +485,9 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
             )}
           </span>
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            {ficha && ficha.filas.length > 0 && (
+              <Badge variant={ficha.completo ? "success" : "warning"}>{ficha.resumen}</Badge>
+            )}
             {c.hallazgos.length > 0 && `${c.hallazgos.length} hallazgo(s)`}
             {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </span>
@@ -490,6 +498,33 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
           {c.hallazgos.map((h, i) => (
             <HallazgoCard key={i} hallazgo={h} caseId={c.id} index={i} onApplied={onApplied} />
           ))}
+          {ficha && ficha.filas.length > 0 && (
+            // Chequeo determinista del llenado: informativo, fuera del score.
+            <div className="rounded-md border p-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {ficha.resumen} campos esperados
+              </p>
+              <ul className="space-y-1 text-sm">
+                {ficha.filas.map((f) => (
+                  <li key={f.key} className="flex items-start gap-2">
+                    {f.cumplido ? (
+                      <CheckCircle2
+                        className="mt-0.5 h-4 w-4 shrink-0 text-success"
+                        aria-label="Cumplido"
+                      />
+                    ) : (
+                      <XCircle
+                        className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                        aria-label="No cumplido"
+                      />
+                    )}
+                    <span className="text-muted-foreground">{f.label}:</span>
+                    <span className="min-w-0 break-words">{f.valor}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="rounded-md border bg-background/40 p-3">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Transcript

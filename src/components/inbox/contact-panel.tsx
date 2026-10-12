@@ -14,6 +14,8 @@ import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
+import { applyHumanPatch, applyUnlock } from "@/components/ficha-view";
+import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { handoffLabel } from "@/lib/handoff-labels";
 import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
@@ -35,6 +37,9 @@ export function ContactPanel({
 }) {
   const [notes, setNotes] = useState("");
   const [ficha, setFicha] = useState<FichaDto>({});
+  // 04: definición de campos (null = ficha libre) y procedencia por clave.
+  const [fichaFields, setFichaFields] = useState<FichaFieldDef[] | null>(null);
+  const [fichaMeta, setFichaMeta] = useState<FichaMeta>({});
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [stages, setStages] = useState<StageDto[]>([]);
@@ -66,6 +71,8 @@ export function ContactPanel({
     if (detail) {
       setNotes(detail.contact?.notes ?? "");
       setFicha(detail.contact?.ficha ?? {});
+      setFichaMeta(detail.contact?.fichaMeta ?? {});
+      setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
     }
@@ -87,6 +94,8 @@ export function ContactPanel({
       // conversación ocurre, y verla aparecer sola es justo para lo que sirve.
       // No pisa una edición a medias — el borrador vive dentro del panel.
       setFicha(detail.contact?.ficha ?? {});
+      setFichaMeta(detail.contact?.fichaMeta ?? {});
+      setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
     }
@@ -119,18 +128,25 @@ export function ContactPanel({
 
   /** Manda SOLO lo que cambió: el servidor hace merge (ver `server/bot/ficha`). */
   async function saveFicha(patch: Record<string, FichaValue | null>) {
-    setFicha((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null) delete next[k];
-        else next[k] = v;
-      }
-      return next; // optimista: el refetch de abajo confirma
-    });
+    // Optimista: lo escrito queda con candado; el refetch de abajo confirma.
+    const next = applyHumanPatch(ficha, fichaMeta, patch, new Date().toISOString());
+    setFicha(next.ficha);
+    setFichaMeta(next.meta);
     await fetch(`/api/contacts/${contactId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ficha: patch }),
+    }).catch(() => null);
+    void refreshLive();
+  }
+
+  /** Quita el candado sin borrar el valor: el agente vuelve a poder corregirlo. */
+  async function unlockFicha(key: string) {
+    setFichaMeta(applyUnlock(ficha, fichaMeta, [key], new Date().toISOString()));
+    await fetch(`/api/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fichaUnlock: [key] }),
     }).catch(() => null);
     void refreshLive();
   }
@@ -322,7 +338,14 @@ export function ContactPanel({
 
         {/* Ficha: lo que se SABE del lead. Va antes de Notas —lo que alguien
             OPINA— porque es lo que se consulta a mitad de una conversación. */}
-        <FichaPanel ficha={ficha} onSave={saveFicha} />
+        <FichaPanel
+          ficha={ficha}
+          fields={fichaFields}
+          meta={fichaMeta}
+          onSave={saveFicha}
+          onUnlock={unlockFicha}
+          contactId={contactId}
+        />
 
         {/* Notas */}
         <section className="p-4">
