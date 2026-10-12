@@ -3,7 +3,7 @@ import { z } from "zod";
 import { schema } from "@/lib/db";
 import { CHANNEL_ORDER, type Channel } from "@/lib/channels";
 import { PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT } from "@/lib/pagination";
-import type { InboxFilter } from "@/lib/types";
+import type { AssignedFilter, InboxFilter } from "@/lib/types";
 
 /**
  * 06 (contrato 06-0): parámetros de `GET /api/conversations` y del keyset.
@@ -101,6 +101,20 @@ export function parseIds(raw: string | null): string[] | undefined {
 function optionalText(raw: string | null, max = 200): string | undefined {
   const v = raw?.trim();
   return v && v.length <= max ? v : undefined;
+}
+
+export const ASSIGNED_FILTERS: readonly AssignedFilter[] = ["me", "unassigned", "all"];
+
+/**
+ * `assigned` ESTRICTO (09, RF-09-12): ausente → `all`; un valor fuera del
+ * catálogo → `null` y la ruta responde 422 `invalid_query`. Lo comparten la
+ * lista y `/counts` para que fallen igual.
+ */
+export function parseAssigned(raw: string | null): AssignedFilter | null {
+  if (raw === null) return "all";
+  return (ASSIGNED_FILTERS as readonly string[]).includes(raw)
+    ? (raw as AssignedFilter)
+    : null;
 }
 
 /** Parseo tolerante de todo menos `assigned` (estricto, en la ruta). */

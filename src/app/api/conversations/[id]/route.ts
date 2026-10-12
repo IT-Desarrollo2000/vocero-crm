@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { publish } from "@/server/events/bus";
-import { serializeConversation, getConversation, updateConversation } from "@/server/inbox/queries";
+import {
+  getConversation,
+  listConversations,
+  serializeConversation,
+  updateConversation,
+} from "@/server/inbox/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +20,23 @@ type Params = { params: Promise<{ id: string }> };
 
 /**
  * 06: detalle de UNA conversación (`{ conversation: ConversationDto }`) con la
- * visibilidad del viewer; no existe, es `is_test` o no la ves → 404.
- *
- * STUB del contrato 06-0: lo implementa 06-A.
+ * visibilidad del viewer; no existe, es `is_test` o no la ves → 404. Es el
+ * modo `?ids=` de la lista con un solo id: mismo DTO (preview y etapa
+ * incluidos) y mismas reglas.
  */
-export const GET = withAuth(async () =>
-  apiError(501, "not_implemented", "Detalle de conversación: pendiente (06-A)")
-);
+export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
+  const { id } = await ctx.params;
+  const { conversations } = await listConversations(
+    session.organizationId,
+    session,
+    { ids: [id] }
+  );
+  const conversation = conversations[0];
+  if (!conversation) {
+    return apiError(404, "not_found", "Conversación no encontrada");
+  }
+  return Response.json({ conversation });
+});
 
 /**
  * 09: el predicado de visibilidad va en el WHERE del UPDATE

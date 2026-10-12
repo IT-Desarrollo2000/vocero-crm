@@ -1,7 +1,10 @@
 import {
+  and,
+  desc,
   eq,
   exists,
   gt,
+  inArray,
   isNotNull,
   isNull,
   ne,
@@ -16,11 +19,21 @@ import { publish } from "@/server/events/bus";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
 import { capabilitiesFor, replyModeFor } from "@/server/channels/capabilities";
 import { conversationVisibleTo, type Viewer } from "@/server/inbox/visibility";
-import { inboxOrderBy, type InboxQuery } from "@/server/inbox/list-query";
+import { contactSearchSql } from "@/server/search";
+import {
+  IDS_MAX,
+  encodeCursor,
+  inboxOrderBy,
+  keysetCondition,
+  sortKeySql,
+  type InboxQuery,
+} from "@/server/inbox/list-query";
 import type {
   AssignedFilter,
+  ConversationCounts,
   ConversationDto,
   ConversationsPage,
+  InboxFilter,
 } from "@/lib/types";
 
 /**
@@ -58,77 +71,309 @@ function assigneeOf(
   return c.assignedUserId ? { userId: c.assignedUserId, name: name ?? "" } : null;
 }
 
+/** Tope de filas del catch-up legado `?since=` (RF-06-09). */
+export const SINCE_MAX = 500;
+
 /**
- * Lista de la Bandeja (sin `is_test`) para `viewer` (RF-09-02). La
- * visibilidad y el filtro `assigned` van en el WHERE: 06 pagina SOBRE esta
- * misma query, sin reimplementar el predicado.
+ * Predicado de una pastilla (contrato 06-0). `mine`/`unassigned` son el mismo
+ * predicado que `assigned=me|unassigned`; si llegan ambos, se intersectan.
+ */
+export function inboxFilterCondition(
+  viewer: Viewer,
+  filter: InboxFilter | undefined
+): SQL | undefined {
+  const c = schema.conversation;
+  switch (filter) {
+    case "unread":
+      return gt(c.unreadCount, 0);
+    case "human":
+      // Regla `needsHuman` de `src/components/inbox/helpers.ts`.
+      return or(isNotNull(c.handoffAt), eq(c.aiEnabled, false));
+    case "mine":
+      return assignedCondition(viewer, "me");
+    case "unassigned":
+      return assignedCondition(viewer, "unassigned");
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Filtros que no son de pastilla ni de canal: `q` (nombre/teléfono del
+ * contacto), `stage` (por `lead.stage_id`, D-06-2; sin lead o id inexistente
+ * → no entra) y `assigned`. Es la capa "base" de los contadores sin la
+ * visibilidad (que siempre va en el WHERE).
+ */
+function baseFilters(
+  viewer: Viewer,
+  opts: Pick<ListConversationsOptions, "q" | "stageId" | "assigned">
+): (SQL | undefined)[] {
+  return [
+    assignedCondition(viewer, opts.assigned),
+    contactSearchSql(opts.q),
+    opts.stageId ? eq(schema.lead.stageId, opts.stageId) : undefined,
+  ];
+}
+
+/**
+ * WHERE de la lista (modos lista y `since`): org ∧ `is_test = false` ∧
+ * visibilidad (09) ∧ `assigned` ∧ `q` ∧ `stage` ∧ `channel` ∧ pastilla.
+ * Exportado para el unit que fija su forma.
+ */
+export function inboxListWhere(
+  organizationId: string,
+  viewer: Viewer,
+  opts: ListConversationsOptions
+): SQL {
+  const c = schema.conversation;
+  return scoped(
+    c.organizationId,
+    organizationId,
+    eq(c.isTest, false),
+    conversationVisibleTo(viewer),
+    ...baseFilters(viewer, opts),
+    opts.channel ? eq(c.channel, opts.channel) : undefined,
+    inboxFilterCondition(viewer, opts.filter)
+  );
+}
+
+/** Fila cruda de la lista (antes del preview y la serialización). */
+type ListRow = {
+  conversation: typeof schema.conversation.$inferSelect;
+  contact: typeof schema.contact.$inferSelect;
+  stageId: string | null;
+  stageName: string | null;
+  assigneeName: string | null;
+  /** sort_at con µs (`sortKeySql`): la ÚNICA fuente del cursor. */
+  sortKey: string;
+};
+
+/**
+ * Página keyset a partir de `limit + 1` filas ya ordenadas: si sobra la
+ * extra, el cursor sale de la ÚLTIMA fila DEVUELTA (no de la extra), con el
+ * sort_at en µs que dio Postgres. Pura, para el unit de no-duplicados.
+ */
+export function toPage<T extends { sortKey: string; conversation: { id: string } }>(
+  rows: T[],
+  limit: number
+): { rows: T[]; nextCursor: string | null } {
+  if (rows.length <= limit) return { rows, nextCursor: null };
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1]!;
+  return {
+    rows: page,
+    nextCursor: encodeCursor({ t: last.sortKey, i: last.conversation.id }),
+  };
+}
+
+/**
+ * Último mensaje de cada conversación de la página, en UN lote:
+ * `DISTINCT ON (conversation_id)` por org (índice `message_org_conv_idx`),
+ * desempate `created_at desc, id desc`. Reemplaza la subconsulta
+ * correlacionada por fila.
+ */
+async function previewsFor(
+  organizationId: string,
+  conversationIds: string[]
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (conversationIds.length === 0) return out;
+  const m = schema.message;
+  const rows = await getDb()
+    .selectDistinctOn([m.conversationId], {
+      conversationId: m.conversationId,
+      preview: sql<string | null>`coalesce(${m.text}, ${m.type})`,
+    })
+    .from(m)
+    .where(
+      scoped(m.organizationId, organizationId, inArray(m.conversationId, conversationIds))
+    )
+    .orderBy(m.conversationId, desc(m.createdAt), desc(m.id));
+  for (const r of rows) out.set(r.conversationId, r.preview);
+  return out;
+}
+
+/**
+ * Lista de la Bandeja (sin `is_test`) para `viewer` (RF-09-02), según el
+ * "Contrato 06-0" (dev-tasks/06). Modos, por precedencia:
  *
- * 06-0: firma y forma de respuesta FIJADAS (`{ conversations, nextCursor }`).
- * Por ahora solo implementa `since` y `assigned` (lista completa,
- * `nextCursor: null`); `limit`/`cursor`/`filter`/`stageId`/`channel`/`q`/
- * `ids`/`contactId` los implementa 06-A según el "Contrato 06-0".
+ *   `ids`     → esas conversaciones VISIBLES (máx. 50), ignorando cursor,
+ *               limit, filtros y `assigned`: id ausente = ya no la ves.
+ *   `contact` → la conversación real visible de ese contacto (0 o 1).
+ *   `since`   → catch-up legado: filtros + `updated_at > since`, tope 500.
+ *   lista     → filtros; con `limit`, keyset `(sort_at, id) < cursor` y
+ *               `limit + 1` filas; sin `limit`, lista completa (D-06-1).
+ *
+ * Etapa por JOIN de `lead` (≤ 1 por contacto, `lead_contact_uq`) y preview en
+ * un lote sobre la página: nada de subconsultas por fila.
  */
 export async function listConversations(
   organizationId: string,
   viewer: Viewer,
   opts: ListConversationsOptions = {}
 ): Promise<ConversationsPage> {
-  const { since, assigned } = opts;
+  const c = schema.conversation;
   const db = getDb();
-  const previewSql = sql<string | null>`(
-    select coalesce(m.text, m.type)
-    from message m
-    where m.conversation_id = ${schema.conversation.id}
-    order by m.created_at desc
-    limit 1
-  )`;
-  const stageSql = sql<string | null>`(
-    select s.name from lead l
-    join pipeline_stage s on s.id = l.stage_id
-    where l.contact_id = ${schema.contact.id}
-    limit 1
-  )`;
-
-  const rows = await db
+  const base = db
     .select({
-      conversation: schema.conversation,
+      conversation: c,
       contact: schema.contact,
-      preview: previewSql,
-      stageName: stageSql,
+      stageId: schema.lead.stageId,
+      stageName: schema.pipelineStage.name,
       assigneeName: schema.user.name,
+      sortKey: sortKeySql,
     })
-    .from(schema.conversation)
-    .innerJoin(
-      schema.contact,
-      eq(schema.conversation.contactId, schema.contact.id)
-    )
-    .leftJoin(
-      schema.user,
-      eq(schema.user.id, schema.conversation.assignedUserId)
-    )
-    .where(
-      scoped(
-        schema.conversation.organizationId,
-        organizationId,
-        eq(schema.conversation.isTest, false),
-        conversationVisibleTo(viewer),
-        assignedCondition(viewer, assigned),
-        since ? gt(schema.conversation.updatedAt, since) : undefined
-      )
-    )
-    // 06: mismo texto que el índice `conversation_org_sort_idx` (0016).
-    .orderBy(...inboxOrderBy);
+    .from(c)
+    .innerJoin(schema.contact, eq(c.contactId, schema.contact.id))
+    .leftJoin(schema.lead, eq(schema.lead.contactId, schema.contact.id))
+    .leftJoin(schema.pipelineStage, eq(schema.pipelineStage.id, schema.lead.stageId))
+    .leftJoin(schema.user, eq(schema.user.id, c.assignedUserId));
 
+  // Modos sueltos: solo visibilidad (+ is_test = false), nunca filtros.
+  const loose = (extra: SQL) =>
+    scoped(
+      c.organizationId,
+      organizationId,
+      eq(c.isTest, false),
+      conversationVisibleTo(viewer),
+      extra
+    );
+
+  let rows: ListRow[];
+  let nextCursor: string | null = null;
+  if (opts.ids && opts.ids.length > 0) {
+    rows = await base
+      .where(loose(inArray(c.id, opts.ids.slice(0, IDS_MAX))))
+      .orderBy(...inboxOrderBy);
+  } else if (opts.contactId) {
+    rows = await base
+      .where(loose(eq(c.contactId, opts.contactId)))
+      .orderBy(...inboxOrderBy)
+      .limit(1);
+  } else if (opts.since) {
+    rows = await base
+      .where(
+        and(inboxListWhere(organizationId, viewer, opts), gt(c.updatedAt, opts.since))
+      )
+      .orderBy(...inboxOrderBy)
+      .limit(SINCE_MAX);
+  } else if (opts.limit !== undefined) {
+    const fetched = await base
+      .where(
+        and(
+          inboxListWhere(organizationId, viewer, opts),
+          opts.cursor ? keysetCondition(opts.cursor) : undefined
+        )
+      )
+      .orderBy(...inboxOrderBy)
+      .limit(opts.limit + 1);
+    ({ rows, nextCursor } = toPage(fetched, opts.limit));
+  } else {
+    // D-06-1: sin `limit` = lista completa (consumidores viejos y guiones).
+    rows = await base
+      .where(inboxListWhere(organizationId, viewer, opts))
+      .orderBy(...inboxOrderBy);
+  }
+
+  const previews = await previewsFor(
+    organizationId,
+    rows.map((r) => r.conversation.id)
+  );
   const conversations = rows.map((r) =>
     serializeConversation(
       r.conversation,
       r.contact,
-      r.preview,
+      previews.get(r.conversation.id) ?? null,
       r.stageName,
-      assigneeOf(r.conversation, r.assigneeName)
+      assigneeOf(r.conversation, r.assigneeName),
+      r.stageId
     )
   );
-  return { conversations, nextCursor: null };
+  return { conversations, nextCursor };
+}
+
+/**
+ * Contadores de la Bandeja (`ConversationCounts`, contrato 06-0). Capas:
+ *
+ *   base         = org ∧ is_test = false ∧ visibilidad ∧ q ∧ stage ∧ assigned
+ *   pastillas    = base ∧ channel ∧ predicado (= filas recorribles con ese filter)
+ *   byChannel[x] = base ∧ channel = x (ignora el channel pedido)
+ *   unreadConversations / unreadMessages = SOLO visibilidad (badge, D-05-1)
+ *   teamMode     = !owner ∨ miembros > 1 ∨ alguna visible con responsable
+ *
+ * Una sola pasada: el WHERE lleva solo org ∧ is_test ∧ visibilidad y el resto
+ * de capas va en `count(*) filter (where …)`. `filter`/`limit`/`cursor` se
+ * ignoran. Postgres devuelve count/sum como bigint/numeric (texto en
+ * postgres-js): todo se castea a int y se mapea a Number.
+ */
+export async function countConversations(
+  organizationId: string,
+  viewer: Viewer,
+  query: Pick<ListConversationsOptions, "q" | "stageId" | "channel" | "assigned"> = {}
+): Promise<ConversationCounts> {
+  const c = schema.conversation;
+  const db = getDb();
+  const always = sql`true`;
+  const base = and(...baseFilters(viewer, query));
+  const inChannel = query.channel ? eq(c.channel, query.channel) : undefined;
+  const countWhere = (...conds: (SQL | undefined)[]) =>
+    sql<number>`count(*) filter (where ${and(...conds) ?? always})::int`.mapWith(Number);
+
+  const aggregates = db
+    .select({
+      all: countWhere(base, inChannel),
+      unread: countWhere(base, inChannel, inboxFilterCondition(viewer, "unread")),
+      human: countWhere(base, inChannel, inboxFilterCondition(viewer, "human")),
+      mine: countWhere(base, inChannel, inboxFilterCondition(viewer, "mine")),
+      unassigned: countWhere(
+        base,
+        inChannel,
+        inboxFilterCondition(viewer, "unassigned")
+      ),
+      whatsapp: countWhere(base, eq(c.channel, "whatsapp")),
+      instagram: countWhere(base, eq(c.channel, "instagram")),
+      messenger: countWhere(base, eq(c.channel, "messenger")),
+      unreadConversations: countWhere(gt(c.unreadCount, 0)),
+      unreadMessages: sql<number>`coalesce(sum(${c.unreadCount}), 0)::int`.mapWith(Number),
+      anyAssigned: sql<boolean>`coalesce(bool_or(${c.assignedUserId} is not null), false)`,
+    })
+    .from(c)
+    .innerJoin(schema.contact, eq(c.contactId, schema.contact.id))
+    .leftJoin(schema.lead, eq(schema.lead.contactId, schema.contact.id))
+    .where(
+      scoped(
+        c.organizationId,
+        organizationId,
+        eq(c.isTest, false),
+        conversationVisibleTo(viewer)
+      )
+    );
+  // El Vendedor siempre está en modo equipo: no hace falta contar miembros.
+  const members = isOwner(viewer)
+    ? db
+        .select({ n: sql<number>`count(*)::int`.mapWith(Number) })
+        .from(schema.member)
+        .where(scoped(schema.member.organizationId, organizationId))
+    : Promise.resolve([{ n: 0 }]);
+
+  const [[agg], [memberRow]] = await Promise.all([aggregates, members]);
+  const n = (v: number | undefined) => Number(v ?? 0);
+  return {
+    all: n(agg?.all),
+    unread: n(agg?.unread),
+    human: n(agg?.human),
+    mine: n(agg?.mine),
+    unassigned: n(agg?.unassigned),
+    byChannel: {
+      whatsapp: n(agg?.whatsapp),
+      instagram: n(agg?.instagram),
+      messenger: n(agg?.messenger),
+    },
+    unreadConversations: n(agg?.unreadConversations),
+    unreadMessages: n(agg?.unreadMessages),
+    teamMode:
+      !isOwner(viewer) || n(memberRow?.n) > 1 || agg?.anyAssigned === true,
+  };
 }
 
 /**
@@ -208,7 +453,7 @@ export function serializeConversation(
   preview: string | null = null,
   stageName: string | null = null,
   assignee: Assignee = null,
-  /** 06: lo llena 06-A desde el JOIN con `lead`; null mientras tanto. */
+  /** 06: etapa del lead (JOIN con `lead`); null si no hay lead. */
   stageId: string | null = null
 ): ConversationDto {
   return {
