@@ -13,9 +13,10 @@ import {
   buildIdsQuery,
   buildListQuery,
   countsFromLoaded,
+  displayedConversations,
   effectiveFilters,
   mergeConversations,
-  visibleConversations,
+  pinFirst,
   type InboxFilters,
   type ResolvedIds,
 } from "./list-state";
@@ -48,6 +49,9 @@ export function useInboxList({
 }) {
   const [filters, setFiltersState] = useState<InboxFilters>(DEFAULT_FILTERS);
   const [items, setItems] = useState<ConversationDto[] | null>(null);
+  // Filtros (como query string) con que se pidió la primera página cargada:
+  // si son los activos, la búsqueda ya la resolvió el servidor.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<InboxListError>(null);
@@ -107,6 +111,7 @@ export function useInboxList({
     }
     setError(null);
     setList(mergeConversations([], data.conversations));
+    setLoadedKey(buildListQuery(f));
     setNextCursor(data.nextCursor ?? null);
   }, [setList]);
 
@@ -209,13 +214,26 @@ export function useInboxList({
     [flushIds]
   );
 
-  /** Inserta una fila sin pasar por el filtro (enlace profundo `?contact=`). */
+  // Conversación anclada arriba por el enlace `?contact=` (CA-06-05), hasta
+  // que se elige otra (`releasePin`).
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+
+  /**
+   * Inserta una fila sin pasar por el filtro (enlace profundo `?contact=`);
+   * con `pin`, además se pinta arriba de la lista (`pinFirst`).
+   */
   const upsert = useCallback(
-    (c: ConversationDto) => {
+    (c: ConversationDto, opts: { pin?: boolean } = {}) => {
       setList(mergeConversations(itemsRef.current ?? [], [c]));
+      if (opts.pin) setPinnedId(c.id);
     },
     [setList]
   );
+
+  /** Al elegir otra conversación, la del enlace vuelve a su lugar por orden. */
+  const releasePin = useCallback((selectedId: string) => {
+    setPinnedId((prev) => (prev === selectedId ? prev : null));
+  }, []);
 
   useEffect(
     () => () => {
@@ -238,8 +256,11 @@ export function useInboxList({
   }, []);
 
   const visible = useMemo(
-    () => (items ? visibleConversations(items, active, viewerId) : null),
-    [items, active, viewerId]
+    () =>
+      items
+        ? pinFirst(displayedConversations(items, loadedKey, active, viewerId), pinnedId)
+        : null,
+    [items, loadedKey, active, viewerId, pinnedId]
   );
   const counts = useMemo<ConversationCounts | null>(() => {
     if (serverCounts) return serverCounts;
@@ -250,7 +271,10 @@ export function useInboxList({
   return {
     /** Todo lo cargado (para buscar la abierta o el contacto del enlace). */
     items,
-    /** Lo que se pinta: lo cargado dentro del filtro activo. */
+    /**
+     * Lo que se pinta: lo cargado dentro del filtro activo, sin volver a
+     * filtrar por `q` lo que el servidor ya buscó (`displayedConversations`).
+     */
     visible,
     filters,
     active,
@@ -265,5 +289,6 @@ export function useInboxList({
     resolveIds,
     refreshCounts,
     upsert,
+    releasePin,
   };
 }

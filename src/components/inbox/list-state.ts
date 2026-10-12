@@ -143,9 +143,9 @@ export function matchesFilters(
 }
 
 /**
- * Lo que se pinta: lo cargado pasado por el espejo del filtro. Con el
- * servidor de 06 es un no-op sobre las páginas (ya vienen filtradas); con
- * uno anterior (que ignora los filtros) es lo que hace usable la lista.
+ * Lo cargado pasado por el espejo COMPLETO del filtro (búsqueda incluida).
+ * Lo usan el upsert por SSE (`matchesFilters`) y el pintado mientras llega
+ * la primera página de unos filtros nuevos (ver `displayedConversations`).
  */
 export function visibleConversations(
   items: readonly ConversationDto[],
@@ -160,6 +160,43 @@ export function visibleConversations(
     filter: f.filter,
     viewerId,
   }).visible;
+}
+
+/**
+ * Lo que se pinta. `loadedKey` = `buildListQuery` de los filtros con que se
+ * pidió la primera página que está en `items`:
+ * - si coincide con los filtros activos, la búsqueda `q` ya la resolvió el
+ *   servidor y NO se vuelve a aplicar (el servidor manda: el espejo nunca
+ *   esconde una fila que el servidor devolvió). Lo que entró después por SSE
+ *   ya pasó por el espejo en `applyResolvedIds`, y el enlace `?contact=` se
+ *   inserta a propósito aunque no cumpla la búsqueda;
+ * - si no coincide (filtros recién cambiados, la página nueva aún no llega),
+ *   se aplica el espejo completo para no pintar filas que ya no aplican.
+ */
+export function displayedConversations(
+  items: readonly ConversationDto[],
+  loadedKey: string | null,
+  f: InboxFilters,
+  viewerId: string | undefined
+): ConversationDto[] {
+  const serverFiltered = loadedKey !== null && loadedKey === buildListQuery(f);
+  return visibleConversations(items, serverFiltered ? { ...f, q: "" } : f, viewerId);
+}
+
+/**
+ * Enlace `/inbox?contact=` (CA-06-05): la conversación abierta por el enlace
+ * se pinta ARRIBA de la lista aunque por su `sortAt` le toque el fondo de lo
+ * cargado. Si no, el scroll infinito la empuja hacia abajo con cada página
+ * que entra y "seleccionada" deja de ser "a la vista". Solo mueve la fila si
+ * está en la lista; el orden del resto no cambia.
+ */
+export function pinFirst(
+  list: readonly ConversationDto[],
+  pinnedId: string | null
+): ConversationDto[] {
+  const i = pinnedId ? list.findIndex((c) => c.id === pinnedId) : -1;
+  if (i <= 0) return [...list];
+  return [list[i]!, ...list.slice(0, i), ...list.slice(i + 1)];
 }
 
 export type ResolvedIds = {

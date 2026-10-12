@@ -216,15 +216,17 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
 
   const itemsRef = useRef(list.items);
   itemsRef.current = list.items;
+  const { releasePin } = list;
   const select = useCallback(
     (id: string, dto?: ConversationDto) => {
+      releasePin(id);
       setSelectedId(id);
       setSelectedDto(dto ?? itemsRef.current?.find((c) => c.id === id) ?? null);
       setMessages([]);
       void refetchMessages(id);
       void markRead(id);
     },
-    [refetchMessages, markRead]
+    [refetchMessages, markRead, releasePin]
   );
 
   // Enlace directo desde Contactos/Pipeline: /inbox?contact=<id>. Si no está
@@ -256,7 +258,9 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       // aún no entiende `contact` devuelve la lista completa.
       const found = data?.conversations?.find((c) => c.contact.id === contactParam);
       if (found) {
-        list.upsert(found);
+        // Anclada arriba (CA-06-05): por su `sortAt` caería al fondo de lo
+        // cargado y el scroll infinito la empujaría fuera de la vista.
+        list.upsert(found, { pin: true });
         if (!selectedIdRef.current) select(found.id, found);
       } else if (!ownerRef.current) {
         setNotice(NOTICE_LINK);

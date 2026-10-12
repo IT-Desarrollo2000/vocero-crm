@@ -323,6 +323,23 @@ export function ConversationList({
     return () => io.disconnect();
   }, [canLoadMore, visible.length]);
 
+  // La fila activa a la vista (CA-06-05): el enlace `?contact=` puede abrir
+  // una conversación antigua que entra por su `sortAt` al fondo de lo
+  // cargado. Depende solo de QUÉ fila y de SI ya está pintada — no de la
+  // lista entera — para no mover el scroll en cada upsert por SSE; con
+  // `nearest`, al hacer clic en una fila ya visible no pasa nada.
+  const activeRendered = selectedId != null && visible.some((c) => c.id === selectedId);
+  useEffect(() => {
+    if (!activeRendered || !selectedId) return;
+    const rows = scrollRef.current?.querySelectorAll<HTMLElement>("[data-conversation-id]");
+    const row = Array.from(rows ?? []).find(
+      (el) => el.dataset.conversationId === selectedId
+    );
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedId, activeRendered]);
+
   const noFilters = !hasActiveFilters({ ...filters, filter, q: query });
 
   return (
@@ -466,7 +483,11 @@ export function ConversationList({
               const unread = c.unreadCount > 0;
               const active = selectedId === c.id;
               return (
-                <li key={c.id} className="relative border-b border-border/70">
+                <li
+                  key={c.id}
+                  data-conversation-id={c.id}
+                  className="relative border-b border-border/70"
+                >
                   {active && (
                     <span className="absolute inset-y-0 left-0 w-[3px] bg-brand" />
                   )}

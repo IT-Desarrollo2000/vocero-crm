@@ -437,10 +437,13 @@ posterior.
 - [x] **T-06-07** `?ids=` en lote + `GET /api/conversations/:id`, ambos con visibilidad. *(T-06-05)*
 - [x] **T-06-08** Ruta `GET /api/conversations` con los nuevos parámetros y
   compatibilidad (D-06-1). *(T-06-05)*
-- [ ] **T-06-09** Verificar con 09 que todos los `conversation.updated` viajan
+- [x] **T-06-09** Verificar con 09 que todos los `conversation.updated` viajan
   como `{ id }` (paso 7) y que el filtro SSE de `message.new` está activo; si
   06 va antes que 09, el cliente igual usa `?ids=` (funciona con cualquier
-  payload). *(09)*
+  payload). *(09)* — verificado en integración: el tipo del bus
+  (`src/server/events/bus.ts`) solo admite `{ conversation: { id } }` y todos
+  los publicadores lo usan; `/api/events` filtra `message.new`/`message.status`
+  con `canSeeConversation` (`src/server/events/visibility.ts`).
 - [x] **T-06-10** Hook `use-inbox-list.ts` (upsert/remove/orden/recarga al reconectar/counts). *(T-06-06..09)*
 - [x] **T-06-11** `conversation-list.tsx`: filtros a servidor, contadores de
   `counts`, etapas de `useStages`, scroll infinito. *(T-06-10)*
@@ -450,8 +453,14 @@ posterior.
 - [x] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
   según D-06-1. *(T-06-08)* — 06-A: `api.md` al día; con D-06-1 = (a) los
   guiones existentes no cambian.
-- [ ] **T-06-15** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
+- [x] **T-06-15** Pruebas (abajo) + gate `pnpm typecheck && pnpm lint && pnpm
   build && pnpm test` + E2E en BD aislada (`.env.e2e`, Postgres :5433). *(todo)*
+  — integración: gate verde; EXPLAIN verificado (ver «Verificación del plan»);
+  paridad de búsqueda en `tests/unit/search-parity.test.ts` (el espejo pliega
+  como el SQL y la UI no re-filtra por `q` lo que el servidor ya buscó);
+  `?contact=` anclado arriba y a la vista (sección h del guion de
+  paginación); 10 guiones E2E en verde sobre BD limpia + selftest con
+  `CHANNELS/AGENDA/ATRIBUCION=off`.
 
 ### Pruebas
 
@@ -728,6 +737,16 @@ comparación fila-valor NO entra como Index Cond (queda como Filter), se cambia
 `/counts` (una pasada `count(*) FILTER (WHERE …)` sobre las filas de la org;
 objetivo < 300 ms a 5 000 filas) y para el preview
 (`Index Scan using message_org_conv_idx`).
+
+**Verificado (integración 06, 2026-10-12)** en la BD aislada (PG 16, 5 130
+conversaciones en una org, plan genérico forzado, texto SQL real capturado
+con `log_statement`): página 2 y página ~50 → `Index Scan using
+conversation_org_sort_idx` con `Index Cond: ((organization_id = $1) AND
+(ROW(COALESCE(last_message_at, created_at), id) < ROW(($3)::timestamp, $4)))`,
+`Filter: (is_test = $2)`, sin `Sort`, ~0.4-0.5 ms; igual por postgres.js con
+parámetros (`EXPLAIN (GENERIC_PLAN)` muestra `$1`/`$3`/`$4`). `keysetCondition`
+queda en la forma fila-valor. `/counts`: Seq Scan + Hash Join, 5.2 ms. Preview:
+`Index Scan using message_org_conv_idx`, 0.3 ms.
 
 ### SSE y reconexión (06-B)
 

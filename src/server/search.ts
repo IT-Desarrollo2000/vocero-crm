@@ -1,17 +1,16 @@
 import { or, sql, type SQL } from "drizzle-orm";
 import { schema } from "@/lib/db";
-import { digitsOnly, normalizeText } from "@/lib/search";
+import { UNACCENT_FROM, UNACCENT_TO, digitsOnly, normalizeText } from "@/lib/search";
 
 /**
  * Búsqueda tolerante en SQL, espejo de `matchesQuery` del cliente
  * (`src/lib/search.ts`). Compartida por Contactos y la Bandeja (06), que
  * hacen `join` con `contact`:
  * - nombre sin acentos ni mayúsculas (`translate`, sin depender de la
- *   extensión `unaccent`, que exigiría privilegios en la BD);
+ *   extensión `unaccent`, que exigiría privilegios en la BD; la tabla vive en
+ *   `src/lib/search.ts` para que el espejo del cliente use la misma);
  * - teléfono por DÍGITOS, para poder teclearlo como se ve ("+52 462 134…").
  */
-const UNACCENT_FROM = "áàäâãéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ";
-const UNACCENT_TO = "aaaaaeeeeiiiiooooouuuuncAAAAAEEEEIIIIOOOOOUUUUNC";
 
 /** Un dígito suelto barrería el directorio entero: mínimo 3. */
 const MIN_PHONE_DIGITS = 3;

@@ -7,10 +7,12 @@ import {
   buildListQuery,
   compareConversations,
   countsFromLoaded,
+  displayedConversations,
   effectiveFilters,
   hasActiveFilters,
   matchesFilters,
   mergeConversations,
+  pinFirst,
   removeConversations,
   visibleConversations,
   type InboxFilters,
@@ -207,6 +209,46 @@ describe("espejo del filtro", () => {
     expect(matchesFilters(mia, f({ channel: "instagram", filter: "mine" }), "u1")).toBe(true);
     expect(matchesFilters(mia, f({ filter: "unassigned" }), "u1")).toBe(false);
     expect(visibleConversations([mia], f({ channel: "whatsapp" }), "u1")).toHaveLength(0);
+  });
+});
+
+describe("displayedConversations — el servidor manda en la búsqueda", () => {
+  // Una fila que el servidor devolvió para `q` aunque el espejo no la
+  // reconociera (p. ej. un servidor con otra regla de plegado).
+  const devuelta = mk({ name: "Zoe", unreadCount: 1 });
+  const otra = mk({ name: "Ana", unreadCount: 0 });
+  const activos = f({ q: "jose", filter: "unread" });
+
+  it("página pedida con los MISMOS filtros: no se vuelve a filtrar por q", () => {
+    const shown = displayedConversations([devuelta], buildListQuery(activos), activos, undefined);
+    expect(ids(shown)).toEqual([devuelta.id]);
+  });
+
+  it("…pero las demás pastillas siguen aplicando (son reglas idénticas)", () => {
+    const shown = displayedConversations([devuelta, otra], buildListQuery(activos), activos, undefined);
+    expect(ids(shown)).toEqual([devuelta.id]);
+  });
+
+  it("filtros recién cambiados (la página nueva aún no llega): espejo completo", () => {
+    const viejos = buildListQuery(f({ filter: "unread" }));
+    expect(displayedConversations([devuelta], viejos, activos, undefined)).toEqual([]);
+    expect(displayedConversations([devuelta], null, activos, undefined)).toEqual([]);
+  });
+});
+
+describe("pinFirst — enlace ?contact= anclado arriba (CA-06-05)", () => {
+  const a = mk();
+  const b = mk();
+  const vieja = mk();
+
+  it("sube la anclada al tope sin cambiar el orden del resto", () => {
+    expect(ids(pinFirst([a, b, vieja], vieja.id))).toEqual([vieja.id, a.id, b.id]);
+  });
+
+  it("sin ancla, ya arriba o ausente: la lista no cambia", () => {
+    expect(ids(pinFirst([a, b], null))).toEqual([a.id, b.id]);
+    expect(ids(pinFirst([a, b], a.id))).toEqual([a.id, b.id]);
+    expect(ids(pinFirst([a, b], "cv_otra"))).toEqual([a.id, b.id]);
   });
 });
 

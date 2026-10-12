@@ -82,3 +82,11 @@
     cursor; `limit=abc` → 50 filas.
 14. Sin `limit` → lista completa con `nextCursor: null` (= `counts.all`,
     D-06-1). `since=` (compat) → 200 con `nextCursor: null`.
+
+## h) Enlace profundo en el navegador (CA-06-05)
+
+15. Con la sesión del owner (su cookie; sin otro login), `/inbox?contact=<id>`
+    de la conversación sembrada más antigua (no está en la 1.ª página): queda
+    seleccionada, su fila se pinta **arriba** de la lista y sigue a la vista
+    aunque el scroll infinito cargue más páginas, y el hilo abierto muestra
+    al contacto.

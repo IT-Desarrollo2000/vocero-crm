@@ -18,6 +18,9 @@
  *   g) `?contact=` (deep link), GET /:id ajeno/inexistente → 404,
  *      `assigned=todas` → 422 (lista y counts), cursor basura → 1.ª página,
  *      `limit=0` → 1 fila, sin `limit` → lista completa (compat, D-06-1)
+ *   h) UI (Playwright, cookie del owner): `/inbox?contact=` de una
+ *      conversación fuera de la 1.ª página → seleccionada, a la vista y con
+ *      su hilo abierto (CA-06-05)
  *
  * Presupuesto del limitador de login: 2 POST a /sign-in|sign-up (owner, vendedor).
  * La BD de E2E NO se limpia entre guiones: todo se compara contra los
@@ -30,6 +33,8 @@
  *
  * Sale con código 1 si algún check falla.
  */
+
+import { chromium } from "playwright";
 
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 // Solo letras: con ≥ 3 dígitos, `q=S` también buscaría por teléfono y
@@ -440,6 +445,70 @@ async function main() {
   r = await owner.api(`/api/conversations?since=${encodeURIComponent(new Date(Date.now() - 3600_000).toISOString())}&q=${S}`);
   ok("since (compat) → 200 con nextCursor null", r.res.ok && r.json?.nextCursor === null && (r.json?.conversations ?? []).length > 0,
     short(r));
+
+  console.log("\n== h) UI: /inbox?contact= de una conversación fuera de la 1.ª página (CA-06-05) ==");
+  r = await owner.api(`/api/conversations?limit=${PAGE}`);
+  ok("la del enlace NO está en la primera página",
+    !ids(r.json?.conversations ?? []).includes(old?.id), short(r));
+  await deepLinkUi(old);
+}
+
+/**
+ * CA-06-05 en el navegador: con la sesión del owner (su cookie, sin otro
+ * login que gaste el limitador), el enlace abre la conversación antigua:
+ * queda seleccionada, su fila se pinta y está A LA VISTA en la lista (no
+ * enterrada bajo la página 1), y el hilo abierto muestra al contacto.
+ */
+async function deepLinkUi(old) {
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    const url = new URL(BASE);
+    await ctx.addCookies(
+      owner.jar.cookie
+        .split("; ")
+        .filter(Boolean)
+        .map((pair) => {
+          const at = pair.indexOf("=");
+          return { name: pair.slice(0, at), value: pair.slice(at + 1), domain: url.hostname, path: "/" };
+        })
+    );
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/inbox?contact=${old.contact.id}`, { waitUntil: "load" });
+    const row = page.locator(`li[data-conversation-id="${old.id}"]`);
+    const selected = await until(async () => (await row.locator("span.bg-brand").count()) === 1, 20000);
+    ok("UI: la conversación del enlace queda seleccionada", selected);
+    // Se deja correr el scroll infinito (el centinela puede pedir páginas):
+    // la fila debe SEGUIR a la vista, no solo en el primer instante.
+    await sleep(2500);
+    const where = () =>
+      row.evaluate((li) => {
+        const box = li.getBoundingClientRect();
+        let el = li.parentElement;
+        while (el && getComputedStyle(el).overflowY !== "auto") el = el.parentElement;
+        const view = (el ?? document.documentElement).getBoundingClientRect();
+        const first = li.parentElement?.querySelector("li[data-conversation-id]");
+        return {
+          inView: box.top >= view.top - 1 && box.bottom <= view.bottom + 1,
+          first: first === li,
+          box: [Math.round(box.top), Math.round(box.bottom)],
+          view: [Math.round(view.top), Math.round(view.bottom)],
+          rows: li.parentElement?.children.length ?? 0,
+        };
+      });
+    let pos = null;
+    const inView = await until(async () => (pos = await where()).inView, 5000);
+    ok("UI: su fila está a la vista en la lista", inView, JSON.stringify(pos));
+    ok("UI: anclada al tope de la lista", pos?.first === true, JSON.stringify(pos));
+    const thread = await until(
+      async () => (await page.getByText(old.contact.name, { exact: true }).count()) >= 2,
+      10000
+    );
+    ok("UI: el hilo abierto muestra al contacto (lista + cabecera)", thread);
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
 }
 
 main()
