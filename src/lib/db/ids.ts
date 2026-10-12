@@ -38,6 +38,9 @@ const prefixes = {
   // 10 — recordatorios de cita y bitácora de ofertas
   bookingReminder: "brm",
   agendaOfferLog: "aol",
+  // 08 — Laboratorio por cliente
+  labPersona: "lpe",
+  labSuggestionApplication: "lsa",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

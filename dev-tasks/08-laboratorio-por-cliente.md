@@ -1,13 +1,20 @@
 # 08 — Laboratorio por cliente
 
-> Estado: propuesto · Prioridad: media-baja · Esfuerzo: L · Migración: sí · Bandera: no aplica (el Laboratorio es núcleo; solo Propietario)
+> Estado: contrato 08-0 fijado (migración `0019`); pendientes 08-A (servidor) y 08-B (UI) · Prioridad: media-baja · Esfuerzo: L · Migración: sí · Bandera: no aplica (el Laboratorio es núcleo; solo Propietario)
+
+> **Manda la sección [«Contrato 08-0»](#contrato-08-0)** (al final) sobre la
+> especificación y el plan técnico donde difieran: nombres de columnas y
+> campos (`name`/`objetivo`/`rasgos`/`guion`/`criteriosExito`, no
+> `label`/`objective`/`traits`/`script`), rutas (`restore-defaults`,
+> `?against=`), cuerpos (`personaKeys`, `testCaseId` + `target`), sin siembra
+> SQL, `persona_keys` en vez de `persona_set`, y que hoy son **7** personas.
 
 ## 1. Especificación
 
 ### Problema / objetivo
 
-Las 6 personas del Laboratorio están **fijas en código**
-(`src/server/lab/personas.ts:17-103`). En `c1c79c4` se reescribieron para una
+Las 7 personas del Laboratorio están **fijas en código**
+(`src/server/lab/personas.ts`). En `c1c79c4` se reescribieron para una
 agencia de autos eléctricos (antes eran de ferretería): en un producto que la
 agencia despliega para varios clientes, cada cliente nuevo obliga a tocar
 código, hacer commit y desplegar solo para cambiar los guiones de prueba.
@@ -33,7 +40,7 @@ manteniendo el sandbox intacto.
 **Incluye**
 - (a) Personas editables por organización (`lab_persona`, nuevo): nombre,
   objetivo, rasgos, guion (mensaje inicial + siguientes), criterios de éxito,
-  activa, orden. Semilla de 6 personas conservando sus claves. Elegir qué
+  activa, orden. Semilla de 7 personas conservando sus claves. Elegir qué
   personas corre una evaluación.
 - (b) Tendencia de hallazgos por `tipo` (y veredicto por persona) entre corridas.
 - (c) Sugerencias aplicables también al **perfil del agente** (tono, reglas de
@@ -76,9 +83,9 @@ manteniendo el sandbox intacto.
   único por org), `label`, `objective`, `traits`, `script` (1–8 mensajes; el
   primero es el "mensaje inicial"; cada uno 1–500 caracteres),
   `success_criteria` (≤ 1000), `active`, `position`, `archived_at`.
-- **RF-08-02** Semilla: cada organización sin personas recibe 6 personas con
+- **RF-08-02** Semilla: cada organización sin personas recibe 7 personas con
   las claves fijas (`comprador_decidido`, `pregunton_precios`, `cliente_enojado`,
-  `fuera_de_kb`, `pide_humano`, `errores_modismos`); el **contenido** de los
+  `fuera_de_kb`, `pide_humano`, `errores_modismos`, `cliente_que_regresa`); el **contenido** de los
   guiones depende de D-08-01 (orgs existentes conservan los guiones actuales de
   `personas.ts`). La semilla es idempotente
   (`ON CONFLICT (organization_id, key) DO NOTHING`) y corre (1) en la migración
@@ -163,9 +170,9 @@ El guard de rol es **(nuevo)** y lo aporta la tarea 00. Hoy `withAuth`
 ### Criterios de aceptación
 
 1. **Dado** una instancia existente con corridas, **cuando** se aplica la
-   migración, **entonces** su organización tiene 6 personas activas con las
-   mismas keys y guiones que `personas.ts` hoy, y una corrida nueva da el mismo
-   resultado que antes con ai-mock (5 verdes + 1 rojo ≈ 83, `tests/e2e/us4-lab.md:17`).
+   migración y abre el Laboratorio, **entonces** su organización tiene 7 personas activas con las
+   mismas keys y guiones que `personas.ts` hoy (set `autos`), y una corrida nueva da el mismo
+   resultado que antes con ai-mock (6 verdes + 1 rojo ≈ 86; `tests/e2e/us4-lab.md:17` aún dice 83, de cuando eran 6).
 2. **Dado** el Propietario en `/lab`, **cuando** crea la persona "Pregunta por
    garantía extendida" con 3 mensajes y criterio "no inventar plazos", **entonces**
    aparece en la lista, se puede elegir para correr y el juez recibe su objetivo
@@ -232,8 +239,15 @@ El guard de rol es **(nuevo)** y lo aporta la tarea 00. Hoy `withAuth`
 
 ### Estado actual (qué existe hoy, con rutas:línea)
 
-- Personas fijas: tipo `Persona` y array `PERSONAS` `src/server/lab/personas.ts:7-103`;
-  `PERSONA_LABELS` `:105-107`.
+- Personas fijas: tipo `Persona` y array `PERSONAS` (**7**) en
+  `src/server/lab/personas.ts`, cada una con `phone` sintético
+  (`5210000000001..7`), `contactName`, `script`, `seed` opcional
+  (ficha/notas/nombre del contacto, tarea 03) y `expectFicha` opcional
+  (`Record<clave, RegExp>`, tarea 04); la 7.ª es `cliente_que_regresa` (con
+  semilla). `PERSONA_LABELS` al final del archivo. `resetTestContact`
+  (`src/server/bot/ficha.ts`) reinicia el contacto sintético con la semilla;
+  desde 08-0 su guarda es por prefijo (`isSyntheticLabPhone`).
+  (Los números de línea de esta sección son de antes de 03/04/10: orientativos.)
 - Runner: inserta un caso por `PERSONAS` `src/server/lab/runner.ts:67-75`;
   arma `kbText` y `behaviorText` `:184-205`; busca la persona por key `:213`;
   conversación `is_test` `:291-297`; contacto sintético archivado por teléfono
@@ -263,8 +277,9 @@ El guard de rol es **(nuevo)** y lo aporta la tarea 00. Hoy `withAuth`
 
 ### Cambios de datos
 
-Migración **NNNN** = siguiente libre al implementar (hoy `0013`, o `0014` si 10
-va antes según `dev-tasks/README.md`). Aditiva y re-ejecutable.
+Migración **`0019_laboratorio_por_cliente`** (numeración oficial de
+`dev-tasks/README.md`). Aditiva y re-ejecutable. **Lo que sigue es la
+propuesta original; el esquema real está en «Contrato 08-0».**
 
 1. `lab_persona` **(nuevo)**, prefijo `lpe`:
    - `id text PK`, `organization_id text NOT NULL → organization ON DELETE CASCADE`
@@ -376,9 +391,14 @@ La tendencia (b) **no necesita migración**: se agrega sobre
 
 ### Tareas ordenadas
 
-- [ ] T-08-01 Schema + migración NNNN (`lab_persona` + semilla SQL, columnas en
-      `agent_test_run`/`agent_test_case`, `lab_suggestion_application`) +
-      prefijos en `ids.ts`.
+- [x] T-08-00 Contrato 08-0: DTOs (`src/lib/lab.ts`), validación
+      (`src/server/lab/schemas.ts`), errores (`src/server/lab/errors.ts`),
+      firmas (`persona-store.ts`, `history.ts`, `suggestions.ts`), rutas con
+      guarda definitiva y cuerpo 501, `ROUTE_POLICY`, guarda por prefijo de
+      `resetTestContact`. Ver «Contrato 08-0» abajo.
+- [x] T-08-01 Schema + migración `0019` (`lab_persona` SIN semilla SQL — va en
+      código —, columnas en `agent_test_run`/`agent_test_case`,
+      `lab_suggestion_application`) + prefijos en `ids.ts`.
 - [ ] T-08-02 `persona-store.ts` + rutas `/api/lab/personas*` (Propietario).
 - [ ] T-08-03 Runner: personas de BD, `persona_snapshot`, selección, total de
       casos en `failRun`, `config_snapshot` + `persona_set`.
@@ -479,3 +499,203 @@ ai-mock), `scripts/e2e-lab-personas.mjs` + `tests/e2e/us-lab-por-cliente.md`:
   cambió" las explique (ampliar `loadAgentConfig`).
 - **10 — Recordatorios**: comparte numeración de migración; ambos mantienen la
   regla de que las citas de prueba (`is_test`) no tocan conectores ni WhatsApp.
+
+## Contrato 08-0
+
+Fijado para que servidor (08-A) y UI (08-B) avancen en paralelo. **Manda sobre
+la especificación y el plan técnico** donde difieran (nombres de columnas y
+campos, rutas, cuerpos, siembra en código, `persona_keys`).
+
+### Decisiones cerradas
+
+| # | Decisión |
+|---|---|
+| D-08-01 | Siembra perezosa en código (`ensureSeedPersonas`), no en SQL. Org sin ninguna persona: con alguna fila en `agent_test_run` → set **`autos`** (las 7 de `PERSONAS`); sin corridas → set **`neutro`** (`PERSONAS_NEUTRO`). Mismas 7 claves y teléfonos en los dos sets. `POST /api/lab/runs` la llama ANTES de insertar la corrida. |
+| D-08-02 | Aplicar al perfil **agrega** el texto (`concat_ws('\n', campo, texto)`), editable antes de guardar; si ya está contenido no se duplica. |
+| D-08-03 | Tope **10 personas × 8 mensajes** por corrida. Timeout: `LAB_RUN_TIMEOUT_MS` si es válido; si no, `max(10 min, casos × (mensajes_max × 15 s + 30 s))` (`runTimeoutMsFor`, `src/server/lab/runner.ts`): 7 personas actuales ≤ 5 mensajes ⇒ 12 min 15 s; tope 10 × 8 ⇒ 25 min. 08-A lo cablea en `executeRun`. |
+| D-08-04 | Snapshot completo de perfil + KB por corrida; si el JSON de las entradas del KB supera `LAB_SNAPSHOT_KB_MAX_BYTES` (1 MB) → `kb.mode = "hashed"` (solo `id`, `kind`, `hash`, `updatedAt`) y el diff degrada a "editada" sin texto. |
+| D-08-05 | Exportar/importar personas: **fase 2, fuera**. |
+| D-08-06 | Editar perfil/KB/personas durante una corrida: **aviso, no bloqueo** (`runInProgress` en `GET /api/lab/personas`; la UI de `/agent` avisa). El runner usa `persona_snapshot` del caso; el agente lee perfil/KB vivos. |
+
+### Datos — migración `0019_laboratorio_por_cliente.sql`
+
+- `lab_persona` (prefijo `lpe`): `id`, `organization_id` (FK cascade),
+  `key` (slug estable), `name`, `objetivo` (default `''`), `rasgos` NULL,
+  `guion jsonb` (string[], 1..8; el primero es el mensaje inicial),
+  `criterios_exito` NULL, `contact_name`, `phone` (sintético), `seed jsonb`
+  NULL (`{ ficha?, notes?, name? }`), `expect_ficha jsonb NOT NULL DEFAULT
+  '[]'` (`[{ key, pattern, flags }]`, se compila a RegExp en runtime con
+  `compileExpectFicha`; una regla inválida se descarta), `seed_set` NULL
+  (`autos`|`neutro` si nació de la semilla, NULL = personalizada), `active`
+  (default true), `position` (default 0), `archived_at`, `created_at`,
+  `updated_at`. `UNIQUE lab_persona_org_key_uq (organization_id, key)` (vigente
+  aun archivada) e índice `(organization_id, position)`.
+- `lab_suggestion_application` (prefijo `lsa`): `id`, `organization_id` (FK
+  cascade), `test_case_id` (FK → `agent_test_case` cascade), `hallazgo_index`,
+  `target` (`kb`|`profile`), `field` NULL (`tone`|`escalationRules`|
+  `instructions`, solo `profile`), `kb_entry_id` NULL (FK → `kb_entry` set
+  null), `applied_text`, `actor_user_id` NULL (FK → `user` set null),
+  `created_at`. `UNIQUE lab_suggestion_case_hallazgo_uq (test_case_id,
+  hallazgo_index)` = candado de idempotencia.
+- `agent_test_run` + `config_snapshot jsonb` NULL (`LabConfigSnapshot`) y
+  `persona_keys jsonb` NULL (claves de la corrida, en orden de corrida).
+- `agent_test_case` + `persona_snapshot jsonb` NULL (`LabPersonaSnapshot`).
+- Sin siembra SQL (los guiones llevan apóstrofes y emoji, y el set depende de
+  D-08-01). Columnas nuevas NULL: corridas anteriores siguen legibles.
+
+### Reglas (08-A)
+
+1. **Teléfono sintético**: `52100000` + 5 dígitos (`syntheticLabPhone(n)`,
+   `isSyntheticLabPhone`). Semillas `5210000000001..7`; nuevas = máx.
+   secuencia de la org (incluye archivadas) + 1. Jamás del cliente (el esquema
+   descarta `phone` y `key`).
+2. **Key**: slug del nombre (`[a-z0-9_]`), único en la org con sufijo `_2`,
+   `_3`… si choca con otra (aunque esté archivada) o con una clave de semilla.
+   Inmutable.
+3. **Guarda de `resetTestContact`** (hecha en 08-0): contacto ARCHIVADO cuya
+   `wa_identity` o `phone` cumple `isSyntheticLabPhone`. No lee la BD ni el
+   set en código: vale para personalizadas y archivadas.
+4. **Runner**: `startRun(orgId, personaKeys?)` → `ensureSeedPersonas` →
+   `loadRunPersonas(orgId, keys?)` (activas y sin archivar, por `position`,
+   `key`; 422 `no_personas` / `unknown_persona`) → `config_snapshot` +
+   `persona_keys` en el INSERT del run → un caso por persona con
+   `persona = key` y `persona_snapshot = personaSnapshot(p)`. `runAllCases`
+   lee la persona del `persona_snapshot` (no de `PERSONAS`); `behaviorText` y
+   `kbText` del snapshot. **`failRun` publica `total` = nº de casos del run,
+   no `PERSONAS.length`.**
+5. **Juez**: `judgeCase({ …, persona: { name, objetivo, rasgos, criteriosExito } })`
+   → `buildJudgePrompt` con `personaDetail`. Se conservan EXACTOS la primera
+   línea `PERSONA SIMULADA: <key> — <nombre>` y los encabezados
+   `CONOCIMIENTO CONFIGURADO:` / `TRANSCRIPT COMPLETO:` (el ai-mock despacha
+   por ellos, `src/server/dev/ai-mock.ts`). Bloques nuevos: `OBJETIVO DE LA
+   PERSONA:`, `RASGOS DE LA PERSONA:`, `CRITERIOS DE ÉXITO (evalúa contra
+   estos):`. `Verdict` ya admite `ajuste?: { campo: "tone"|"escalationRules"|
+   "instructions", texto }` (inválido → se descarta solo el ajuste); 08-A
+   añade al system del juez cuándo emitirlo (hallazgos `tono` y
+   `debio_escalar`). Ojo: el ai-mock marca rojo cualquier prompt que contenga
+   `fuera_de_kb` (también en objetivo/criterios de una persona personalizada).
+6. **Delta** (RF-08-17, `samePersonaSet`, ya usado en `GET /api/lab/runs`):
+   solo contra la corrida `done` anterior con el MISMO conjunto (mismas claves
+   sin importar el orden y, si ambas tienen snapshot, mismo hash por clave). Si
+   hay anteriores pero ninguna comparable → `delta: null`, `deltaNote:
+   "conjunto distinto"`. Corridas anteriores a 08 (`persona_keys` NULL) solo
+   se comparan entre sí. 08-A añade los hashes leyendo
+   `config_snapshot -> 'personas'` sin traer el snapshot completo.
+7. **Listados ligeros**: `GET /api/lab/runs` y `GET /api/lab/runs/[id]`
+   seleccionan columnas explícitas (ya en 08-0); `config_snapshot` solo lo lee
+   el diff.
+8. **Aplicar sugerencia** (`applySuggestion`): una transacción; `INSERT …
+   ON CONFLICT (test_case_id, hallazgo_index) DO NOTHING RETURNING`; sin fila
+   → `alreadyApplied` con la existente, sin efecto. Efecto `kb` → `kb_entry`
+   `qa`; `profile` → append con límites `tone` 500 · `instructions` 8000 ·
+   `escalationRules` 4000 (`LAB_PROFILE_FIELD_MAX`); exceder → 422 `too_long`
+   y rollback (sin registro). Sin perfil → se crea. Borrar la corrida borra los
+   registros (cascada); la entrada del KB y el texto del perfil se quedan.
+9. **Sandbox intacto**: toda persona corre en conversación `is_test` con
+   contacto archivado; nada de esto toca el sender.
+10. **E2E**: una BD limpia crea orgs sin corridas ⇒ set `neutro` (sin
+    `expectFicha`). Los guiones que esperan el set de autos (ficha T03 /
+    Villahermosa, `e2e-ficha-agente`) deben llamar antes
+    `POST /api/lab/personas/restore-defaults { "set": "autos" }`.
+
+### Firmas
+
+```ts
+// src/server/lab/personas.ts (puro, sin BD — lo importa bot/ficha.ts)
+isSyntheticLabPhone(v: string | null | undefined): boolean        // real
+syntheticLabPhone(n: number): string                               // real
+type LabPersona = { id: string|null; key; name; objetivo; rasgos: string|null;
+  guion: string[]; criteriosExito: string|null; contactName; phone;
+  seed?: PersonaSeed; expectFicha?: Record<string, RegExp>; active; position }
+fromCodePersona(p: Persona, position?): LabPersona                 // real
+personaSnapshot(p: LabPersona): LabPersonaSnapshot                 // real (hash sha256)
+personaHash(p) · serializeExpectFicha(rec) · compileExpectFicha(rules) // reales
+PERSONAS_AUTOS (= PERSONAS) · PERSONAS_NEUTRO · seedPersonas(set)
+chooseSeedSet(hasRuns): LabSeedSet · legacyPersonaLabel(key)       // reales
+
+// src/server/lab/persona-store.ts
+ensureSeedPersonas(orgId): Promise<LabSeedSet | null>   // real, idempotente (D-08-01)
+loadRunPersonas(orgId, keys?): Promise<LabPersona[]>    // real; LabError no_personas/unknown_persona
+seedRow · rowToLabPersona · rowToLabPersonaDto          // reales
+listPersonas(orgId, { includeArchived? })               // stub 501
+createPersona(orgId, LabPersonaCreateInput)             // stub 501
+updatePersona(orgId, id, LabPersonaPatchInput)          // stub 501
+archivePersona(orgId, id)                               // stub 501
+restoreDefaultPersonas(orgId, set?)                     // stub 501
+
+// src/server/lab/history.ts
+samePersonaSet(a, b): boolean                           // real
+runTrends(orgId, limit): Promise<LabTrendsDto>          // stub 501
+diffRuns(orgId, runId, againstId?): Promise<LabRunDiffDto> // stub 501
+
+// src/server/lab/suggestions.ts
+applySuggestion(orgId, actorUserId, LabSuggestionApplyInput): Promise<LabSuggestionApplyResultDto> // stub 501
+
+// src/server/lab/runner.ts
+runTimeoutMsFor(raw, { cases, maxMessages }): number    // real, sin cablear
+
+// src/server/lab/errors.ts
+LabNotImplementedError → 501 · LabError(code) → labErrorStatus · labErrorResponse(err)
+
+// src/server/ai/prompts.ts
+buildJudgePrompt({ persona, personaDescription?, personaDetail?: JudgePersona, … })
+```
+
+### Rutas (todas `withAuth(..., { role: "owner" })`: 403 `forbidden` al Vendedor)
+
+| Ruta | Cuerpo / query | 200 | Errores |
+|---|---|---|---|
+| `GET /api/lab/personas` | `?archived=1` incluye archivadas | `LabPersonasResponse` `{ personas, runInProgress }` (08-A: siembra perezosa antes; el stub NO siembra) | hoy 501 |
+| `POST /api/lab/personas` | `LabPersonaCreateInput` (`name`, `guion` 1..8 × 1..500, `objetivo?` ≤ 1000, `rasgos?`, `criteriosExito?` ≤ 1000, `contactName?`, `seed?`, `expectFicha?` ≤ 20, `active?`, `position?`) | 201 `{ persona: LabPersonaDto }` | 422 `invalid_body` · hoy 501 |
+| `PATCH /api/lab/personas/[id]` | `LabPersonaPatchInput` (≥ 1 campo; `key`/`phone` se ignoran) | `{ persona }` | 404 `not_found` · 422 · hoy 501 |
+| `DELETE /api/lab/personas/[id]` | — (= archivar, idempotente) | `{ persona }` con `archivedAt` | 404 · hoy 501 |
+| `POST /api/lab/personas/restore-defaults` | opcional `{ set?: "autos"\|"neutro" }` (default: el de la org, o D-08-01) | `LabRestoreDefaultsResponse` `{ set, restored, personas }` | 422 · hoy 501 |
+| `POST /api/lab/runs` | opcional `{ personaKeys?: string[] }` (1..10 únicas; sin cuerpo = todas las activas) | 202 `{ runId }` | 409 `ai_not_configured` · 409 `run_in_progress` · 422 `invalid_body` · 422 `no_personas` · 422 `unknown_persona` · **hoy 501 si llega `personaKeys`**; sin cuerpo, igual que antes |
+| `GET /api/lab/runs` | — | `{ runs: LabRunSummaryDto[], aiConfigured }`; aditivo: `personaKeys`, `deltaAgainst`, `deltaNote` | — (**ya implementado**, sin `config_snapshot`) |
+| `GET /api/lab/runs/[id]` | — | `{ run (+ personaKeys), cases: LabRunCaseDto[] }`; aditivo: `personaSnapshot` y `personaLabel` del snapshot; 08-A añade `aplicada` por hallazgo | 404 |
+| `GET /api/lab/runs/[id]/diff` | `?against=<runId>` (default: `done` anterior con snapshot) | `LabRunDiffDto` (`{ available: false, reason: "no_snapshot"\|"no_previous" }` si no aplica) | 404 `not_found` · hoy 501 |
+| `GET /api/lab/trends` | `?limit=` 1..50 (inválido → 10) | `LabTrendsDto` (corridas `done`, recientes primero; `hallazgosPorTipo` con los 4 tipos; `veredictos` por key, `"sin_veredicto"` = judge_failed) | hoy 501 |
+| `POST /api/lab/suggestions/apply` | `LabSuggestionApplyInput` `{ testCaseId, hallazgoIndex, target: "kb"\|"profile", field?, pregunta?, respuesta?, text? }` (texto editable; si falta, el del juez) | `LabSuggestionApplyResultDto` `{ result: "applied"\|"alreadyApplied", application: LabAppliedDto }` | 404 `not_found` · 422 `invalid_body` · 422 `hallazgo_not_found` · 422 `target_mismatch` · 422 `too_long` · hoy 501. **Forma vieja** `{ caseId, hallazgoIndex, pregunta, respuesta }` → 201 `{ entry }` tal cual hasta que 08-B migre la UI; luego se retira |
+
+### DTOs (`src/lib/lab.ts`, re-exportados en `src/lib/types.ts`)
+
+`LabPersonaDto`, `LabPersonasResponse`, `LabPersonaCreateInput`,
+`LabPersonaPatchInput`, `LabRestoreDefaultsInput/Response`,
+`LabRunCreateInput`, `LabRunSummaryDto`, `LabRunCaseDto`, `LabHallazgoDto`
+(`aplicada: LabAppliedDto | null`), `LabAppliedDto { target, field,
+kbEntryId, appliedText, appliedAt }`, `LabTrendsDto`, `LabRunDiffDto`,
+`LabFieldChange`, `LabSuggestionApplyInput`, `LabSuggestionApplyResultDto`,
+`LabConfigSnapshot { version: 1, takenAt, profile, kb: { mode, entries },
+personas: { id, key, name, hash }[], models: { agent, judge } }` (nunca
+secretos), `LabPersonaSnapshot`, `LabKbSnapshotEntry`, `LabAjuste`.
+Catálogos y límites: `LAB_MAX_PERSONAS_PER_RUN` (10),
+`LAB_MAX_SCRIPT_MESSAGES` (8), `LAB_SCRIPT_MESSAGE_MAX` (500),
+`LAB_PERSONA_*_MAX`, `LAB_SYNTHETIC_PHONE_PREFIX`, `LAB_SNAPSHOT_KB_MAX_BYTES`,
+`LAB_SEED_SETS`, `LAB_HALLAZGO_TIPOS`, `LAB_AJUSTE_CAMPOS`,
+`LAB_PROFILE_FIELD_MAX`, `LAB_SUGGESTION_TARGETS`,
+`LAB_DELTA_NOTE_DIFFERENT_SET`, `LAB_TRENDS_*_LIMIT`. Validación de entrada:
+`src/server/lab/schemas.ts`.
+
+### Pruebas del contrato
+
+`tests/unit/lab-contract.test.ts` (teléfono sintético, sets de semilla,
+`expectFicha` en jsonb, `personaSnapshot`/hash, `samePersonaSet`, `Verdict`
+con/sin `ajuste`, encabezados del juez, `runTimeoutMsFor`, esquemas) y
+`tests/unit/lab-reset-contact.test.ts` (guarda por prefijo, persona fuera del
+set en código), `tests/unit/lab-persona-store.test.ts` (`ensureSeedPersonas`
+y `loadRunPersonas` con BD simulada; 08-A debe cubrirlas además contra la BD
+aislada). `role-matrix` cubre las rutas nuevas.
+
+### Decisiones de 08-0 por ratificar
+
+- Columna `seed_set` y `{ set? }` en `restore-defaults` (no estaban en la
+  lista original): sin ellas, "restaurar" no sabría qué set tiene la org.
+- `parseOptionalBody` en `src/lib/api.ts` (POST con cuerpo opcional).
+- La forma vieja de `apply` sigue viva (unión Zod) porque la UI actual
+  (`lab-client.tsx`) y los E2E la usan.
+- `GET /api/lab/runs` ya aplica "conjunto distinto" por claves (hashes: 08-A).
+- Contenido de `PERSONAS_NEUTRO` (7, mismas claves y teléfonos, sin
+  `expectFicha`).
+- Constantes del timeout (15 s por mensaje + 30 s por caso).
+- Ojo producto: `src/server/seed/demo.ts` inserta una `agent_test_run`, así
+  que una org con datos demo (ferretería) recibe el set `autos` por D-08-01.

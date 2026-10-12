@@ -134,6 +134,13 @@
       "when": 1791843811312,
       "tag": "0018_recordatorios_citas",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791844998023,
+      "tag": "0019_laboratorio_por_cliente",
+      "breakpoints": true
     }
   ]
 }

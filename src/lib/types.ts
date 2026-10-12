@@ -355,3 +355,37 @@ export type {
   ReminderTemplateSummaryDto,
   ReminderTickResultDto,
 } from "@/lib/reminders";
+
+/* ============================================================
+ * 08 — Laboratorio por cliente (fuente canónica: src/lib/lab.ts)
+ * ============================================================ */
+
+export type {
+  LabAjuste,
+  LabAjusteCampo,
+  LabAppliedDto,
+  LabConfigSnapshot,
+  LabExpectFichaRule,
+  LabFieldChange,
+  LabHallazgoDto,
+  LabHallazgoTipo,
+  LabKbSnapshotEntry,
+  LabPersonaCreateInput,
+  LabPersonaDto,
+  LabPersonaPatchInput,
+  LabPersonaSeedData,
+  LabPersonaSnapshot,
+  LabPersonasResponse,
+  LabRestoreDefaultsInput,
+  LabRestoreDefaultsResponse,
+  LabRunCaseDto,
+  LabRunCreateInput,
+  LabRunDiffDto,
+  LabRunSummaryDto,
+  LabSeedSet,
+  LabSuggestionApplyInput,
+  LabSuggestionApplyResultDto,
+  LabSuggestionTarget,
+  LabTrendsDto,
+  LabVeredicto,
+} from "@/lib/lab";

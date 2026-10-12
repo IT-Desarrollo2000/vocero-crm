@@ -15,6 +15,12 @@ import {
   BOOKING_REMINDER_SKIP_REASONS,
   BOOKING_REMINDER_STATUSES,
 } from "../reminders";
+import type {
+  LabConfigSnapshot,
+  LabExpectFichaRule,
+  LabPersonaSeedData,
+  LabPersonaSnapshot,
+} from "../lab";
 
 /* ============================================================
  * Auth (Better Auth + plugin organization)
@@ -827,6 +833,13 @@ export const agentTestRun = pgTable(
       .default("running"),
     score: integer("score"),
     error: text("error"),
+    /**
+     * 08 — Perfil + KB + personas + modelos al crear la corrida (RF-08-15).
+     * Pesado: los listados NO lo seleccionan. NULL = corrida anterior a 08.
+     */
+    configSnapshot: jsonb("config_snapshot").$type<LabConfigSnapshot>(),
+    /** 08 — Claves de las personas de la corrida (delta comparable). */
+    personaKeys: jsonb("persona_keys").$type<string[]>(),
     startedAt: timestamp("started_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
@@ -1182,6 +1195,8 @@ export const agentTestCase = pgTable(
      * `transcript` (que alimenta al juez) y fuera del score: informativo.
      */
     fichaCheck: jsonb("ficha_check").$type<FichaCheck>(),
+    /** 08 — La persona tal como corrió (sobrevive a ediciones y archivado). */
+    personaSnapshot: jsonb("persona_snapshot").$type<LabPersonaSnapshot>(),
     status: text("status", {
       enum: ["pending", "running", "done", "judge_failed"],
     })
@@ -1190,6 +1205,91 @@ export const agentTestCase = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("test_case_run_idx").on(t.runId)]
+);
+
+/* ============================================================
+ * 08 — Laboratorio por cliente
+ * ============================================================ */
+
+/**
+ * Personas guionadas del Laboratorio, por organización. `key` es un slug
+ * ESTABLE: el juez y el ai-mock despachan por ella y `agent_test_case.persona`
+ * la guarda. Borrar = archivar (`archived_at`). La siembra va en código
+ * (`ensureSeedPersonas`), no en la migración.
+ */
+export const labPersona = pgTable(
+  "lab_persona",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    objetivo: text("objetivo").notNull().default(""),
+    rasgos: text("rasgos"),
+    /** 1..8 mensajes; el primero es el mensaje inicial. */
+    guion: jsonb("guion").$type<string[]>().notNull(),
+    criteriosExito: text("criterios_exito"),
+    contactName: text("contact_name").notNull(),
+    /** Sintético (`52100000…`), lo genera el servidor; jamás del usuario. */
+    phone: text("phone").notNull(),
+    seed: jsonb("seed").$type<LabPersonaSeedData>(),
+    expectFicha: jsonb("expect_ficha")
+      .$type<LabExpectFichaRule[]>()
+      .notNull()
+      .default([]),
+    /** `autos` | `neutro` si nació de la semilla (D-08-01); NULL = personalizada. */
+    seedSet: text("seed_set", { enum: ["autos", "neutro"] }),
+    active: boolean("active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lab_persona_org_key_uq").on(t.organizationId, t.key),
+    index("lab_persona_org_pos_idx").on(t.organizationId, t.position),
+  ]
+);
+
+/**
+ * Sugerencia del juez ya aplicada (RF-08-13). UNIQUE (test_case_id,
+ * hallazgo_index): el INSERT … ON CONFLICT DO NOTHING es el candado de
+ * idempotencia, en la MISMA transacción que el efecto (KB o perfil).
+ */
+export const labSuggestionApplication = pgTable(
+  "lab_suggestion_application",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    testCaseId: text("test_case_id")
+      .notNull()
+      .references(() => agentTestCase.id, { onDelete: "cascade" }),
+    hallazgoIndex: integer("hallazgo_index").notNull(),
+    target: text("target", { enum: ["kb", "profile"] }).notNull(),
+    /** Solo `profile`: tone | escalationRules | instructions. */
+    field: text("field", {
+      enum: ["tone", "escalationRules", "instructions"],
+    }),
+    kbEntryId: text("kb_entry_id").references(() => kbEntry.id, {
+      onDelete: "set null",
+    }),
+    appliedText: text("applied_text").notNull(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lab_suggestion_case_hallazgo_uq").on(
+      t.testCaseId,
+      t.hallazgoIndex
+    ),
+    index("lab_suggestion_org_idx").on(t.organizationId),
+  ]
 );
 
 /* ============================================================

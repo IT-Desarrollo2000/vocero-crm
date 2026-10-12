@@ -14,7 +14,7 @@ import {
   type FichaSource,
 } from "@/lib/ficha-fields";
 import type { FichaValue } from "@/lib/types";
-import { PERSONAS, type PersonaSeed } from "@/server/lab/personas";
+import { isSyntheticLabPhone, type PersonaSeed } from "@/server/lab/personas";
 
 /**
  * Ficha de calificación del lead: lo que el cerebro externo va descubriendo
@@ -389,12 +389,13 @@ export type TestContactSeed = PersonaSeed;
  *
  * PELIGROSA por diseño (borra notas y ficha), así que tiene guarda propia y
  * no confía en el llamador: solo actúa si el contacto está ARCHIVADO y su
- * identidad o teléfono pertenece al set de personas sintéticas del
- * Laboratorio. Si no, no toca nada y registra un warn. Devuelve si reinició.
+ * identidad o teléfono es sintético del Laboratorio (prefijo `52100000`,
+ * `isSyntheticLabPhone`). Si no, no toca nada y registra un warn. Devuelve
+ * si reinició.
  *
- * Gancho para 08 (Laboratorio por cliente): `seed` es la semilla de la
- * persona; cuando las personas vivan en BD, la guarda debe leer el set de
- * identidades sintéticas de ahí en vez de `PERSONAS`.
+ * 08 — La guarda es por PREFIJO, no por el set de personas: no lee la BD,
+ * vale para personas personalizadas y archivadas, y `seed` llega del
+ * `persona_snapshot` del caso.
  */
 export async function resetTestContact(input: {
   organizationId: string;
@@ -419,9 +420,7 @@ export async function resetTestContact(input: {
   const row = rows[0];
   const synthetic =
     !!row &&
-    PERSONAS.some(
-      (p) => p.phone === row.waIdentity || (!!row.phone && p.phone === row.phone)
-    );
+    (isSyntheticLabPhone(row.waIdentity) || isSyntheticLabPhone(row.phone));
   if (!row || !row.archivedAt || !synthetic) {
     // Sin identificadores en el log: basta con saber que la guarda paró.
     console.warn(
