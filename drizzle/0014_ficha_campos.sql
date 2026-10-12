@@ -9,7 +9,7 @@
 --
 -- Editada a mano sobre la generada para ser RE-EJECUTABLE (Constitucion IV):
 -- IF NOT EXISTS en tabla, columnas e indice, y DO-block en cada clave foranea.
--- Sin `"public".` en los REFERENCES (ver scripts/migrate.mjs).
+-- Los REFERENCES van sin calificar el esquema (ver scripts/migrate.mjs).
 --
 -- Es puramente ADITIVA y NULLABLE, sin backfill: las filas existentes quedan
 -- en NULL y el codigo viejo ignora las columnas nuevas.

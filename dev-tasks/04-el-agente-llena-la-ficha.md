@@ -384,7 +384,7 @@ ALTER TABLE agent_test_case ADD COLUMN ficha_check jsonb;    -- { esperados, lle
 - [x] T-04-01 `src/lib/ficha-fields.ts` (nuevo): `FichaFieldDef`, plantilla, `coerceFichaPatch` (+ `fichaWriteBlocked`, regla de procedencia pura).
 - [x] T-04-02 Unit `tests/unit/ficha-coerce.test.ts` (nuevo): claves (exacta/acentos/label), número ("350 mil", "$1,200,000", "1.2 millones", "mucho"), si_no, opción (+allowOther), texto largo, null/"" ignorados, clave desconocida.
 - [x] T-04-03 Esquema Drizzle (`agent_profile.fichaFields`, `contact.fichaMeta`, tabla `fichaEvent`, `agent_test_case.fichaCheck`) + `pnpm db:generate` (`drizzle/0014_ficha_campos.sql`, editada a mano re-ejecutable) + prefijo `fe` en `ids.ts`.
-- [ ] T-04-03b Verificar re-ejecución (2×) de `0014` sobre la BD aislada (:5433).
+- [x] T-04-03b Verificar re-ejecución (2×) de `0014` sobre la BD aislada (:5433).
 - [ ] T-04-04 `upsertFicha` con `source`/procedencia/transacción/bitácora/`unlock`; `resetTestContact` limpia meta y eventos. Actualizar llamadores (`contacts/[id]`, `bot/ficha`).
 - [ ] T-04-05 Unit `tests/unit/ficha-provenance.test.ts` (nuevo): humano gana, legado sin meta protegido, ia corrige lo suyo, unlock, sin cambios → sin evento; `ficha-guard.test.ts` sigue verde.
 - [ ] T-04-06 `actions.ts`: `withFicha`, `.catch`, `z.preprocess` de `update_ficha`, `degradeAction` conserva ficha. Unit en `tests/unit/agent-actions-ficha.test.ts` (nuevo): ficha basura no invalida la acción.
