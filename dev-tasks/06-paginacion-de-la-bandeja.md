@@ -1,6 +1,10 @@
 # 06 — Paginación de la Bandeja
 
-> Estado: propuesto · Prioridad: alta · Esfuerzo: L · Migración: sí (solo índices; tentativamente `0015`, tras 00 = `0013` y 09 = `0014`) · Bandera: no (cambio del núcleo, sin superficie opcional)
+> Estado: en curso (contrato 06-0 fijado; 06-A servidor y 06-B UI en paralelo) · Prioridad: alta · Esfuerzo: L · Migración: sí (`0016`, solo el índice de orden) · Bandera: no (cambio del núcleo, sin superficie opcional)
+>
+> **Manda la sección [«Contrato 06-0»](#contrato-06-0)** sobre cualquier
+> detalle anterior que la contradiga (nombres `handoff` → `human`, badge por
+> conversaciones, `since` fuera del cliente, un solo índice).
 
 ## 1. Especificación
 
@@ -23,14 +27,16 @@ rol/asignación (tarea 09) se aplica en la misma consulta.
 
 Incluye:
 - `GET /api/conversations` con `limit`, `cursor` (keyset), filtros de pastilla
-  (`all` | `unread` | `handoff`), etapa, canal, búsqueda (nombre/teléfono) y,
+  (`all` | `unread` | `human` | `mine` | `unassigned`), etapa, canal, búsqueda (nombre/teléfono) y,
   la asignación de 09 (`assigned=me|unassigned|all`, RF-09-12).
 - Endpoint de contadores (pastillas, canales, total, badge del menú).
 - Lectura de conversaciones sueltas por id (lote `?ids=`, para resolver los
   eventos SSE `{ id }`) y por contacto (`?contact=`).
-- Scroll infinito en `ConversationList`, upsert en cliente por SSE, catch-up
-  con `since`.
-- Badge del menú lateral servido por el endpoint de contadores.
+- Scroll infinito en `ConversationList`, upsert en cliente por SSE y, al
+  reconectar, recarga de la primera página + contadores (sin `since`,
+  RF-06-13).
+- Badge del menú lateral servido por el endpoint de contadores
+  (`unreadConversations`, D-05-1).
 - Índices para que lista y contadores escalen; reemplazo de las subconsultas
   correlacionadas.
 - Compatibilidad con los guiones `scripts/e2e-*.mjs` que leen `/api/conversations`.
@@ -62,47 +68,56 @@ Fuera de alcance:
 ### Requisitos funcionales
 
 - **RF-06-01** `GET /api/conversations?limit=N` devuelve como máximo `N`
-  conversaciones (default 50, tope 200, mismo `clamp` que
-  `src/lib/pagination.ts:15-38`), ordenadas por
-  `coalesce(last_message_at, created_at) desc, id desc`, y un `nextCursor`
-  opaco (o `null` si no hay más).
+  conversaciones (N en [1, 200]; `limit` ilegible → 50; **sin `limit` → lista
+  completa con `nextCursor: null`**, D-06-1), ordenadas por
+  `coalesce(last_message_at, created_at) DESC, id DESC`, y un `nextCursor`
+  opaco construido por el servidor (o `null` si no hay más).
 - **RF-06-02** `cursor=<nextCursor>` devuelve la página siguiente sin repetir
   ni saltar filas cuyo orden no cambió entre llamadas (keyset sobre
   `(sort_at, id)`).
-- **RF-06-03** Filtros en servidor, combinables: `filter=all|unread|handoff`
-  (`handoff` = `handoff_at is not null or ai_enabled = false`, mismo criterio
-  que `needsHuman` en `helpers.ts:16-18`), `stage=<stageId>`,
+- **RF-06-03** Filtros en servidor, combinables:
+  `filter=all|unread|human|mine|unassigned` (`human` = `handoff_at is not null
+  or ai_enabled = false`, mismo criterio que `needsHuman`; `mine`/`unassigned`
+  = mismo predicado que `assigned=me|unassigned`, y si llegan ambos se
+  intersectan), `stage=<stageId>` (D-06-2),
   `channel=whatsapp|instagram|messenger`, `q=<texto>` (nombre sin acentos ni
-  mayúsculas; teléfono por dígitos con mínimo 3, igual que
-  `src/lib/search.ts:27-42`) y `assigned=me|unassigned|all` (definido por 09,
-  RF-09-12; aquí solo se combina con lo demás).
+  mayúsculas; teléfono por dígitos con mínimo 3 — `contactSearchSql` de
+  `src/server/search.ts`, compartido con Contactos) y
+  `assigned=me|unassigned|all` (09, RF-09-12). Todos TOLERANTES (valor
+  inválido → default, sin error) **salvo `assigned`, que sigue estricto**
+  (422 `invalid_query`, lo exige `scripts/e2e-asignacion.mjs:248`).
 - **RF-06-04** Las conversaciones `is_test` jamás aparecen (como hoy,
   `queries.ts:43`).
 - **RF-06-05** Visibilidad (cuando exista 09): un Vendedor solo recibe filas
   asignadas a él o sin asignar — en lista, contadores, lectura por id y
   `since`. El Propietario recibe todo. El filtro vive en la consulta, no en el
   cliente.
-- **RF-06-06** `GET /api/conversations/counts` (nuevo) devuelve, con los
-  mismos `q`/`stage`/visibilidad: `byChannel` (sobre búsqueda+etapa),
-  `all`/`unread`/`handoff` (sobre búsqueda+etapa+canal), y `unreadMessages`
-  (suma de `unread_count` de lo visible, sin filtros) para el badge del menú.
-  Respeta las capas de `helpers.ts:20-30`.
-- **RF-06-07** `GET /api/conversations?ids=a,b,…` (nuevo, máx. 50 ids)
-  devuelve los DTO de las conversaciones visibles para el usuario entre las
-  pedidas, ignorando cursor y filtros; las ausentes (inexistentes, de prueba o
-  no visibles por rol) simplemente no vienen. Es como el cliente resuelve los
-  eventos `conversation.updated { id }` (payload que 09 reduce a `{ id }`,
-  RF-09-09). `GET /api/conversations/:id` (nuevo) es el atajo de un solo id
-  (404 si no visible).
+- **RF-06-06** `GET /api/conversations/counts` (nuevo, `any*`) devuelve
+  `ConversationCounts` con los MISMOS `q`/`stage`/`channel`/`assigned` que la
+  lista y siempre dentro de lo visible: `all`/`unread`/`human`/`mine`/
+  `unassigned` (base + canal), `byChannel` (base, sin canal),
+  `unreadConversations` (badge, D-05-1), `unreadMessages` y `teamMode`
+  (sin filtros). Capas exactas en el «Contrato 06-0».
+- **RF-06-07** `GET /api/conversations?ids=a,b,…` (nuevo, máx. 50 ids; los
+  extra se descartan) devuelve los DTO de las conversaciones visibles para el
+  usuario entre las pedidas, **aplicando visibilidad pero ignorando cursor y
+  filtros**; las ausentes (inexistentes, de prueba o no visibles por rol)
+  simplemente no vienen. Invariante para la UI: **id ausente = ya no visible
+  para ti** (se retira y, si estaba abierta, se cierra); **presente pero no
+  cumple el filtro activo** = sale de la lista pero el hilo abierto se
+  conserva. `GET /api/conversations/:id` (nuevo, `any*`) es el atajo de un
+  solo id (404 si no visible o `is_test`).
 - **RF-06-08** `GET /api/conversations?contact=<contactId>` devuelve la
   conversación real de ese contacto (0 o 1 fila), ignorando cursor y filtros,
   para el enlace profundo.
-- **RF-06-09** `since=<ISO>` devuelve las conversaciones (visibles, con los
-  filtros pedidos) con `updated_at > since`, sin cursor (tope 500), igual que
-  hoy (`route.ts:8-13`). Las bajas de visibilidad no viajan por `since` (ver
-  D-06-4).
-- **RF-06-10** El DTO incluye `sortAt` (ISO de `coalesce(lastMessageAt,
-  createdAt)`) para que el cliente reordene tras un upsert.
+- **RF-06-09** `since=<ISO>` se conserva en el servidor SOLO por
+  compatibilidad (integraciones/guiones): devuelve las conversaciones
+  visibles, con los filtros pedidos, con `updated_at > since`, sin cursor
+  (tope 500). La UI ya no lo usa (RF-06-13). Las bajas de visibilidad no
+  viajan por `since` (D-06-4).
+- **RF-06-10** El DTO incluye `sortAt` (ISO en ms de `coalesce(lastMessageAt,
+  createdAt)`) para que el cliente reordene tras un upsert, y `stageId`. El
+  cliente **nunca** arma un cursor con `sortAt`.
 - **RF-06-11** La UI carga la primera página al entrar, pide la siguiente al
   acercarse al final del scroll (IntersectionObserver), muestra «Cargando…» al
   pie y «No hay más conversaciones» al final.
@@ -111,12 +126,16 @@ Fuera de alcance:
   completa): los ids de eventos que llegan en ráfaga se juntan (~250 ms) en un
   solo `?ids=`; si la conversación deja de cumplir el filtro activo o ya no
   vuelve (no visible), sale de la lista.
-- **RF-06-13** Al reconectar el SSE, el cliente hace catch-up con `since` y
-  refresca contadores; no recarga desde cero salvo que el catch-up falle.
-- **RF-06-14** El badge del menú (`app-nav.tsx`) usa `counts.unreadMessages`.
+- **RF-06-13** Al reconectar el SSE (`onReconnect`), el cliente **no usa
+  `since`**: recarga la primera página con los filtros activos + `counts`
+  (y deduplica por `id`; la conversación abierta se conserva aunque no
+  vuelva en la página, salvo que `?ids=` diga que ya no es visible). Así
+  también se entera de las bajas de visibilidad (D-06-4).
+- **RF-06-14** El badge del menú (`app-nav.tsx`) usa
+  `counts.unreadConversations` (cuenta CONVERSACIONES, D-05-1).
 - **RF-06-15** Compatibilidad: la respuesta conserva la clave `conversations`
-  (array de `ConversationDto`); los consumidores actuales siguen funcionando
-  (ver D-06-1).
+  (array de `ConversationDto`) y suma `nextCursor`; sin `limit` devuelve la
+  lista completa, así los consumidores actuales siguen funcionando (D-06-1).
 
 ### Permisos por rol
 
@@ -134,10 +153,10 @@ Fuera de alcance:
   `nextCursor` no nulo, ninguna `is_test`; con el cursor recibo 50 más y luego
   20 con `nextCursor = null`; la unión de las tres páginas son las 120 sin
   duplicados.
-- **CA-06-02** Dado el filtro `filter=handoff&channel=whatsapp&q=jose`, cuando
-  pido lista y `counts`, entonces cada fila cumple los tres criterios, «José»
-  con acento aparece, y `counts.handoff` = número total de filas recorribles
-  con ese filtro.
+- **CA-06-02** Dado el filtro `filter=human&channel=whatsapp&q=jose`, cuando
+  pido lista y `counts` (con `channel=whatsapp&q=jose`), entonces cada fila
+  cumple los tres criterios, «José» con acento aparece, y `counts.human` =
+  número total de filas recorribles con ese filtro.
 - **CA-06-03** Dado que estoy en la página 2 con scroll a la mitad, cuando
   entra un mensaje en una conversación de la página 3, entonces esa
   conversación aparece al tope, ninguna otra fila cambia de posición relativa y
@@ -151,8 +170,9 @@ Fuera de alcance:
   /api/conversations/<id de una conversación asignada a otro>`, entonces
   recibe 404, y esa conversación no aparece en lista, contadores ni `since`.
 - **CA-06-07** Dado que corto la red 30 s y entra un mensaje en ese lapso,
-  cuando el SSE reconecta, entonces la conversación aparece actualizada sin
-  recargar la página.
+  cuando el SSE reconecta, entonces la conversación aparece actualizada (al
+  tope, vía recarga de la primera página + `counts`) sin recargar la página
+  del navegador.
 - **CA-06-08** Dado el guion `scripts/e2e-selftest.mjs` sin modificar (o con el
   helper de D-06-1), cuando corre contra la app, entonces sigue en verde.
 - **CA-06-09** Dado 5 000 conversaciones sembradas, cuando pido la primera
@@ -235,31 +255,13 @@ Fuera de alcance:
 
 ### Cambios de datos
 
-Sin columnas nuevas. Migración tentativa **0015** (00 reserva `0013`, 09
-`0014`; número final = siguiente libre), escrita a mano, re-ejecutable:
-
-```sql
--- Orden de la Bandeja: keyset sobre (sort_at, id), solo conversaciones reales.
-CREATE INDEX IF NOT EXISTS "conversation_org_sort_idx"
-  ON "conversation" ("organization_id",
-                     (coalesce("last_message_at", "created_at")) DESC,
-                     "id" DESC)
-  WHERE "is_test" = false;
-
--- Pastilla "No leídas" (y suma del badge): pocas filas, índice parcial chico.
-CREATE INDEX IF NOT EXISTS "conversation_org_unread_idx"
-  ON "conversation" ("organization_id")
-  WHERE "is_test" = false AND "unread_count" > 0;
-
--- Pastilla "Atención humana".
-CREATE INDEX IF NOT EXISTS "conversation_org_human_idx"
-  ON "conversation" ("organization_id")
-  WHERE "is_test" = false AND ("handoff_at" IS NOT NULL OR "ai_enabled" = false);
-
--- Catch-up `since` (hoy filtra updated_at sin índice).
-CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
-  ON "conversation" ("organization_id", "updated_at");
-```
+Sin columnas nuevas. Migración oficial **0016** (`drizzle/0016_indices_bandeja.sql`,
+ya creada en 06-0): **un solo índice, NO parcial** — ver «Contrato 06-0 →
+Índice». Los índices parciales que se proponían aquí (`unread`, `human`,
+`updated_at`) quedan **descartados por ahora**: los contadores son agregados
+filtrados sobre el mismo recorrido por org, y `since` deja de usarse desde la
+UI. Si `EXPLAIN` de 06-A muestra lo contrario, se agregan en una migración
+posterior.
 
 - Declararlos también en `src/lib/db/schema.ts` (bloque de índices de
   `conversation`, `:369-375`) para que `pnpm db:generate` no los quiera
@@ -323,7 +325,9 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
      count(*) filter (where <canal_ok>)                                   as all,
      count(*) filter (where <canal_ok> and unread_count > 0)              as unread,
      count(*) filter (where <canal_ok> and (handoff_at is not null
-                                           or ai_enabled = false))        as handoff,
+                                           or ai_enabled = false))        as human,
+     count(*) filter (where <canal_ok> and assigned_user_id = $yo)        as mine,
+     count(*) filter (where <canal_ok> and assigned_user_id is null)      as unassigned,
      count(*) filter (where channel = 'whatsapp')                         as wa,
      count(*) filter (where channel = 'instagram')                        as ig,
      count(*) filter (where channel = 'messenger')                        as fb
@@ -331,17 +335,20 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
    left join lead l on l.contact_id = ct.id
    where <org, is_test=false, visibilidad, assigned, q, stage>
    ```
-   y `unreadMessages = sum(unread_count)` sobre `<org, is_test=false,
-   visibilidad>` (sin `q`/`stage`/canal). Dos consultas en `Promise.all`.
+   y, sobre `<org, is_test=false, visibilidad>` (sin `q`/`stage`/canal/
+   `assigned`): `unreadConversations = count(*) filter (where unread_count >
+   0)`, `unreadMessages = sum(unread_count)` y `teamMode` (ver «Contrato
+   06-0 → Contadores»). Consultas en `Promise.all`.
 5. **Rutas**:
    - `src/app/api/conversations/route.ts` — leer `limit`, `cursor`, `filter`,
      `stage`, `channel`, `q`, `assigned`, `ids`, `contact`, `since`; armar el
      `viewer` desde la sesión (`{ userId, role }`); responder
      `{ conversations, nextCursor }`. Precedencia: `ids` > `contact` > `since`
      > lista paginada. Compatibilidad según D-06-1.
-   - `src/app/api/conversations/counts/route.ts` **(nuevo)** —
-     `{ all, unread, handoff, byChannel: { whatsapp, instagram, messenger },
-     unreadMessages }` (09 puede sumar `mine`/`unassigned` aquí mismo).
+   - `src/app/api/conversations/counts/route.ts` **(nuevo; stub 501 desde
+     06-0)** — `ConversationCounts`: `{ all, unread, human, mine, unassigned,
+     byChannel: { whatsapp, instagram, messenger }, unreadConversations,
+     unreadMessages, teamMode }`.
    - `src/app/api/conversations/[id]/route.ts` — agregar `GET` de un id
      (RF-06-07), junto al `PATCH` existente (`:16-34`).
 6. **DTO**: `ConversationDto` (`types.ts:5-32`) + `sortAt: string` y
@@ -368,15 +375,16 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
   estado de la lista: `items` (Map por id + orden), `nextCursor`, `loading`,
   `error`, `counts`; acciones `loadFirst(filters)`, `loadMore()`,
   `upsert(dto)`, `remove(id)`, `resolveIds(ids)` (junta ids ~250 ms → un
-  `GET ?ids=`; los que no vuelven se retiran), `catchUp()`, `refreshCounts()`
+  `GET ?ids=`; los que no vuelven se retiran), `refreshCounts()`
   (debounce ~500 ms). `upsert` decide con un **predicado cliente** `matchesFilters(dto,
   filters)` — se reutiliza `filterConversations`/`needsHuman` de `helpers.ts`
   (queda como espejo del filtro SQL; un test unitario compara ambos sobre el
   mismo fixture) — y reordena por `sortAt`, `id`. El espejo crece con cada
   filtro de servidor: 09 le suma `assigned` (`assignedTo?.userId ===
   viewer.userId` con `useViewer()` de 00, o `assignedTo === null`) y 05 la
-  ventana (`lastInboundAt` entre ahora − 24 h y ahora − 22 h). Cast del cursor:
-  `(sort_at, id) < ($t::timestamp, $i)`.
+  ventana (`lastInboundAt` entre ahora − 24 h y ahora − 22 h). El cursor es
+  opaco: el hook solo reenvía el `nextCursor` recibido. `teamMode` sale de
+  `counts.teamMode`.
 - **`inbox-client.tsx`**:
   - `refetchConversations` (`:75-81`) → `loadFirst`.
   - `onMessageNew` (`:120-149`): conserva lo del hilo (`:121-133`) y cambia
@@ -384,8 +392,9 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
     `refreshCounts()`. Nunca lista completa.
   - `onConversationUpdated` (`:150-154`): `resolveIds([conversation.id])` +
     `refreshCounts()`.
-  - `onReconnect` (`:155-160`): `catchUp()` con `since = lastFetchRef`
-    (por fin usado) + `refreshCounts()`; si falla, `loadFirst`.
+  - `onReconnect` (`:155-160`) y `visibilitychange`: `loadFirst` (primera
+    página con los filtros activos) + `refreshCounts()`. Sin `since`
+    (RF-06-13); `lastFetchRef` se elimina.
   - `?contact=` (`:110-117`): si no está en `items`, `GET
     /api/conversations?contact=<id>` → `upsert` (forzado aunque no cumpla el
     filtro) → `select`.
@@ -406,11 +415,12 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
   - Estado vacío (`:257-258`): «Sin conversaciones todavía» solo si
     `counts.all === 0` sin filtros; con filtros, «Sin resultados».
 - **`app-nav.tsx:96-112`**: `refetchUnread` → `GET /api/conversations/counts`
-  (`unreadMessages`), con debounce y también al `visibilitychange`.
+  (`unreadConversations`, D-05-1), con debounce y también al
+  `visibilitychange`.
 
 ### Tareas ordenadas
 
-- [ ] **T-06-01** Migración de índices (tentativa 0015) (SQL a mano, `IF NOT EXISTS`) +
+- [x] **T-06-01** (06-0) Migración 0016, un índice (SQL a mano, `IF NOT EXISTS`) +
   declaración en `schema.ts`; verificar `pnpm db:generate` sin diff y `EXPLAIN`
   de la consulta de lista. *(sin dependencias)*
 - [ ] **T-06-02** Extraer `searchContactSql` a `src/lib/search-sql.ts` y usarlo
@@ -431,10 +441,10 @@ CREATE INDEX IF NOT EXISTS "conversation_org_updated_idx"
   como `{ id }` (paso 7) y que el filtro SSE de `message.new` está activo; si
   06 va antes que 09, el cliente igual usa `?ids=` (funciona con cualquier
   payload). *(09)*
-- [ ] **T-06-10** Hook `use-inbox-list.ts` (upsert/remove/orden/catch-up/counts). *(T-06-06..09)*
+- [ ] **T-06-10** Hook `use-inbox-list.ts` (upsert/remove/orden/recarga al reconectar/counts). *(T-06-06..09)*
 - [ ] **T-06-11** `conversation-list.tsx`: filtros a servidor, contadores de
   `counts`, etapas de `useStages`, scroll infinito. *(T-06-10)*
-- [ ] **T-06-12** `inbox-client.tsx`: SSE con upsert, `since` real,
+- [ ] **T-06-12** `inbox-client.tsx`: SSE con upsert, `loadFirst` al reconectar (sin `since`),
   `?contact=` fuera de página. *(T-06-10)*
 - [ ] **T-06-13** `app-nav.tsx`: badge desde `counts`. *(T-06-06)*
 - [ ] **T-06-14** Actualizar el contrato `api.md` y adaptar los guiones
@@ -464,7 +474,7 @@ E2E (app viva con `WA_MOCK_ENABLED=true`, wa-mock + ai-mock, BD aislada):
      teléfonos con sufijo aleatorio, como `e2e-search-filters.mjs:45-58`).
   2. API: recorre páginas con `limit=50` → 120 únicas, ninguna `is_test`
      (crea antes una corrida del Laboratorio para tener `is_test`).
-  3. API: `filter=unread`, `filter=handoff` (provoca handoff con
+  3. API: `filter=unread`, `filter=human` (provoca handoff con
      `/api/bot/handoff`), `q` con acento y con teléfono formateado, `stage`,
      `channel`; compara `counts` con el largo recorrido.
   4. UI (Playwright, `waitUntil: "load"`): scroll hasta el final → aparece
@@ -492,6 +502,10 @@ E2E (app viva con `WA_MOCK_ENABLED=true`, wa-mock + ai-mock, BD aislada):
   `e2e-templates-multivar.mjs:163`.
 
 ### Riesgos y decisiones abiertas
+
+> **Decididas (2026-10-12):** D-06-1 = (a) lista completa sin `limit`;
+> D-06-2 = `stageId`; D-06-4 = recarga de la primera página en `onReconnect`
+> (sin `since` en el cliente). D-06-5 = no ahora.
 
 - **D-06-1 (compatibilidad, decide el dueño)** — Sin `limit` en la URL:
   - (a) *Recomendada*: comportamiento legado (lista completa sin cursor,
@@ -527,6 +541,158 @@ E2E (app viva con `WA_MOCK_ENABLED=true`, wa-mock + ai-mock, BD aislada):
 - **Riesgo**: `windowRemainingMs` viaja calculado y envejece; el cliente debe
   recalcularlo desde `lastInboundAt` (lo usa 05).
 
+## Contrato 06-0
+
+Fijado en el paso 06-0 para que **06-A (servidor)** y **06-B (UI)** trabajen
+en paralelo. Manda sobre el resto del documento. Código ya en el repo:
+`src/lib/types.ts` (`InboxFilter`, `ConversationsPage`, `ConversationCounts`,
+`ConversationDto.sortAt/stageId`), `src/server/inbox/list-query.ts` (parseo,
+cursor, SQL de orden), `src/server/search.ts` (`contactSearchSql`), la firma
+de `listConversations`, los stubs 501 de `/counts` y `GET /[id]`,
+`ROUTE_POLICY` y la migración 0016. Pruebas: `tests/unit/inbox-query.test.ts`.
+
+### Endpoints
+
+| Endpoint | Política | Respuesta | Estado en 06-0 |
+|---|---|---|---|
+| `GET /api/conversations` | `any*` | `ConversationsPage = { conversations: ConversationDto[]; nextCursor: string \| null }` | Firma nueva; solo `since`/`assigned` implementados (lista completa, `nextCursor: null`) |
+| `GET /api/conversations/counts` | `any*` | `ConversationCounts` | Stub 501 `not_implemented` |
+| `GET /api/conversations/[id]` | `any*` | `{ conversation: ConversationDto }`; 404 `not_found` si no existe, es `is_test` o no la ves | Stub 501 `not_implemented` |
+
+Las tres van con `withAuth(...)` y la visibilidad de 09
+(`conversationVisibleTo(viewer)`) en el WHERE; `is_test = false` siempre.
+
+### Parámetros de `GET /api/conversations`
+
+| Parámetro | Valores | Inválido → |
+|---|---|---|
+| `assigned` | `me` \| `unassigned` \| `all` (default `all`) | **422 `invalid_query`** (estricto; `scripts/e2e-asignacion.mjs:248`) |
+| `limit` | entero; ausente/vacío = **lista completa** (D-06-1); presente → clamp [1, 200] | ilegible → 50 |
+| `cursor` | opaco, el `nextCursor` de la página anterior | ignorado → primera página |
+| `filter` | `all` \| `unread` \| `human` \| `mine` \| `unassigned` | `all` |
+| `stage` | `stageId` (D-06-2); id inexistente = lista vacía | (texto > 64 → ignorado) |
+| `channel` | `whatsapp` \| `instagram` \| `messenger` | ignorado (todos) |
+| `q` | texto (≤ 200) — `contactSearchSql(q)` sobre `contact` | vacío → sin filtro |
+| `ids` | `a,b,c` — dedup, máx. **50** (los extra se descartan) | vacío → no es modo lote |
+| `contact` | `contactId` (deep link) | — |
+| `since` | ISO — **solo compatibilidad**, la UI no lo usa | fecha ilegible → ignorado |
+
+Parseo: `parseInboxQuery(searchParams)` (todo menos `assigned`, que valida
+la ruta). **Precedencia de modos**: `ids` > `contact` > `since` > lista
+(paginada si hay `limit`). En los modos `ids`/`contact`/`since`,
+`nextCursor` = `null`.
+
+Semántica de filtros (06-A en SQL; 06-B como espejo cliente para el upsert):
+
+- `unread` = `unread_count > 0`.
+- `human` = `handoff_at IS NOT NULL OR ai_enabled = false` (regla `needsHuman`
+  de `src/components/inbox/helpers.ts`).
+- `mine` = `assigned_user_id = viewer.userId`; `unassigned` =
+  `assigned_user_id IS NULL` — idénticos a `assigned=me|unassigned`; si llegan
+  `filter` y `assigned` a la vez, se **intersectan** (AND).
+- `stage` por `lead.stage_id` (JOIN `lead` por `contact_id`, seguro por
+  `lead_contact_uq`).
+
+### Modos sueltos
+
+- **`?ids=a,b,c`**: aplica **visibilidad** (y `is_test = false`) pero
+  **ignora** cursor, `limit` y filtros. Invariante para la UI:
+  - id **ausente** en la respuesta = ya no es visible para ti (no existe, es
+    de prueba o se reasignó) → se retira de la lista y, si estaba abierta, se
+    cierra el hilo;
+  - id **presente** pero que no cumple el filtro activo → sale de la lista,
+    pero si es la conversación abierta, el hilo se conserva.
+- **`?contact=<contactId>`**: la conversación real (no `is_test`) visible de
+  ese contacto, 0 o 1 fila, ignorando filtros — para `/inbox?contact=`.
+- **`GET /api/conversations/[id]`**: el atajo de un id, con visibilidad;
+  404 si no.
+
+### Orden, cursor y keyset (fórmula exacta)
+
+- `sort_at := coalesce(conversation.last_message_at, conversation.created_at)`
+  (`sortAtSql`). Columnas `timestamp` sin zona, precisión de µs.
+- `ORDER BY sort_at DESC, conversation.id DESC` (`inboxOrderBy`) — mismo
+  texto que el índice (sin `NULLS LAST`).
+- El servidor selecciona además
+  `to_char(sort_at, 'YYYY-MM-DD HH24:MI:SS.US')` (`sortKeySql`), pide
+  `limit + 1` filas y, si sobra la extra, arma el cursor desde la **última fila
+  devuelta** (no la extra):
+  `nextCursor = base64url(JSON.stringify({ t: <sortKey>, i: <id> }))`
+  (`encodeCursor`).
+- `decodeCursor` exige `t` con 6 decimales (`YYYY-MM-DD HH:MM:SS.ffffff`) e
+  `i` de 1..64 caracteres; otra cosa → `null` → primera página.
+- Página siguiente: `(sort_at, conversation.id) < ($t::timestamp, $i)`
+  (`keysetCondition`, comparación fila-valor). 06-A confirma con `EXPLAIN`
+  que entra como Index Cond junto a `organization_id = $org`; si no, usa la
+  forma expandida equivalente `sort_at < $t OR (sort_at = $t AND id < $i)`.
+- El cliente **nunca** deriva un cursor: `ConversationDto.sortAt` (ISO en ms)
+  es solo para reordenar tras un upsert. Un `Date` de JS pierde los µs y el
+  keyset repetiría o saltaría filas.
+
+### Contadores (`ConversationCounts`)
+
+```ts
+{ all, unread, human, mine, unassigned,
+  byChannel: { whatsapp, instagram, messenger },
+  unreadConversations, unreadMessages, teamMode }
+```
+
+Acepta los mismos `q`, `stage`, `channel`, `assigned` que la lista (mismo
+parseo; `assigned` inválido → 422). Ignora `filter`, `limit`, `cursor`. Capas:
+
+- **base** = org ∧ `is_test = false` ∧ visibilidad ∧ `q` ∧ `stage` ∧ `assigned`;
+- `all` / `unread` / `human` / `mine` / `unassigned` = base ∧ `channel` ∧
+  predicado de la pastilla (así el número de cada pastilla = filas recorribles
+  con ese `filter`);
+- `byChannel[ch]` = base ∧ `channel = ch` (ignora el `channel` pedido);
+- `unreadConversations` = count(`unread_count > 0`) y `unreadMessages` =
+  sum(`unread_count`), ambos **solo con visibilidad** (sin `q`/`stage`/
+  `channel`/`assigned`). El badge del menú y de la pestaña usa
+  **`unreadConversations`** (D-05-1).
+- `teamMode` = `!isOwner(viewer) || count(member de la org) > 1 || EXISTS
+  (conversación visible, no de prueba, con assigned_user_id NOT NULL)` — sin
+  filtros. Es la regla de `inbox-client.tsx` (~432-435) pero ESTABLE: no
+  depende de las páginas cargadas. 06-B la toma de `counts` en vez de
+  calcularla.
+
+### Firma de servidor
+
+```ts
+listConversations(organizationId, viewer, opts?: {
+  since?, assigned?, limit?, cursor?, filter?, stageId?, channel?, q?, ids?, contactId?
+}) → Promise<{ conversations: ConversationDto[]; nextCursor: string | null }>
+```
+
+(`ListConversationsOptions = Partial<InboxQuery> & { assigned? }`). 06-A
+agrega `countConversations(organizationId, viewer, query)` →
+`ConversationCounts`. Búsqueda: `contactSearchSql(q)` de
+`src/server/search.ts` (extraída de Contactos sin cambio de comportamiento).
+
+### Índice (migración 0016)
+
+```sql
+CREATE INDEX IF NOT EXISTS "conversation_org_sort_idx" ON "conversation"
+  USING btree ("organization_id",(coalesce("last_message_at", "created_at")) DESC,"id" DESC);
+```
+
+**No parcial**, por elección: la consulta manda `is_test = false` como
+parámetro (`eq(c.isTest, false)` → `$n`) y con sentencias preparadas el plan
+genérico no puede probar el predicado de un índice parcial, así que lo dejaría
+de usar en silencio. Las conversaciones `is_test` se descartan como filtro
+sobre el recorrido (son minoría). Si 06-A ve en `EXPLAIN` que pesan, la
+alternativa es un índice parcial **con** `sql\`is_test = false\`` inline en
+la consulta (nunca parámetro). Sin `CONCURRENTLY` (migrate.mjs corre en
+transacción). Declarado en `schema.ts` con las expresiones como SQL crudo;
+`pnpm db:generate` no produce diff.
+
+### SSE y reconexión (06-B)
+
+- `message.new` / `conversation.updated { id }` → juntar ids (~250 ms) →
+  `GET ?ids=` → upsert/retiro según la invariante de arriba + `counts`
+  (debounce).
+- `onReconnect` y `visibilitychange` → **recargar la primera página** con los
+  filtros activos + `counts`. **Sin `since`** en el cliente.
+
 ## 3. Dependencias con otras tareas
 
 - **00 — Roles y permisos** (antes): `Role`/`ROLE` de `src/lib/roles.ts` y
@@ -538,7 +704,7 @@ E2E (app viva con `WA_MOCK_ENABLED=true`, wa-mock + ai-mock, BD aislada):
   `{ id }` (RF-09-09). Si 06 se implementa antes por urgencia, deja el
   predicado como `undefined` y 09 lo enchufa en `inboxWhere` sin tocar el
   resto.
-- **05 — Alertas** (después): usa `counts.unreadMessages` para título/favicon,
+- **05 — Alertas** (después): usa `counts.unreadConversations` para título/favicon (D-05-1),
   `?ids=` para resolver eventos y el marco de filtros para la pastilla
   «Ventana por cerrar».
 - **02 — Métricas**: independiente; comparte la migración de índices solo si

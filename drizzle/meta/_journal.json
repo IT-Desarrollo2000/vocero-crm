@@ -113,6 +113,13 @@
       "when": 1791832012265,
       "tag": "0015_asignacion_respuestas_rapidas",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791837702996,
+      "tag": "0016_indices_bandeja",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,14 @@ export type ConversationDto = {
   assignedTo: { userId: string; name: string } | null;
   /** 09: ISO de cuándo la tomó su responsable actual; null si sin asignar. */
   assignedAt: string | null;
+  /**
+   * 06: ISO (ms) de `coalesce(lastMessageAt, createdAt)`, la clave de orden
+   * de la lista. Solo para que el cliente reordene tras un upsert; NUNCA se
+   * usa para construir un cursor (el cursor sale del servidor, en µs).
+   */
+  sortAt: string;
+  /** 06: etapa del lead del contacto (filtro `stage=<stageId>`), o null. */
+  stageId: string | null;
 };
 
 /**
@@ -52,6 +60,50 @@ export type ConversationDto = {
  * DENTRO de lo visible para quien pide: `all` = todo lo visible (default).
  */
 export type AssignedFilter = "me" | "unassigned" | "all";
+
+/**
+ * 06: pastilla de la Bandeja, `GET /api/conversations?filter=`.
+ * `human` = handoff o IA pausada (regla `needsHuman`); `mine`/`unassigned` =
+ * mismo predicado que `assigned=me|unassigned` (si llegan ambos, se
+ * intersectan). Valor desconocido → `all` (tolerante).
+ */
+export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned";
+
+/**
+ * 06: respuesta de `GET /api/conversations`. `nextCursor` es opaco (lo arma
+ * el servidor); `null` = no hay más, o petición sin `limit` (lista completa,
+ * D-06-1), o modos `ids`/`contact`/`since`.
+ */
+export type ConversationsPage = {
+  conversations: ConversationDto[];
+  nextCursor: string | null;
+};
+
+/**
+ * 06: respuesta de `GET /api/conversations/counts`, siempre dentro de lo
+ * visible para quien pide. Capas (ver dev-tasks/06, "Contrato 06-0"):
+ * - base = visibilidad ∧ q ∧ stage ∧ assigned;
+ * - `all`/`unread`/`human`/`mine`/`unassigned` = base ∧ channel ∧ pastilla;
+ * - `byChannel` = base (sin channel ni pastilla);
+ * - `unreadConversations`/`unreadMessages`/`teamMode` = solo visibilidad.
+ */
+export type ConversationCounts = {
+  all: number;
+  unread: number;
+  human: number;
+  mine: number;
+  unassigned: number;
+  byChannel: Record<Channel, number>;
+  /** Conversaciones con `unread_count > 0`: badge del menú/pestaña (D-05-1). */
+  unreadConversations: number;
+  /** Suma de `unread_count` (informativo; el badge NO lo usa). */
+  unreadMessages: number;
+  /**
+   * ¿Mostrar la asignación? `!owner || miembros(org) > 1 || existe alguna
+   * conversación visible con responsable`. Estable: no depende de lo cargado.
+   */
+  teamMode: boolean;
+};
 
 /**
  * 09: body de `POST /api/conversations/[id]/assign`.
