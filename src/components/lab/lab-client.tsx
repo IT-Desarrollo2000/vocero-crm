@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -23,55 +23,56 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { fichaCheckView } from "@/components/ficha-view";
 import type { FichaCheck } from "@/lib/ficha-fields";
+import { LAB_AJUSTE_CAMPOS, LAB_MAX_PERSONAS_PER_RUN } from "@/lib/lab";
+import type {
+  LabAjusteCampo,
+  LabAppliedDto,
+  LabHallazgoDto,
+  LabPersonaDto,
+  LabPersonasResponse,
+  LabRunCaseDto,
+  LabRunSummaryDto,
+  LabSuggestionApplyResultDto,
+} from "@/lib/types";
+import { labFetch } from "./lab-fetch";
+import {
+  PROFILE_FIELD_LABELS,
+  TIPO_LABELS,
+  defaultSelection,
+  deltaView,
+  pruneSelection,
+  runCreateBody,
+  runnablePersonas,
+  toggleSelection,
+  tooLongMessage,
+} from "./lab-logic";
+import { PersonasPanel, type PersonasState } from "./personas-panel";
+import { RunInsights } from "./run-insights";
 
-type Run = {
-  id: string;
-  status: "running" | "done" | "failed";
-  score: number | null;
-  error: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  delta: number | null;
-};
-
-type Hallazgo = {
-  tipo: "alucinacion" | "fuera_de_kb" | "debio_escalar" | "tono";
-  evidencia: string;
-  sugerencia?: { pregunta: string; respuesta: string };
-};
-
-type Case = {
-  id: string;
-  persona: string;
-  personaLabel: string;
-  status: string;
-  veredicto: "verde" | "amarillo" | "rojo" | null;
-  hallazgos: Hallazgo[];
-  transcript: { role: "cliente" | "agente"; text: string }[];
-  /** 04: qué debía quedar en la ficha y qué quedó. Ausente en corridas viejas. */
-  fichaCheck?: FichaCheck | null;
-};
-
-const TIPO_LABELS: Record<Hallazgo["tipo"], string> = {
-  alucinacion: "Alucinación",
-  fuera_de_kb: "Fuera del conocimiento",
-  debio_escalar: "Debió escalar",
-  tono: "Tono",
-};
+/** Detalle de `GET /api/lab/runs/[id]` (sin delta: ese viene del listado). */
+type RunDetail = Pick<
+  LabRunSummaryDto,
+  "id" | "status" | "score" | "error" | "startedAt" | "finishedAt" | "personaKeys"
+>;
 
 export function LabClient() {
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<LabRunSummaryDto[]>([]);
   const [aiConfigured, setAiConfigured] = useState(true);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ run: Run; cases: Case[] } | null>(null);
+  const [detail, setDetail] = useState<{ run: RunDetail; cases: LabRunCaseDto[] } | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [personas, setPersonas] = useState<PersonasState>({ status: "loading" });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [selectionTouched, setSelectionTouched] = useState(false);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const refetchRuns = useCallback(async () => {
     const res = await fetch("/api/lab/runs").catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json()) as { runs: Run[]; aiConfigured: boolean };
+    const data = (await res.json()) as { runs: LabRunSummaryDto[]; aiConfigured: boolean };
     setRuns(data.runs);
     setAiConfigured(data.aiConfigured);
     // Funcional: tras eliminar la corrida seleccionada, el closure aún vería
@@ -90,8 +91,41 @@ export function LabClient() {
       return;
     }
     if (!res?.ok) return;
-    setDetail((await res.json()) as { run: Run; cases: Case[] });
+    setDetail((await res.json()) as { run: RunDetail; cases: LabRunCaseDto[] });
   }, [refetchRuns]);
+
+  /** Lista activas + archivadas en una sola llamada (se separan en cliente). */
+  const applyPersonas = useCallback(
+    (list: LabPersonaDto[], runInProgress: boolean) => {
+      setPersonas({ status: "ready", personas: list, runInProgress });
+      if (selectionTouched) {
+        setSelected((prev) => pruneSelection(prev, list));
+      } else {
+        const def = defaultSelection(list);
+        setSelected(def.keys);
+        setSelectionNotice(
+          def.capped
+            ? `Hay más de ${LAB_MAX_PERSONAS_PER_RUN} activas: se eligieron las primeras ${LAB_MAX_PERSONAS_PER_RUN}.`
+            : null
+        );
+      }
+    },
+    [selectionTouched]
+  );
+
+  const refetchPersonas = useCallback(async () => {
+    const res = await labFetch<LabPersonasResponse>(
+      "/api/lab/personas?archived=1",
+      undefined,
+      "No se pudieron cargar las personas"
+    );
+    if (res.ok) {
+      applyPersonas(res.data.personas, res.data.runInProgress);
+      return;
+    }
+    if (res.outcome.kind === "not_implemented") setPersonas({ status: "unavailable" });
+    else setPersonas({ status: "error", message: res.outcome.message });
+  }, [applyPersonas]);
 
   async function removeRun(runId: string): Promise<string | null> {
     const res = await fetch(`/api/lab/runs/${runId}`, { method: "DELETE" }).catch(
@@ -110,12 +144,19 @@ export function LabClient() {
       setDetail(null);
     }
     await refetchRuns();
+    setRefreshKey((k) => k + 1);
     return null;
   }
 
   useEffect(() => {
     void refetchRuns();
   }, [refetchRuns]);
+
+  useEffect(() => {
+    void refetchPersonas();
+    // Solo al montar: luego recarga tras cada cambio de personas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (selectedRunId) void refetchDetail(selectedRunId);
@@ -125,6 +166,10 @@ export function LabClient() {
     onLabRun: (data) => {
       setProgress(data.status === "running" ? data.progress : null);
       void refetchRuns();
+      if (data.status !== "running") {
+        setRefreshKey((k) => k + 1);
+        void refetchPersonas();
+      }
       if (selectedRunId === data.runId || !selectedRunId) {
         setSelectedRunId(data.runId);
         void refetchDetail(data.runId);
@@ -132,29 +177,61 @@ export function LabClient() {
     },
   });
 
+  const personaList = personas.status === "ready" ? personas.personas : null;
+
+  function toggle(key: string) {
+    setSelectionTouched(true);
+    const r = toggleSelection(selected, key);
+    setSelected(r.keys);
+    setSelectionNotice(
+      r.limited
+        ? `Máximo ${LAB_MAX_PERSONAS_PER_RUN} personas por corrida: desmarca otra primero.`
+        : null
+    );
+  }
+
   async function launch() {
     setLaunching(true);
     setError(null);
-    const res = await fetch("/api/lab/runs", { method: "POST" }).catch(() => null);
+    const body = runCreateBody(selected, personaList);
+    const res = await labFetch<{ runId: string }>(
+      "/api/lab/runs",
+      { method: "POST", ...(body ? { body } : {}) },
+      "No se pudo lanzar la corrida"
+    );
     setLaunching(false);
-    if (!res) return;
     if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-      setError(data?.error?.message ?? "No se pudo lanzar la corrida");
+      setError(
+        res.outcome.kind === "not_implemented"
+          ? "Disponible pronto: elegir personas por corrida. Por ahora marca todas las activas para correr."
+          : res.outcome.message
+      );
       return;
     }
-    const data = (await res.json()) as { runId: string };
-    setSelectedRunId(data.runId);
-    setProgress({ done: 0, total: 6 });
+    setSelectedRunId(res.data.runId);
+    const total = body?.personaKeys?.length ??
+      (personaList ? Math.min(runnablePersonas(personaList).length, LAB_MAX_PERSONAS_PER_RUN) : null);
+    setProgress(total ? { done: 0, total } : null);
     void refetchRuns();
   }
+
+  const personaNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const p of personaList ?? []) names.set(p.key, p.name);
+    for (const c of detail?.cases ?? []) {
+      if (!names.has(c.persona)) names.set(c.persona, c.personaLabel);
+    }
+    return names;
+  }, [personaList, detail]);
+  const personaName = useCallback(
+    (key: string) => personaNames.get(key) ?? key,
+    [personaNames]
+  );
 
   if (!aiConfigured) {
     return (
       <div className="flex h-full flex-col">
-        <Header running={false} launching={false} onLaunch={() => {}} disabled />
+        <Header running={false} launching={false} onLaunch={() => {}} disabled reason={null} />
         <div className="m-6 rounded-lg border border-brand-soft bg-brand-tint p-8 text-center">
           <Sparkles className="mx-auto mb-2 h-8 w-8 text-primary" />
           <p className="font-medium">
@@ -171,6 +248,9 @@ export function LabClient() {
   }
 
   const running = runs.some((r) => r.status === "running");
+  const noneSelected = personaList !== null && selected.length === 0;
+  const noneActive = personaList !== null && runnablePersonas(personaList).length === 0;
+  const selectedSummary = runs.find((r) => r.id === detail?.run.id) ?? null;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -178,9 +258,20 @@ export function LabClient() {
         running={running}
         launching={launching}
         onLaunch={() => void launch()}
-        disabled={false}
+        disabled={noneSelected}
+        reason={
+          noneActive
+            ? "No hay personas activas: crea una o restaura las predeterminadas."
+            : noneSelected
+              ? "Elige al menos una persona para correr."
+              : null
+        }
       />
-      {error && <p className="px-4 pt-3 text-sm text-destructive sm:px-6">{error}</p>}
+      {error && (
+        <p className="px-4 pt-3 text-sm text-destructive sm:px-6" role="alert">
+          {error}
+        </p>
+      )}
 
       {running && progress && (
         <div className="mx-6 mt-4 rounded-lg border bg-card p-4">
@@ -193,11 +284,19 @@ export function LabClient() {
           <div className="h-2 overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${(progress.done / progress.total) * 100}%` }}
+              style={{ width: `${(progress.done / Math.max(progress.total, 1)) * 100}%` }}
             />
           </div>
         </div>
       )}
+
+      <PersonasPanel
+        state={personas}
+        selected={selected}
+        selectionNotice={selectionNotice}
+        onToggle={toggle}
+        onReload={refetchPersonas}
+      />
 
       <div className="grid gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[280px_1fr]">
         <HistoryList
@@ -207,11 +306,17 @@ export function LabClient() {
           onDelete={removeRun}
         />
         {detail ? (
-          <Report detail={detail} onApplied={() => void refetchDetail(detail.run.id)} />
+          <Report
+            detail={detail}
+            againstId={selectedSummary?.deltaAgainst ?? null}
+            refreshKey={refreshKey}
+            personaName={personaName}
+            onApplied={() => void refetchDetail(detail.run.id)}
+          />
         ) : (
           <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
             {runs.length === 0
-              ? "Corre tu primera evaluación: 6 clientes simulados conversarán con tu agente y un juez calificará cada conversación."
+              ? "Corre tu primera evaluación: tus personas (clientes simulados) conversarán con tu agente y un juez calificará cada conversación."
               : "Elige una corrida del historial."}
           </div>
         )}
@@ -225,11 +330,13 @@ function Header({
   launching,
   onLaunch,
   disabled,
+  reason,
 }: {
   running: boolean;
   launching: boolean;
   onLaunch: () => void;
   disabled: boolean;
+  reason: string | null;
 }) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-6 sm:py-4">
@@ -241,10 +348,22 @@ function Header({
           Sandbox interno — no envía mensajes reales
         </p>
       </div>
-      <Button onClick={onLaunch} disabled={disabled || running || launching}>
-        <Play className="h-4 w-4" />
-        {running ? "Corrida en curso…" : "Correr evaluación"}
-      </Button>
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          aria-label="Correr evaluación"
+          onClick={onLaunch}
+          disabled={disabled || running || launching}
+          aria-describedby={reason ? "lab-run-reason" : undefined}
+        >
+          <Play className="h-4 w-4" />
+          {running ? "Corrida en curso…" : "Correr evaluación"}
+        </Button>
+        {reason && (
+          <p id="lab-run-reason" className="text-[11px] text-muted-foreground">
+            {reason}
+          </p>
+        )}
+      </div>
     </header>
   );
 }
@@ -255,7 +374,7 @@ function HistoryList({
   onSelect,
   onDelete,
 }: {
-  runs: Run[];
+  runs: LabRunSummaryDto[];
   selectedRunId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<string | null>;
@@ -288,7 +407,7 @@ function HistoryRow({
   onSelect,
   onDelete,
 }: {
-  run: Run;
+  run: LabRunSummaryDto;
   selected: boolean;
   onSelect: () => void;
   onDelete: () => Promise<string | null>;
@@ -296,6 +415,7 @@ function HistoryRow({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const delta = deltaView(run);
 
   async function remove() {
     setBusy(true);
@@ -321,21 +441,26 @@ function HistoryRow({
           onClick={onSelect}
           className="min-w-0 flex-1 rounded-lg p-3 text-left"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <ScoreBadge run={run} />
-            {run.delta !== null && run.delta !== 0 && (
+            {delta && delta.kind !== "note" && (
               <span
+                title={delta.title}
                 className={`flex items-center gap-0.5 text-xs font-medium ${
-                  run.delta > 0 ? "text-success" : "text-destructive"
+                  delta.kind === "up" ? "text-success" : "text-destructive"
                 }`}
               >
-                {run.delta > 0 ? (
+                {delta.kind === "up" ? (
                   <TrendingUp className="h-3.5 w-3.5" />
                 ) : (
                   <TrendingDown className="h-3.5 w-3.5" />
                 )}
-                {run.delta > 0 ? "+" : ""}
-                {run.delta}
+                {delta.label}
+              </span>
+            )}
+            {delta?.kind === "note" && (
+              <span title={delta.title} className="text-[11px] text-muted-foreground">
+                {delta.label}
               </span>
             )}
           </div>
@@ -346,6 +471,7 @@ function HistoryRow({
               hour: "2-digit",
               minute: "2-digit",
             })}
+            {run.personaKeys && ` · ${run.personaKeys.length} persona(s)`}
           </p>
         </button>
         {run.status !== "running" && !confirming && (
@@ -394,7 +520,7 @@ function HistoryRow({
   );
 }
 
-function ScoreBadge({ run }: { run: Run }) {
+function ScoreBadge({ run }: { run: Pick<LabRunSummaryDto, "status" | "score"> }) {
   if (run.status === "running") return <Badge variant="secondary">En curso…</Badge>;
   if (run.status === "failed") return <Badge variant="destructive">Fallida</Badge>;
   const score = run.score ?? 0;
@@ -404,9 +530,15 @@ function ScoreBadge({ run }: { run: Run }) {
 
 function Report({
   detail,
+  againstId,
+  refreshKey,
+  personaName,
   onApplied,
 }: {
-  detail: { run: Run; cases: Case[] };
+  detail: { run: RunDetail; cases: LabRunCaseDto[] };
+  againstId: string | null;
+  refreshKey: number;
+  personaName: (key: string) => string;
   onApplied: () => void;
 }) {
   const { run, cases } = detail;
@@ -448,6 +580,14 @@ function Report({
         )}
       </Card>
 
+      <RunInsights
+        runId={run.id}
+        againstId={againstId}
+        runDone={run.status === "done"}
+        refreshKey={refreshKey}
+        personaName={personaName}
+      />
+
       {cases.map((c) => (
         <CaseCard key={c.id} testCase={c} onApplied={onApplied} />
       ))}
@@ -455,10 +595,11 @@ function Report({
   );
 }
 
-function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => void }) {
+function CaseCard({ testCase, onApplied }: { testCase: LabRunCaseDto; onApplied: () => void }) {
   const [open, setOpen] = useState(false);
   const c = testCase;
-  const ficha = c.fichaCheck ? fichaCheckView(c.fichaCheck) : null;
+  const snap = c.personaSnapshot;
+  const ficha = c.fichaCheck ? fichaCheckView(c.fichaCheck as FichaCheck) : null;
   const icon =
     c.veredicto === "verde" ? (
       <CheckCircle2 className="h-4 w-4 text-success" />
@@ -495,6 +636,22 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
       </CardHeader>
       {open && (
         <CardContent className="space-y-3">
+          {snap && (snap.objetivo || snap.criteriosExito) && (
+            // La persona TAL COMO corrió (aunque hoy esté editada o archivada).
+            <div className="rounded-md border p-3 text-sm">
+              {snap.objetivo && (
+                <p>
+                  <span className="text-muted-foreground">Objetivo:</span> {snap.objetivo}
+                </p>
+              )}
+              {snap.criteriosExito && (
+                <p className="mt-1">
+                  <span className="text-muted-foreground">Criterios de éxito:</span>{" "}
+                  {snap.criteriosExito}
+                </p>
+              )}
+            </div>
+          )}
           {c.hallazgos.map((h, i) => (
             <HallazgoCard key={i} hallazgo={h} caseId={c.id} index={i} onApplied={onApplied} />
           ))}
@@ -550,69 +707,180 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
   );
 }
 
+function appliedLabel(a: LabAppliedDto): string {
+  if (a.target === "profile") {
+    return `Aplicada al perfil${a.field ? ` (${PROFILE_FIELD_LABELS[a.field]})` : ""} ✓`;
+  }
+  return "Aplicada al conocimiento ✓";
+}
+
+/**
+ * Hallazgo del juez con sus dos salidas (08, RF-08-12/13): "Agregar al
+ * conocimiento" (sugerencia P/R) y "Aplicar al perfil" (ajuste de tono /
+ * escalamiento / instrucciones). El estado "Aplicada" viene del servidor
+ * (`aplicada`) y es idempotente: un segundo intento responde `alreadyApplied`.
+ */
 function HallazgoCard({
   hallazgo,
   caseId,
   index,
   onApplied,
 }: {
-  hallazgo: Hallazgo;
+  hallazgo: LabHallazgoDto;
   caseId: string;
   index: number;
   onApplied: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"kb" | "profile" | null>(null);
   const [pregunta, setPregunta] = useState(hallazgo.sugerencia?.pregunta ?? "");
   const [respuesta, setRespuesta] = useState(hallazgo.sugerencia?.respuesta ?? "");
-  const [applied, setApplied] = useState(false);
+  const [field, setField] = useState<LabAjusteCampo>(hallazgo.ajuste?.campo ?? "tone");
+  const [text, setText] = useState(hallazgo.ajuste?.texto ?? "");
+  const [localApplied, setLocalApplied] = useState<LabAppliedDto | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Corridas previas al servidor 08-A no traen `aplicada`.
+  const applied = localApplied ?? hallazgo.aplicada ?? null;
+  const fieldId = `${caseId}-${index}`;
 
-  async function apply() {
+  function done(result: LabSuggestionApplyResultDto) {
+    setLocalApplied(result.application);
+    setNote(result.result === "alreadyApplied" ? "Ya estaba aplicada; no se duplicó." : null);
+    setMode(null);
+    onApplied();
+  }
+
+  async function applyKb() {
     setSaving(true);
-    const res = await fetch("/api/lab/suggestions/apply", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ caseId, hallazgoIndex: index, pregunta, respuesta }),
-    }).catch(() => null);
-    setSaving(false);
-    if (res?.ok) {
-      setApplied(true);
-      setEditing(false);
-      onApplied();
+    setError(null);
+    const res = await labFetch<LabSuggestionApplyResultDto>(
+      "/api/lab/suggestions/apply",
+      {
+        method: "POST",
+        body: { testCaseId: caseId, hallazgoIndex: index, target: "kb", pregunta, respuesta },
+      },
+      "No se pudo agregar al conocimiento"
+    );
+    if (res.ok) {
+      setSaving(false);
+      done(res.data);
+      return;
     }
+    if (res.outcome.kind === "not_implemented") {
+      // Mientras 08-A no cablea la forma nueva, la vieja sigue viva.
+      const legacy = await labFetch<{ entry?: { id?: string } }>(
+        "/api/lab/suggestions/apply",
+        { method: "POST", body: { caseId, hallazgoIndex: index, pregunta, respuesta } },
+        "No se pudo agregar al conocimiento"
+      );
+      setSaving(false);
+      if (legacy.ok) {
+        done({
+          result: "applied",
+          application: {
+            target: "kb",
+            field: null,
+            kbEntryId: legacy.data.entry?.id ?? null,
+            appliedText: respuesta,
+            appliedAt: new Date().toISOString(),
+          },
+        });
+      } else {
+        setError(legacy.outcome.message);
+      }
+      return;
+    }
+    setSaving(false);
+    setError(res.outcome.message);
+  }
+
+  async function applyProfile() {
+    setSaving(true);
+    setError(null);
+    const res = await labFetch<LabSuggestionApplyResultDto>(
+      "/api/lab/suggestions/apply",
+      {
+        method: "POST",
+        body: { testCaseId: caseId, hallazgoIndex: index, target: "profile", field, text },
+      },
+      "No se pudo aplicar al perfil"
+    );
+    setSaving(false);
+    if (res.ok) {
+      done(res.data);
+      return;
+    }
+    setError(res.outcome.kind === "too_long" ? tooLongMessage(field) : res.outcome.message);
   }
 
   return (
     <div className="rounded-md border border-warning-soft bg-warning-tint p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Badge variant="warning">{TIPO_LABELS[hallazgo.tipo]}</Badge>
-        {hallazgo.sugerencia && !applied && !editing && (
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-            Agregar al conocimiento
-          </Button>
+        {!applied && !mode && (
+          <div className="flex flex-wrap gap-2">
+            {hallazgo.sugerencia && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setMode("kb");
+                }}
+              >
+                Agregar al conocimiento
+              </Button>
+            )}
+            {hallazgo.ajuste && (
+              <Button
+                size="sm"
+                variant="outline"
+                aria-label="Aplicar al perfil"
+                onClick={() => {
+                  setError(null);
+                  setMode("profile");
+                }}
+              >
+                Aplicar al perfil
+              </Button>
+            )}
+          </div>
         )}
         {applied && (
-          <span className="text-xs text-success">Agregado al conocimiento ✓</span>
+          <span className="text-xs text-success-text" role="status">
+            {appliedLabel(applied)}
+          </span>
         )}
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">Evidencia:</span>{" "}
         {hallazgo.evidencia}
       </p>
-      {editing && hallazgo.sugerencia && (
+      {hallazgo.ajuste && !mode && !applied && (
+        <p className="mt-1 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">
+            Ajuste sugerido ({PROFILE_FIELD_LABELS[hallazgo.ajuste.campo]}):
+          </span>{" "}
+          {hallazgo.ajuste.texto}
+        </p>
+      )}
+      {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
+
+      {mode === "kb" && hallazgo.sugerencia && (
         <div className="mt-3 space-y-2 rounded-md border bg-card p-3">
           <div className="space-y-1">
-            <Label htmlFor={`sug-q-${caseId}-${index}`}>Pregunta</Label>
+            <Label htmlFor={`sug-q-${fieldId}`}>Pregunta</Label>
             <Input
-              id={`sug-q-${caseId}-${index}`}
+              id={`sug-q-${fieldId}`}
               value={pregunta}
               onChange={(e) => setPregunta(e.target.value)}
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor={`sug-a-${caseId}-${index}`}>Respuesta</Label>
+            <Label htmlFor={`sug-a-${fieldId}`}>Respuesta</Label>
             <Textarea
-              id={`sug-a-${caseId}-${index}`}
+              id={`sug-a-${fieldId}`}
               rows={3}
               value={respuesta}
               onChange={(e) => setRespuesta(e.target.value)}
@@ -621,16 +889,66 @@ function HallazgoCard({
           <div className="flex gap-2">
             <Button
               size="sm"
-              onClick={() => void apply()}
+              onClick={() => void applyKb()}
               disabled={saving || !pregunta.trim() || !respuesta.trim()}
             >
               {saving ? "Guardando…" : "Guardar en el KB"}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            <Button size="sm" variant="ghost" disabled={saving} onClick={() => setMode(null)}>
               Cancelar
             </Button>
           </div>
         </div>
+      )}
+
+      {mode === "profile" && hallazgo.ajuste && (
+        <div className="mt-3 space-y-2 rounded-md border bg-card p-3">
+          <div className="space-y-1">
+            <Label htmlFor={`aj-f-${fieldId}`}>Campo del perfil</Label>
+            <select
+              id={`aj-f-${fieldId}`}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={field}
+              onChange={(e) => setField(e.target.value as LabAjusteCampo)}
+            >
+              {LAB_AJUSTE_CAMPOS.map((f) => (
+                <option key={f} value={f}>
+                  {PROFILE_FIELD_LABELS[f]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`aj-t-${fieldId}`}>Texto a agregar</Label>
+            <Textarea
+              id={`aj-t-${fieldId}`}
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Se agrega al final de «{PROFILE_FIELD_LABELS[field]}»; no reemplaza lo que ya
+              tiene.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => void applyProfile()}
+              disabled={saving || !text.trim()}
+            >
+              {saving ? "Guardando…" : "Guardar en el perfil"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={saving} onClick={() => setMode(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p className="mt-2 text-xs text-danger-text" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );

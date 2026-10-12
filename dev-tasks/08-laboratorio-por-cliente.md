@@ -410,11 +410,11 @@ La tendencia (b) **no necesita migración**: se agrega sobre
       en `GET /api/lab/runs/[id]`.
 - [x] T-08-06 `history.ts`: tendencia y diff; rutas `trends` y `diff`; delta
       comparable en `GET /api/lab/runs`.
-- [ ] T-08-07 UI Personas + selector de corrida.
-- [ ] T-08-08 UI tendencia, "Qué cambió", `HallazgoCard` con perfil y estado
+- [x] T-08-07 UI Personas + selector de corrida.
+- [x] T-08-08 UI tendencia, "Qué cambió", `HallazgoCard` con perfil y estado
       persistente.
 - [x] T-08-09 Unit tests (`lab-persona-crud`, `lab-history`,
-      `lab-suggestions`, `lab-ai-mock-judge`; `lab-timeout` con snapshot).
+      `lab-suggestions`, `lab-ai-mock-judge`; `lab-timeout` con snapshot; UI en `lab-ui`).
 - [x] T-08-10 E2E: `scripts/e2e-lab-personas.mjs` + guion
       `tests/e2e/us-lab-personas.md`; `tests/e2e/us4-lab.md` (7 personas ≈ 86) y
       `restore-defaults {set:"autos"}` en los guiones que corren el Lab.
