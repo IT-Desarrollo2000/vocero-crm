@@ -10,6 +10,15 @@ tareas, pruebas y riesgos).
 > re-ejecutadas 2×, gate verde y batería E2E en vivo con los módulos encendidos
 > y apagados. La numeración sigue la lista de propuestas original (por eso no
 > hay 01 ni 07 activos).
+>
+> Prueba con modelo real (MiniMax-M3, perfil + KB de producción en BD aislada,
+> set `autos`, 2026-10-13): antes de 08 score 67 / después corrida 1 50,
+> corrida 2 58 con 1 `judge_failed` (el juez llenaba opcionales con `null`/`{}`
+> y escribía `debió_escalar`). Tras la corrección del juez
+> ([08 · Corrección tras prueba con modelo real](08-laboratorio-por-cliente.md#corrección-tras-prueba-con-modelo-real)):
+> score 64, 7/7 casos juzgados, 0 `judge_failed`, 0 intentos del juez
+> inválidos de 7; re-validando las 20 respuestas crudas del juez de las corridas
+> anteriores: esquema viejo 7 inválidas → esquema nuevo 0.
 
 ## Decisiones ya tomadas
 

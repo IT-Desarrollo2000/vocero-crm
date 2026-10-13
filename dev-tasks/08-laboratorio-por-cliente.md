@@ -512,6 +512,32 @@ Fijado para que servidor (08-A) y UI (08-B) avancen en paralelo. **Manda sobre
 la especificación y el plan técnico** donde difieran (nombres de columnas y
 campos, rutas, cuerpos, siembra en código, `persona_keys`).
 
+### Corrección tras prueba con modelo real
+
+Con MiniMax-M3 real, ofrecerle al juez el `ajuste` opcional (RF-08-11) hizo
+que llenara los opcionales con `"sugerencia": null` o `{}` y una vez escribiera
+`"tipo":"debió_escalar"`; `Verdict` rechazaba el veredicto entero, los 3
+intentos de `chatJson` fallaban y el caso salía del score como `judge_failed`
+(6 de 12 intentos del juez inválidos en una corrida). Arreglo
+(`src/server/lab/judge.ts`, `buildJudgePrompt`):
+
+- `sugerencia` igual que `ajuste`: `.optional().catch(undefined)` y con
+  `pregunta`/`respuesta` no vacías; `null`/`{}`/incompleta → se omite sin
+  invalidar el hallazgo. `evidencia` ausente → `""` (como ya hacía
+  `readHallazgos`).
+- `tipo` y `veredicto` pasan por un `preprocess` que quita acentos, recorta,
+  pasa a minúsculas y cambia espacios/guiones por `_` antes del enum.
+- Un hallazgo irrecuperable (tipo desconocido, no objeto) se **descarta**; el
+  veredicto se conserva. No se inventa un `tipo` por defecto (sería fabricar
+  un hallazgo). Lo único que invalida la salida (y dispara el reintento) es un
+  `veredicto` ausente o no reconocible: es lo que alimenta el score.
+- El prompt del juez pide: "Si un campo opcional no aplica, OMITE la clave;
+  nunca uses null ni {}". Encabezados del ai-mock intactos.
+- Pruebas: `tests/unit/judge-schema.test.ts` (fixtures sintéticos con la forma
+  del modelo: `null`, `{}`, incompleta, tilde, `<think>` + bloque ```json).
+- Re-verificación con el modelo real: ver la línea de evidencia en
+  [README](README.md).
+
 ### Decisiones cerradas
 
 | # | Decisión |

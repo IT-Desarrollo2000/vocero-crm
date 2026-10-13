@@ -1,31 +1,68 @@
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
-import { LAB_AJUSTE_CAMPOS } from "@/lib/lab";
+import { LAB_AJUSTE_CAMPOS, LAB_HALLAZGO_TIPOS } from "@/lib/lab";
 import { buildJudgePrompt, type JudgePersona } from "@/server/ai/prompts";
 
-/** Veredicto estructurado del juez (FR-032, contrato ai.md). */
-export const Verdict = z.object({
-  veredicto: z.enum(["verde", "amarillo", "rojo"]),
-  hallazgos: z.array(
-    z.object({
-      tipo: z.enum(["alucinacion", "fuera_de_kb", "debio_escalar", "tono"]),
-      evidencia: z.string(),
-      sugerencia: z
-        .object({ pregunta: z.string(), respuesta: z.string() })
-        .optional(),
-      /**
-       * 08 — Ajuste opcional del perfil (RF-08-11). Inválido → se descarta
-       * solo el ajuste; el hallazgo y el veredicto se conservan.
-       */
-      ajuste: z
-        .object({
-          campo: z.enum(LAB_AJUSTE_CAMPOS),
-          texto: z.string().trim().min(1),
-        })
-        .optional()
-        .catch(undefined),
+/**
+ * Normaliza un token de enum que el modelo escribió "casi bien":
+ * `"debió_escalar"` → `"debio_escalar"`, `"Fuera de KB"` → `"fuera_de_kb"`,
+ * `"Verde"` → `"verde"`. Lo que no es string pasa intacto (el enum lo rechaza).
+ */
+function normalizeToken(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+/**
+ * Un hallazgo del juez. Tolerancia (corrección tras prueba con modelo real,
+ * 08): los campos opcionales que llegan como `null`, `{}` o incompletos se
+ * degradan a `undefined` sin invalidar el hallazgo; `evidencia` ausente → "".
+ * El `tipo` NO tiene valor por defecto: inventarlo sería fabricar un hallazgo.
+ */
+const Hallazgo = z.object({
+  tipo: z.preprocess(normalizeToken, z.enum(LAB_HALLAZGO_TIPOS)),
+  evidencia: z.string().catch(""),
+  sugerencia: z
+    .object({
+      pregunta: z.string().trim().min(1),
+      respuesta: z.string().trim().min(1),
     })
-  ),
+    .optional()
+    .catch(undefined),
+  /**
+   * 08 — Ajuste opcional del perfil (RF-08-11). Inválido → se descarta
+   * solo el ajuste; el hallazgo y el veredicto se conservan.
+   */
+  ajuste: z
+    .object({
+      campo: z.enum(LAB_AJUSTE_CAMPOS),
+      texto: z.string().trim().min(1),
+    })
+    .optional()
+    .catch(undefined),
+});
+
+/**
+ * Veredicto estructurado del juez (FR-032, contrato ai.md).
+ *
+ * El `veredicto` es lo único imprescindible (alimenta el score): si falta o no
+ * es reconocible, la salida es inválida y chatJson reintenta. Un hallazgo
+ * irrecuperable (tipo desconocido) se DESCARTA en lugar de tumbar el veredicto
+ * entero: perder un hallazgo es mejor que sacar el caso del score como
+ * judge_failed sin que se note.
+ */
+export const Verdict = z.object({
+  veredicto: z.preprocess(normalizeToken, z.enum(["verde", "amarillo", "rojo"])),
+  hallazgos: z
+    .array(Hallazgo.nullable().catch(null))
+    .transform((items) =>
+      items.filter((h): h is z.infer<typeof Hallazgo> => h !== null)
+    ),
 });
 
 export type VerdictType = z.infer<typeof Verdict>;

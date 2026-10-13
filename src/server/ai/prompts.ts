@@ -181,6 +181,9 @@ export function buildJudgePrompt(input: {
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
     "Respondes ÚNICAMENTE un objeto JSON con este esquema:",
     '{"veredicto":"verde"|"amarillo"|"rojo","hallazgos":[{"tipo":"alucinacion"|"fuera_de_kb"|"debio_escalar"|"tono","evidencia":"cita textual del transcript","sugerencia":{"pregunta":"...","respuesta":"..."},"ajuste":{"campo":"tone"|"escalationRules"|"instructions","texto":"..."}}]}',
+    // Corrección tras prueba con modelo real (08): algunos modelos llenan los
+    // opcionales con null o {} en vez de omitirlos.
+    "- Si un campo opcional no aplica, OMITE la clave; nunca uses null ni {}. Los valores de `tipo` van exactamente como en el esquema (sin acentos).",
     "- verde: sin problemas relevantes. amarillo: mejorable. rojo: falla grave.",
     "- `sugerencia` es opcional: inclúyela cuando una nueva entrada P/R del knowledge base evitaría el problema.",
     // 08 (RF-08-11) — Ajuste del perfil: se AGREGA al campo, así que es una
