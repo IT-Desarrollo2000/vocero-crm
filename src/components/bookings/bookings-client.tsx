@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEvents } from "@/components/use-events";
 import type { BookingReminderDto } from "@/lib/reminders";
-import { describeReminder, retryErrorMessage } from "./reminder-labels";
+import { describeReminder, formatDue, retryErrorMessage } from "./reminder-labels";
 
 /** 015 — Citas: lo agendado por el operador y por la IA, con sus acciones. */
 
@@ -46,6 +46,9 @@ const STATUS_LABEL: Record<Booking["status"], string> = {
 
 export function BookingsClient() {
   const [bookings, setBookings] = useState<Booking[] | null>(null);
+  // 10 — Zona del negocio (de `GET /api/bookings`) para la hora de envío de
+  // los recordatorios; sin ella, la del navegador.
+  const [businessTimezone, setBusinessTimezone] = useState<string | undefined>();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +69,12 @@ export function BookingsClient() {
       fetch("/api/calendar/availability").catch(() => null),
     ]);
     if (list?.ok) {
-      const data = (await list.json()) as { bookings: Booking[] };
+      const data = (await list.json()) as {
+        bookings: Booking[];
+        businessTimezone?: string;
+      };
       setBookings(data.bookings);
+      setBusinessTimezone(data.businessTimezone || undefined);
     } else {
       setBookings([]);
     }
@@ -246,7 +253,9 @@ export function BookingsClient() {
                   className="flex flex-wrap items-center gap-2"
                 >
                   {(b.reminders ?? []).map((r) => {
-                    const view = describeReminder(r);
+                    const view = describeReminder(r, (iso) =>
+                      formatDue(iso, businessTimezone)
+                    );
                     const reminderId = r.id;
                     return (
                       <li

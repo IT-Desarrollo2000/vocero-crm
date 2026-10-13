@@ -5,8 +5,10 @@ Especificación y plan técnico de las mejoras elegidas por el dueño el
 con criterios de aceptación) y **Plan técnico** (dónde se toca el código,
 tareas, pruebas y riesgos).
 
-> Estado de todas: **propuesto** — pendientes de revisión del dueño antes de
-> implementar. La numeración sigue la lista de propuestas original (por eso no
+> Estado: **todas hechas** (00, 03, 04, 09, 06, 05, 02, 10, 08) — integración
+> verificada el 2026-10-12 en `feat/dev-tasks-tanda-1`: migraciones 0018/0019
+> re-ejecutadas 2×, gate verde y batería E2E en vivo con los módulos encendidos
+> y apagados. La numeración sigue la lista de propuestas original (por eso no
 > hay 01 ni 07 activos).
 
 ## Decisiones ya tomadas
@@ -27,11 +29,11 @@ tareas, pruebas y riesgos).
 | 2 ✅ | [03 — Contexto del contacto para el agente](03-contexto-del-contacto-para-el-agente.md) — **hecha** (4a08014); falta humo con modelo real antes del deploy | Bajo esfuerzo, mejora inmediata en la calidad de las respuestas. |
 | 3 ✅ | [04 — El agente llena la ficha](04-el-agente-llena-la-ficha.md) — **hecha** (migración 0014); falta humo con modelo real antes del deploy | Se apoya en 03 (el agente ya ve la ficha) y alimenta métricas futuras. |
 | 4 ✅ | [09 — Equipo: asignación y respuestas rápidas](09-equipo-asignacion-y-respuestas-rapidas.md) — **hecha** (migración 0015; integrada) | Define la visibilidad de la Bandeja por vendedor, que 05 y 06 necesitan. |
-| 5 | [06 — Paginación de la Bandeja](06-paginacion-de-la-bandeja.md) | Mueve filtros al servidor heredando la visibilidad de 09. |
-| 6 | [05 — Alertas en la Bandeja](05-alertas-en-la-bandeja.md) | Se monta sobre la Bandeja ya paginada y con visibilidad por rol. |
-| 7 | [02 — Métricas del agente](02-metricas-del-agente.md) | Solo Propietario; deja la base de "Reportes" para el reporte de ventas y 07. |
-| 8 | [10 — Recordatorio de citas y no-shows](10-recordatorio-de-citas-y-no-shows.md) | Independiente (detrás de AGENDA); sus métricas usan la pantalla de 02. |
-| 9 | [08 — Laboratorio por cliente](08-laboratorio-por-cliente.md) | Independiente; útil cuando la agencia sume clientes. |
+| 5 ✅ | [06 — Paginación de la Bandeja](06-paginacion-de-la-bandeja.md) — **hecha** (migración 0016; 4d70e5c…46aba2d; `e2e-bandeja-paginacion` 92/92) |
+| 6 ✅ | [05 — Alertas en la Bandeja](05-alertas-en-la-bandeja.md) — **hecha** (contrato 05/02-0, d28e524 + 5e36e2e; `e2e-alertas` 53/53) |
+| 7 ✅ | [02 — Métricas del agente](02-metricas-del-agente.md) — **hecha** (migración 0017; 7ad2edd + 4c0389b; `e2e-metricas` 83/83 ON y OFF; EXPLAIN con 100 000 mensajes: peor bloque 94 ms) |
+| 8 ✅ | [10 — Recordatorio de citas y no-shows](10-recordatorio-de-citas-y-no-shows.md) — **hecha** (migración 0018; 781fa3a + db4f627; `e2e-recordatorios` 74/74 con AGENDA=on, 404 limpio con AGENDA=off) |
+| 9 ✅ | [08 — Laboratorio por cliente](08-laboratorio-por-cliente.md) — **hecha** (migración 0019; d4f3803…8cbae29; `e2e-lab-personas` 86/86 + UI verificada contra el servidor real); falta la fila del Laboratorio en el «Mapa del código» de `CLAUDE.md` |
 
 ```
 00 Roles ──┬── 03 Contexto ── 04 Ficha

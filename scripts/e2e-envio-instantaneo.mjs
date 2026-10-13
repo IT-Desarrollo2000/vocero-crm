@@ -85,7 +85,12 @@ const outMsgs = async () => {
   const d = await (
     await req.get(`${BASE}/api/conversations/${conv.id}/messages`)
   ).json();
-  return (d.messages ?? []).filter((m) => m.direction === "out");
+  // Solo los del operador: si la org tiene el agente encendido (otro guion de
+  // la batería lo configuró), su respuesta al entrante también es saliente y
+  // no es lo que este guion mide.
+  return (d.messages ?? []).filter(
+    (m) => m.direction === "out" && m.origin === "operator"
+  );
 };
 
 // Calentar la ruta que el guion va a MEDIR: en dev su primera compilación

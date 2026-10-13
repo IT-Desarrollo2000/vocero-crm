@@ -80,6 +80,12 @@ function client() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Prefijo del título como lo pinta la app (`titleWithCount`, src/lib/alerts.ts):
+ * más de 99 → «(99+) ». Sobre una BD compartida por la batería el conteo real
+ * puede pasar de 99.
+ */
+const titlePrefix = (n) => `(${n > 99 ? "99+" : Math.floor(n)}) `;
 const until = async (fn, ms = 20000) => {
   const t0 = Date.now();
   for (;;) {
@@ -296,9 +302,9 @@ async function main() {
     for (const [i, p] of pages.entries()) {
       const t = await until(async () => {
         const title = await p.title();
-        return title.startsWith(`(${n1}) `) ? title : null;
+        return title.startsWith(titlePrefix(n1)) ? title : null;
       }, 10000);
-      ok(`pestaña ${i + 1}: título con «(${n1}) » (= counts.unreadConversations)`, !!t, await p.title());
+      ok(`pestaña ${i + 1}: título con «${titlePrefix(n1)}» (= counts.unreadConversations)`, !!t, await p.title());
     }
     // El punto se dibuja tras cargar el icono de la marca (en dev, la ruta
     // del favicon compila en frío): esperar.
@@ -369,8 +375,8 @@ async function main() {
     ok("0 notificaciones por el eco", all.length === base3, JSON.stringify(all.slice(base3)));
 
     const n2 = await unreadConversations();
-    const t2 = await until(async () => ((await p2.title()).startsWith(`(${n2}) `) ? true : null), 10000);
-    ok(`título sigue a counts: «(${n2}) »`, !!t2, await p2.title());
+    const t2 = await until(async () => ((await p2.title()).startsWith(titlePrefix(n2)) ? true : null), 10000);
+    ok(`título sigue a counts: «${titlePrefix(n2)}»`, !!t2, await p2.title());
 
     console.log("\n== g) Vendedor: solo lo suyo y lo sin asignar ==");
     const sctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
@@ -450,7 +456,7 @@ async function main() {
     const blocked = await until(async () => (await dp.getByText(/Bloqueaste las notificaciones/).count()) > 0, 15000);
     ok("permiso denied → «Bloqueaste las notificaciones…» con instrucciones", !!blocked);
     const n3 = await unreadConversations();
-    const t3 = await until(async () => ((await dp.title()).startsWith(`(${n3}) `) ? true : null), 10000);
+    const t3 = await until(async () => ((await dp.title()).startsWith(titlePrefix(n3)) ? true : null), 10000);
     ok("con permiso denied el título igual cuenta", !!t3 || n3 === 0, await dp.title());
     await dp.goto(`${BASE}/inbox`, { waitUntil: "load" });
     await sleep(1500);

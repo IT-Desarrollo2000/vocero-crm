@@ -27,7 +27,10 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | El cerebro/proveedor LLM | `src/lib/ai/` (adaptador OpenRouter-compatible, `chatJson<T>`) |
 | El comportamiento/prompt del agente | `src/server/ai/prompts.ts` |
 | Las acciones que puede tomar el agente | `src/server/ai/actions.ts` + ejecución en `src/server/ai/pipeline.ts` |
-| Las personas o el juez del Laboratorio | `src/server/lab/personas.ts` · `src/server/lab/judge.ts` |
+| Las personas o el juez del Laboratorio | Personas por organización en BD (`lab_persona`), editables desde la UI del Laboratorio: `src/server/lab/persona-store.ts` (CRUD, siembra perezosa) + `src/server/lab/personas.ts` (sets `autos`/`neutro`, snapshot) · juez: `src/server/lab/judge.ts` + `buildJudgePrompt` en `src/server/ai/prompts.ts` |
+| Roles y permisos | `src/lib/roles.ts` · guarda `withAuth(h, { role: "owner" })` en `src/lib/api.ts` · matriz `src/lib/permissions.ts` (un test exige clasificar toda ruta nueva) · páginas de Propietario bajo `(owner)` con `requireOwnerPage()` |
+| Reportes / métricas | `src/server/reports/` (rango, zona horaria, bloques con timeout) + `src/lib/reports.ts` · UI en `src/app/(app)/(owner)/reports/` |
+| Recordatorios de cita | `src/server/agenda/reminders.ts` (+ `reminder-store.ts`, `reminder-ticker.ts`) — detrás de `AGENDA`; tick manual en dev: `POST /api/dev/reminders/tick` |
 | El canal WhatsApp (Graph API) | `src/lib/meta/` (cliente único) + `src/server/whatsapp/` |
 | Campos/tablas | `src/lib/db/schema.ts` → `pnpm db:generate` → migración nueva en `drizzle/` |
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |

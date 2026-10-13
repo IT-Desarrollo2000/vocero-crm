@@ -1,6 +1,6 @@
 # 10 — Recordatorio de citas y no-shows
 
-> Estado: propuesto · Prioridad: media · Esfuerzo: L · Migración: sí · Bandera: `AGENDA` (existente) + ajuste por organización `reminderEnabled` (apagado por defecto)
+> Estado: hecha (contrato 10-0; migración `0018`; 10-servidor y 10-UI integrados y verificados en vivo: `e2e-recordatorios` 74/74 con `AGENDA=on`, 404 limpio con `AGENDA=off`) · Prioridad: media · Esfuerzo: L · Migración: sí · Bandera: `AGENDA` (existente) + ajuste por organización `reminderEnabled` (apagado por defecto)
 
 ## 1. Especificación
 

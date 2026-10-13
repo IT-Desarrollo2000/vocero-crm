@@ -41,16 +41,25 @@ export function offsetLabel(minutes: number): string {
   return rest ? `${h} h ${rest} min` : `${h} h`;
 }
 
-/** Hora corta en el navegador: «12 oct, 10:00». */
-export function formatDue(iso: string): string {
+/**
+ * Hora corta en la zona del NEGOCIO («12 oct, 10:00»): la que devuelve
+ * `GET /api/bookings` como `businessTimezone`. Sin zona o con una inválida,
+ * cae a la del navegador.
+ */
+export function formatDue(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("es-MX", {
+  const opts: Intl.DateTimeFormatOptions = {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  };
+  try {
+    return date.toLocaleString("es-MX", { ...opts, timeZone });
+  } catch {
+    return date.toLocaleString("es-MX", opts);
+  }
 }
 
 /** Error de envío legible: el `interrumpido` del rescate se explica. */

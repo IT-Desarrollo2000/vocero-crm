@@ -1,6 +1,6 @@
 # 08 — Laboratorio por cliente
 
-> Estado: contrato 08-0 fijado (migración `0019`); pendientes 08-A (servidor) y 08-B (UI) · Prioridad: media-baja · Esfuerzo: L · Migración: sí · Bandera: no aplica (el Laboratorio es núcleo; solo Propietario)
+> Estado: hecha (contrato 08-0; migración `0019`; 08-A servidor y 08-B UI integrados y verificados en vivo: `e2e-lab-personas` 86/86 y la UI contra el servidor real; queda solo la línea de `CLAUDE.md` de T-08-11, ver abajo) · Prioridad: media-baja · Esfuerzo: L · Migración: sí · Bandera: no aplica (el Laboratorio es núcleo; solo Propietario)
 
 > **Manda la sección [«Contrato 08-0»](#contrato-08-0)** (al final) sobre la
 > especificación y el plan técnico donde difieran: nombres de columnas y
@@ -418,10 +418,12 @@ La tendencia (b) **no necesita migración**: se agrega sobre
 - [x] T-08-10 E2E: `scripts/e2e-lab-personas.mjs` + guion
       `tests/e2e/us-lab-personas.md`; `tests/e2e/us4-lab.md` (7 personas ≈ 86) y
       `restore-defaults {set:"autos"}` en los guiones que corren el Lab.
-- [ ] T-08-11 Actualizar `specs/001-vocero-core/spec.md` FR-030/FR-032/FR-033
+- [x] T-08-11 Actualizar `specs/001-vocero-core/spec.md` FR-030/FR-032/FR-033
       (personas por organización, juez con criterios, sugerencias al perfil) y la
       guía de "Mapa del código" en `CLAUDE.md` (personas ya no se cambian en
       `src/server/lab/personas.ts`).
+      — spec enmendada (FR-030/032/033, «Enmienda 08»). Pendiente: la fila del
+      Laboratorio en el «Mapa del código» de `CLAUDE.md` (la edita el dueño).
 
 ### Pruebas
 
@@ -561,7 +563,8 @@ campos, rutas, cuerpos, siembra en código, `persona_keys`).
    set en código: vale para personalizadas y archivadas.
 4. **Runner**: `startRun(orgId, personaKeys?)` → `ensureSeedPersonas` →
    `loadRunPersonas(orgId, keys?)` (activas y sin archivar, por `position`,
-   `key`; 422 `no_personas` / `unknown_persona`) → `config_snapshot` +
+   `key`; 422 `no_personas` / `unknown_persona`; `personaKeys: []` ni llega
+   aquí: la ruta responde antes 422 `invalid_body`) → `config_snapshot` +
    `persona_keys` en el INSERT del run → un caso por persona con
    `persona = key` y `persona_snapshot = personaSnapshot(p)`. `runAllCases`
    lee la persona del `persona_snapshot` (no de `PERSONAS`); `behaviorText` y
@@ -654,7 +657,7 @@ buildJudgePrompt({ persona, personaDescription?, personaDetail?: JudgePersona, �
 | `PATCH /api/lab/personas/[id]` | `LabPersonaPatchInput` (≥ 1 campo; `key`/`phone` se ignoran) | `{ persona }` | 404 `not_found` · 422 · hoy 501 |
 | `DELETE /api/lab/personas/[id]` | — (= archivar, idempotente) | `{ persona }` con `archivedAt` | 404 · hoy 501 |
 | `POST /api/lab/personas/restore-defaults` | opcional `{ set?: "autos"\|"neutro" }` (default: el de la org, o D-08-01) | `LabRestoreDefaultsResponse` `{ set, restored, personas }` | 422 · hoy 501 |
-| `POST /api/lab/runs` | opcional `{ personaKeys?: string[] }` (1..10 únicas; sin cuerpo = todas las activas) | 202 `{ runId }` | 409 `ai_not_configured` · 409 `run_in_progress` · 422 `invalid_body` · 422 `no_personas` · 422 `unknown_persona` · **hoy 501 si llega `personaKeys`**; sin cuerpo, igual que antes |
+| `POST /api/lab/runs` | opcional `{ personaKeys?: string[] }` (1..10 únicas; sin cuerpo o sin `personaKeys` = todas las activas) | 202 `{ runId }` | 409 `ai_not_configured` · 409 `run_in_progress` · 422 `invalid_body` (incluye **`personaKeys: []`**: el esquema exige `.min(1)` y lo rechaza antes del runner; también > 10 o claves repetidas) · 422 `no_personas` (sin cuerpo y ninguna persona activa) · 422 `unknown_persona` (alguna clave inexistente, archivada o inactiva) |
 | `GET /api/lab/runs` | — | `{ runs: LabRunSummaryDto[], aiConfigured }`; aditivo: `personaKeys`, `deltaAgainst`, `deltaNote` | — (**ya implementado**, sin `config_snapshot`) |
 | `GET /api/lab/runs/[id]` | — | `{ run (+ personaKeys), cases: LabRunCaseDto[] }`; aditivo: `personaSnapshot` y `personaLabel` del snapshot; 08-A añade `aplicada` por hallazgo | 404 |
 | `GET /api/lab/runs/[id]/diff` | `?against=<runId>` (default: `done` anterior con snapshot) | `LabRunDiffDto` (`{ available: false, reason: "no_snapshot"\|"no_previous" }` si no aplica) | 404 `not_found` · hoy 501 |

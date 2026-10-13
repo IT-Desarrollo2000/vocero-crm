@@ -24,6 +24,7 @@ import {
 import {
   SKIP_REASON_LABEL,
   describeReminder,
+  formatDue,
   offsetLabel,
   reminderErrorLabel,
   retryErrorMessage,
@@ -292,6 +293,17 @@ describe("recordatorios — etiquetas en Citas", () => {
       "Algo raro"
     );
     expect(retryErrorMessage(500, null)).toBe("No se pudo reintentar el recordatorio.");
+  });
+
+  it("la hora de envío se formatea en la zona del negocio", () => {
+    const iso = "2026-10-12T16:00:00.000Z";
+    // es-MX usa reloj de 12 h: 16:00 UTC = 10:00 a. m. en CDMX (UTC-6).
+    expect(formatDue(iso, "America/Mexico_City")).toMatch(/10:00/);
+    expect(formatDue(iso, "UTC")).toMatch(/04:00/);
+    // Zona inválida: cae a la del navegador sin lanzar.
+    expect(() => formatDue(iso, "Zona/Inexistente")).not.toThrow();
+    expect(formatDue(iso, "Zona/Inexistente")).not.toBe("—");
+    expect(formatDue("no-es-fecha", "UTC")).toBe("—");
   });
 });
 

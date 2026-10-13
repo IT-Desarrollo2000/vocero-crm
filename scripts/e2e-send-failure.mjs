@@ -103,8 +103,20 @@ console.log("\n== El operador lo VE en el hilo ==");
 const page = await ctx.newPage();
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(NAME).first().waitFor({ timeout: 20000 });
+// El texto del mensaje también sale en la vista previa de la lista: se espera
+// la respuesta REAL del hilo (en `next dev` su ruta compila en frío y tarda).
+const hiloCargado = page.waitForResponse(
+  (r) =>
+    r.url().includes(`/api/conversations/${conv.id}/messages`) &&
+    r.request().method() === "GET",
+  { timeout: 60000 }
+);
 await page.getByText(NAME).first().click();
-await page.getByText("mensaje que Meta va a rechazar").waitFor({ timeout: 15000 });
+await hiloCargado;
+const hilo = page
+  .locator("section")
+  .filter({ has: page.getByPlaceholder("Escribe una respuesta") });
+await hilo.getByText("mensaje que Meta va a rechazar").waitFor({ timeout: 15000 });
 await page.waitForTimeout(800);
 
 const thread = await page.locator("main, body").first().innerText();
@@ -117,7 +129,7 @@ const sent2 = await req.post(`${BASE}/api/conversations/${conv.id}/messages`, {
   data: { text: `segundo intento ${S}` },
 });
 ok("segundo mensaje enviado", sent2.ok());
-await page.getByText(`segundo intento ${S}`).waitFor({ timeout: 15000 });
+await hilo.getByText(`segundo intento ${S}`).waitFor({ timeout: 15000 });
 const outbox2 = (await (await req.get(`${BASE}/api/dev/wa-mock/outbox`)).json()).outbox;
 const waId2 = outbox2.at(-1)?.waMessageId;
 await req.post(`${BASE}/api/dev/wa-mock/status`, {

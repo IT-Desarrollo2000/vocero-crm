@@ -437,10 +437,14 @@ Ruta B literalmente (modo de pruebas interno) hasta ver la bandeja funcionando.
 
 **Laboratorio (US4)**
 
-- **FR-030**: El Laboratorio MUST ejecutar 6 personas guionadas fijas (secuencias
-  predefinidas de 4–5 mensajes, sin LLM para el cliente simulado) contra el agente real
+- **FR-030**: El Laboratorio MUST ejecutar personas guionadas (secuencias
+  predefinidas de 1–8 mensajes, sin LLM para el cliente simulado) contra el agente real
   (mismo pipeline de US3) en conversaciones marcadas de prueba, con agrupación de
-  mensajes desactivada (debounce en 0) y turnos secuenciales.
+  mensajes desactivada (debounce en 0) y turnos secuenciales. *Enmienda 08
+  (dev-tasks/08):* las personas son **por organización** (`lab_persona`: crear,
+  editar, archivar, restaurar el set predeterminado `autos`/`neutro`); cada corrida
+  elige 1–10 personas activas (`personaKeys`, sin cuerpo = todas) y guarda la persona
+  tal como corrió (`persona_snapshot`) y la configuración (`config_snapshot`).
 - **FR-031**: Las conversaciones de prueba MUST tener prohibido alcanzar la API de
   WhatsApp: el componente de envío MUST lanzar una excepción si lo intenta (aserción
   dura con test unitario).
@@ -448,11 +452,19 @@ Ruta B literalmente (modo de pruebas interno) hasta ver la bandeja funcionando.
   corrida), recibiendo transcript completo + KB + comportamiento, y devolver un veredicto
   estructurado y validado: verde/amarillo/rojo + hallazgos tipados (alucinación /
   fuera_de_kb / debió_escalar / tono) con evidencia y sugerencia opcional
-  (pregunta/respuesta).
+  (pregunta/respuesta). *Enmienda 08:* una llamada por persona de la corrida; el juez
+  recibe además el objetivo, los rasgos y los criterios de éxito de la persona y
+  puede proponer un `ajuste` opcional al perfil (tono / reglas de escalamiento /
+  instrucciones).
 - **FR-033**: El reporte MUST mostrar score global 0–100 (% ponderado de conversaciones
   verdes), tarjetas de hallazgo con evidencia, y sugerencias aplicables con un click que
   pre-llenan una entrada del KB para editar y guardar; el historial MUST listar corridas
-  con delta de score vs la anterior (sin gráficas en v1).
+  con delta de score vs la anterior (sin gráficas en v1). *Enmienda 08:* la
+  sugerencia también puede aplicarse al perfil (el texto se AGREGA al campo); aplicar
+  es idempotente por hallazgo y queda marcado como aplicado; el delta solo compara
+  contra la corrida anterior con el mismo conjunto de personas ("conjunto distinto"
+  si no hay); se añaden "Qué cambió" (diff de configuración entre corridas) y
+  "Tendencias" (hallazgos por tipo y veredicto por persona).
 - **FR-034**: La ejecución MUST ser en segundo plano dentro del proceso (sin cola
   externa), con progreso consultable, timeout global de 10 minutos → fallida, máximo 1
   corrida concurrente por organización (bloqueo en base de datos), y corridas "corriendo"

@@ -1,6 +1,6 @@
 # 02 — Métricas del agente
 
-> Estado: en curso (contrato 05/02-0 fijado; migración oficial `0017`) · Prioridad: media · Esfuerzo: M (V1) / L (V2) · Migración: sí (tentativa `0016`, siguiente libre tras 00/09/06: índice de `message`; en V2 además tabla `conversation_handoff_event` con siembra) · Bandera: no (núcleo; visible solo para Propietario)
+> Estado: hecha (contrato 05/02-0; migración oficial `0017`; 02-servidor y 02-UI integrados y verificados en vivo: `e2e-metricas` 83/83 con módulos encendidos y apagados; T-02-09 medido) · Prioridad: media · Esfuerzo: M (V1) / L (V2) · Migración: sí (tentativa `0016`, siguiente libre tras 00/09/06: índice de `message`; en V2 además tabla `conversation_handoff_event` con siembra) · Bandera: no (núcleo; visible solo para Propietario)
 >
 > **Manda la sección [«Contrato 05/02-0»](#contrato-0502-0)** sobre cualquier
 > detalle anterior que la contradiga (helper `markHandoff`, evento
@@ -431,8 +431,17 @@ ON CONFLICT ("id") DO NOTHING;
   — integrado: `src/components/reports/types.ts` = `export * from
   "@/lib/reports"` (mismos nombres; `exactSince` opcional y no enviado;
   `error` = `ReportBlockError`); unit `tests/unit/reports-ui.test.ts`.
-- [ ] **T-02-09** `EXPLAIN ANALYZE` con 100 000 mensajes sembrados en la BD de
+- [x] **T-02-09** `EXPLAIN ANALYZE` con 100 000 mensajes sembrados en la BD de
   E2E; ajustar índices si algún bloque pasa de 500 ms. *(T-02-05)*
+  — medido 2026-10-12 en la BD aislada: 100 000 mensajes de la org medida
+  repartidos en 365 días (+ 50 000 de otra org, 3 000 conversaciones, 3 000
+  eventos de escalamiento), `ANALYZE`; SQL real de `AGENT_REPORT_SQL` con
+  `EXPLAIN (ANALYZE, BUFFERS)`, caché caliente. Peor bloque: M4
+  (`responseTimesSql`) 29 ms a 30 días y 94 ms a 90 días; el resto ≤ 34 ms.
+  Todos los barridos de `message` por rango usan `message_org_created_idx`
+  (Bitmap Index Scan) y las búsquedas de la primera respuesta
+  `message_org_conv_idx`; `conversation` va por Seq Scan + Hash Join (barato a
+  esta escala). Sin índices nuevos.
 - [x] **T-02-10** Pruebas (abajo), contrato `api.md`, gate `pnpm typecheck &&
   pnpm lint && pnpm build && pnpm test` + E2E en BD aislada. *(todo)*
   - [x] 02-A: unit (`report-range`, `agent-report-sql`, `agent-report-format`,
@@ -523,7 +532,7 @@ E2E — **`scripts/e2e-metricas.mjs` (nuevo)** + guion
   `CONCURRENTLY` antes del deploy (el `IF NOT EXISTS` lo vuelve no-op).
 - **Riesgo**: M4 usa `lag()` sobre todos los mensajes del rango + 24 h; con
   `message_org_created_idx` es un barrido por rango y un sort por conversación.
-  Medir en T-02-09.
+  Medido en T-02-09: 94 ms a 90 días con 100 000 mensajes.
 
 ## Contrato 05/02-0
 
