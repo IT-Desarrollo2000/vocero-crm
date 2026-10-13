@@ -13,4 +13,4 @@ export const GET = withAuth(async () => {
     isHttps: url.startsWith("https://"),
     signatureLayer: Boolean(env.META_APP_SECRET),
   });
-});
+}, { role: "owner" });

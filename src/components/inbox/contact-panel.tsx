@@ -14,15 +14,25 @@ import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
+import { applyHumanPatch, applyUnlock } from "@/components/ficha-view";
+import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { handoffLabel } from "@/lib/handoff-labels";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 
 export function ContactPanel({
   conversation,
   refreshKey = 0,
   onPatchConversation,
   onClose,
+  assignment = null,
 }: {
   conversation: ConversationDto;
+  /**
+   * 09: control "Responsable" (selector del Propietario o Tomar/Liberar del
+   * Vendedor). Lo arma la Bandeja; null = no se muestra la fila.
+   */
+  assignment?: React.ReactNode;
   /** Aumenta con cada evento SSE relevante: dispara un refetch en vivo. */
   refreshKey?: number;
   onPatchConversation: (patch: {
@@ -33,6 +43,9 @@ export function ContactPanel({
 }) {
   const [notes, setNotes] = useState("");
   const [ficha, setFicha] = useState<FichaDto>({});
+  // 04: definición de campos (null = ficha libre) y procedencia por clave.
+  const [fichaFields, setFichaFields] = useState<FichaFieldDef[] | null>(null);
+  const [fichaMeta, setFichaMeta] = useState<FichaMeta>({});
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [stages, setStages] = useState<StageDto[]>([]);
@@ -44,6 +57,11 @@ export function ContactPanel({
   const [aiConfigured, setAiConfigured] = useState(false);
 
   const contactId = conversation.contact.id;
+  // El Vendedor no configura el agente (dev-tasks/00, RF-00-09): ve el aviso,
+  // pero sin el enlace a /agent, que para él es un 404.
+  const viewer = useViewer();
+  const owner = isOwner(viewer);
+  const viewerId = viewer.userId;
 
   const agentReady = aiConfigured && agentEnabled;
   // El control es la FUENTE DE VERDAD de la conversación: el agente in-process
@@ -61,6 +79,8 @@ export function ContactPanel({
     if (detail) {
       setNotes(detail.contact?.notes ?? "");
       setFicha(detail.contact?.ficha ?? {});
+      setFichaMeta(detail.contact?.fichaMeta ?? {});
+      setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
     }
@@ -82,6 +102,8 @@ export function ContactPanel({
       // conversación ocurre, y verla aparecer sola es justo para lo que sirve.
       // No pisa una edición a medias — el borrador vive dentro del panel.
       setFicha(detail.contact?.ficha ?? {});
+      setFichaMeta(detail.contact?.fichaMeta ?? {});
+      setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
     }
@@ -114,18 +136,25 @@ export function ContactPanel({
 
   /** Manda SOLO lo que cambió: el servidor hace merge (ver `server/bot/ficha`). */
   async function saveFicha(patch: Record<string, FichaValue | null>) {
-    setFicha((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null) delete next[k];
-        else next[k] = v;
-      }
-      return next; // optimista: el refetch de abajo confirma
-    });
+    // Optimista: lo escrito queda con candado; el refetch de abajo confirma.
+    const next = applyHumanPatch(ficha, fichaMeta, patch, new Date().toISOString());
+    setFicha(next.ficha);
+    setFichaMeta(next.meta);
     await fetch(`/api/contacts/${contactId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ficha: patch }),
+    }).catch(() => null);
+    void refreshLive();
+  }
+
+  /** Quita el candado sin borrar el valor: el agente vuelve a poder corregirlo. */
+  async function unlockFicha(key: string) {
+    setFichaMeta(applyUnlock(ficha, fichaMeta, [key], new Date().toISOString()));
+    await fetch(`/api/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fichaUnlock: [key] }),
     }).catch(() => null);
     void refreshLive();
   }
@@ -175,6 +204,22 @@ export function ContactPanel({
               </p>
             </div>
           </div>
+
+          {assignment && (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium">Responsable</p>
+                <p className="truncate text-[11px] text-text-3">
+                  {conversation.assignedTo
+                    ? conversation.assignedTo.userId === viewerId
+                      ? "La atiendes tú"
+                      : conversation.assignedTo.name
+                    : "Sin asignar"}
+                </p>
+              </div>
+              <div className="min-w-0 shrink">{assignment}</div>
+            </div>
+          )}
 
           {conversation.handoffAt && (
             <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
@@ -247,9 +292,13 @@ export function ContactPanel({
                 />
                 <p className="text-[11px] leading-relaxed text-warning-text">
                   {aiConfigured
-                    ? "El agente de Vocero no responde por su cuenta. Configura lo básico y enciéndelo (o conecta tu propio bot por la API)."
-                    : "Falta la clave de IA de la instancia (OPENROUTER_API_TOKEN) para que el agente responda, o conecta tu propio bot por la API."}
-                  {aiConfigured && (
+                    ? owner
+                      ? "El agente de Vocero no responde por su cuenta. Configura lo básico y enciéndelo (o conecta tu propio bot por la API)."
+                      : "El agente de Vocero no responde por su cuenta. Pídele al Propietario que lo configure y lo encienda."
+                    : owner
+                      ? "Falta la clave de IA de la instancia (OPENROUTER_API_TOKEN) para que el agente responda, o conecta tu propio bot por la API."
+                      : "El agente de IA no está disponible en esta instancia. Pídele al Propietario que lo configure."}
+                  {aiConfigured && owner && (
                     <Link
                       href="/agent"
                       className="ml-1 whitespace-nowrap font-medium text-brand-text underline underline-offset-2 hover:text-brand"
@@ -313,7 +362,14 @@ export function ContactPanel({
 
         {/* Ficha: lo que se SABE del lead. Va antes de Notas —lo que alguien
             OPINA— porque es lo que se consulta a mitad de una conversación. */}
-        <FichaPanel ficha={ficha} onSave={saveFicha} />
+        <FichaPanel
+          ficha={ficha}
+          fields={fichaFields}
+          meta={fichaMeta}
+          onSave={saveFicha}
+          onUnlock={unlockFicha}
+          contactId={contactId}
+        />
 
         {/* Notas */}
         <section className="p-4">

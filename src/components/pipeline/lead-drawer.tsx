@@ -8,6 +8,8 @@ import { formatMoneyCents, parseMoneyToCents } from "@/lib/money";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { FichaPanel } from "@/components/ficha-panel";
+import { applyHumanPatch, applyUnlock } from "@/components/ficha-view";
+import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PriorityPicker } from "./priority-picker";
@@ -41,6 +43,8 @@ export function LeadDrawer({
   onPriority: (value: PriorityValue | null) => void;
 }) {
   const [ficha, setFicha] = useState<FichaDto>({});
+  const [fichaFields, setFichaFields] = useState<FichaFieldDef[] | null>(null);
+  const [fichaMeta, setFichaMeta] = useState<FichaMeta>({});
   const [monto, setMonto] = useState("");
   const [editandoMonto, setEditandoMonto] = useState(false);
 
@@ -52,6 +56,8 @@ export function LeadDrawer({
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     setFicha(detail?.contact?.ficha ?? {});
+    setFichaMeta(detail?.contact?.fichaMeta ?? {});
+    setFichaFields(detail?.fichaFields ?? null);
   }, [contactId]);
 
   useEffect(() => {
@@ -71,18 +77,23 @@ export function LeadDrawer({
   }, [onClose]);
 
   async function guardarFicha(patch: Record<string, FichaValue | null>) {
-    setFicha((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === null) delete next[k];
-        else next[k] = v;
-      }
-      return next;
-    });
+    const next = applyHumanPatch(ficha, fichaMeta, patch, new Date().toISOString());
+    setFicha(next.ficha);
+    setFichaMeta(next.meta);
     await fetch(`/api/contacts/${contactId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ficha: patch }),
+    }).catch(() => null);
+    void cargarFicha();
+  }
+
+  async function desbloquearFicha(key: string) {
+    setFichaMeta(applyUnlock(ficha, fichaMeta, [key], new Date().toISOString()));
+    await fetch(`/api/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fichaUnlock: [key] }),
     }).catch(() => null);
     void cargarFicha();
   }
@@ -254,7 +265,14 @@ export function LeadDrawer({
           </section>
 
           {/* Qué se sabe */}
-          <FichaPanel ficha={ficha} onSave={guardarFicha} />
+          <FichaPanel
+            ficha={ficha}
+            fields={fichaFields}
+            meta={fichaMeta}
+            onSave={guardarFicha}
+            onUnlock={desbloquearFicha}
+            contactId={contactId}
+          />
         </div>
       </aside>
     </>

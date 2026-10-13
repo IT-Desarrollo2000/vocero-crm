@@ -1,11 +1,13 @@
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
 import { resolveMembership } from "@/server/auth/on-signup";
+import { normalizeRole, type Role } from "@/lib/roles";
 
 export type SessionContext = {
   userId: string;
   organizationId: string;
-  role: string;
+  /** Rol efectivo, ya normalizado: cualquier valor distinto de "owner" → "member". */
+  role: Role;
 };
 
 export class UnauthorizedError extends Error {
@@ -32,7 +34,7 @@ export async function requireSession(): Promise<SessionContext> {
   return {
     userId: session.user.id,
     organizationId: membership.organizationId,
-    role: membership.role,
+    role: normalizeRole(membership.role),
   };
 }
 

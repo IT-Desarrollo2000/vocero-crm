@@ -3,7 +3,8 @@ import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { deleteTestRun } from "@/server/lab/delete";
-import { PERSONA_LABELS } from "@/server/lab/personas";
+import { legacyPersonaLabel } from "@/server/lab/personas";
+import { hallazgosDto, loadApplications } from "@/server/lab/suggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,17 @@ type Params = { params: Promise<{ id: string }> };
 export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const db = getDb();
+  // Columnas explícitas: `config_snapshot` solo lo lee el diff.
   const runs = await db
-    .select()
+    .select({
+      id: schema.agentTestRun.id,
+      status: schema.agentTestRun.status,
+      score: schema.agentTestRun.score,
+      error: schema.agentTestRun.error,
+      personaKeys: schema.agentTestRun.personaKeys,
+      startedAt: schema.agentTestRun.startedAt,
+      finishedAt: schema.agentTestRun.finishedAt,
+    })
     .from(schema.agentTestRun)
     .where(
       scoped(
@@ -37,6 +47,11 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       )
     )
     .orderBy(asc(schema.agentTestCase.createdAt));
+  // 08 (RF-08-14) — marca persistente de sugerencia aplicada por hallazgo.
+  const applied = await loadApplications(
+    session.organizationId,
+    cases.map((c) => c.id)
+  );
 
   return Response.json({
     run: {
@@ -46,19 +61,25 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       error: run.error,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString() ?? null,
+      // 08 — aditivo: conjunto de la corrida (`null` = anterior a 08).
+      personaKeys: run.personaKeys ?? null,
     },
     cases: cases.map((c) => ({
       id: c.id,
       persona: c.persona,
-      personaLabel: PERSONA_LABELS[c.persona] ?? c.persona,
+      // 08 — la persona tal como corrió; respaldo para corridas viejas.
+      personaLabel: c.personaSnapshot?.name ?? legacyPersonaLabel(c.persona),
+      personaSnapshot: c.personaSnapshot ?? null,
       status: c.status,
       veredicto: c.veredicto,
-      hallazgos: c.hallazgos ?? [],
+      hallazgos: hallazgosDto(c.id, c.hallazgos, applied),
       transcript: c.transcript ?? [],
       conversationId: c.conversationId,
+      // 04 — aditivo: chequeo determinista de la ficha (`null` si no aplica).
+      fichaCheck: c.fichaCheck ?? null,
     })),
   });
-});
+}, { role: "owner" });
 
 export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
@@ -74,4 +95,4 @@ export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
     return apiError(404, "not_found", "Corrida no encontrada");
   }
   return Response.json({ deleted: true });
-});
+}, { role: "owner" });

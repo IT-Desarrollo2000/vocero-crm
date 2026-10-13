@@ -4,7 +4,9 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { getContactById } from "@/server/contacts";
+import { isOwner } from "@/lib/roles";
 import { getOrCreateConversation } from "@/server/inbox/ingest";
+import { gateSend } from "@/server/inbox/queries";
 import { SendError } from "@/server/inbox/send";
 import { isWindowOpen } from "@/server/inbox/window";
 import {
@@ -53,7 +55,11 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
 
   const db = getDb();
   const existing = await db
-    .select({ id: schema.conversation.id, lastInboundAt: schema.conversation.lastInboundAt })
+    .select({
+      id: schema.conversation.id,
+      lastInboundAt: schema.conversation.lastInboundAt,
+      assignedUserId: schema.conversation.assignedUserId,
+    })
     .from(schema.conversation)
     .where(
       scoped(
@@ -64,6 +70,19 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       )
     )
     .limit(1);
+
+  // 09 (RF-09-08): el contacto es del directorio compartido (D-09-1), pero
+  // su conversación puede ser de otro vendedor. Se avisa con 409 (no 404: el
+  // Vendedor sí ve el contacto y necesita saber por qué no puede escribirle)
+  // sin decir quién la tiene. Va ANTES del aviso de ventana: no revela el
+  // estado de una conversación ajena. El Propietario ve todo y no se
+  // auto-asigna (D-09-3): para él no aplica.
+  const seller = !isOwner(session);
+  const assignedToOther = (assignee: string | null) =>
+    assignee !== null && assignee !== session.userId;
+  if (seller && existing[0] && assignedToOther(existing[0].assignedUserId)) {
+    return assignedToOtherError();
+  }
 
   // Gastar una plantilla teniendo la ventana abierta es tirar dinero y
   // reputación de plantilla: se avisa en vez de enviarla.
@@ -77,6 +96,13 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
 
   const conversation =
     existing[0] ?? (await getOrCreateConversation(session.organizationId, id));
+
+  // 09: el Vendedor que inicia queda como responsable; el reclamo atómico es
+  // la compuerta (si otro la tomó en medio, la plantilla no sale).
+  const previousAssignee = existing[0]?.assignedUserId ?? null;
+  if (!(await gateSend(session, conversation.id, previousAssignee))) {
+    return assignedToOtherError();
+  }
 
   try {
     const result = await sendTemplate({
@@ -99,3 +125,12 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
     throw err;
   }
 });
+
+/** 409 de RF-09-08 — sin nombre: el Vendedor no puede ver de quién es. */
+function assignedToOtherError(): Response {
+  return apiError(
+    409,
+    "assigned_to_other",
+    "Esta conversación la atiende otro vendedor"
+  );
+}

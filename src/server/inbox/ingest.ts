@@ -18,6 +18,7 @@ import {
   type ResolvedIdentity,
 } from "@/server/inbox/identity";
 import { applyStatusUpdate } from "@/server/inbox/status";
+import { markHandoff } from "@/server/inbox/handoff";
 import { atribucionEnabled } from "@/server/attribution/flag";
 import { recordAttribution } from "@/server/attribution/store";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
@@ -341,25 +342,21 @@ async function ingestManualEcho(
     .set({ lastMessageAt: waTimestamp, updatedAt: new Date() })
     .where(eq(schema.conversation.id, conversation.id));
 
-  // Pausa automática de la IA, idempotente y atómica (solo si no hay handoff).
-  const paused = await db
-    .update(schema.conversation)
-    .set({
-      aiEnabled: false,
-      handoffAt: new Date(),
-      handoffReason: "manual_reply",
-      // Sin nota: la pausa la provocó el dueño, no hay porqué que explicar.
-      handoffNote: null,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(schema.conversation.id, conversation.id),
-        sql`${schema.conversation.handoffAt} is null`
-      )
-    )
-    .returning();
-  if (paused[0]) {
+  // Pausa automática de la IA, idempotente y atómica (solo si no hay handoff):
+  // puerta única `markHandoff` (05/02-0), que además registra el evento y
+  // publica `conversation.handoff` + `conversation.updated` en la transición.
+  // El `conversation.updated` de abajo se publica igual (el cliente solo
+  // refetchea: un aviso repetido es inocuo).
+  const paused = await markHandoff({
+    organizationId,
+    conversationId: conversation.id,
+    reason: "manual_reply",
+    // Sin nota: la pausa la provocó el dueño, no hay porqué que explicar.
+    note: null,
+    source: "telefono",
+    pauseAi: true,
+  });
+  if (paused.applied) {
     console.log(
       `[webhook] respuesta manual del dueño en ${conversation.id} — IA pausada (manual_reply)`
     );

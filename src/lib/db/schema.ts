@@ -10,6 +10,17 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { FichaCheck, FichaFieldDef, FichaMeta } from "../ficha-fields";
+import {
+  BOOKING_REMINDER_SKIP_REASONS,
+  BOOKING_REMINDER_STATUSES,
+} from "../reminders";
+import type {
+  LabConfigSnapshot,
+  LabExpectFichaRule,
+  LabPersonaSeedData,
+  LabPersonaSnapshot,
+} from "../lab";
 
 /* ============================================================
  * Auth (Better Auth + plugin organization)
@@ -75,17 +86,25 @@ export const organization = pgTable("organization", {
   metadata: text("metadata"),
 });
 
-export const member = pgTable("member", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id")
-    .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  role: text("role").notNull().default("member"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const member = pgTable(
+  "member",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    // 0013 (tarea 00): una membresía por persona y organización. El alta de
+    // equipo hace ON CONFLICT contra este índice.
+    uniqueIndex("member_org_user_uq").on(t.organizationId, t.userId),
+  ]
+);
 
 export const invitation = pgTable("invitation", {
   id: text("id").primaryKey(),
@@ -147,6 +166,13 @@ export const contact = pgTable(
      * Merge campo a campo; `null` explícito borra la clave.
      */
     ficha: jsonb("ficha").$type<Record<string, unknown>>(),
+    /**
+     * 04 — Procedencia por clave de `ficha` (`{ [key]: { by, at, userId? } }`).
+     * Sidecar a propósito: la forma de `ficha` es contrato publicado. NULL o
+     * clave ausente = sin procedencia (dato anterior a 04: el agente no lo
+     * pisa). Solo la escribe la puerta `src/server/bot/ficha.ts`.
+     */
+    fichaMeta: jsonb("ficha_meta").$type<FichaMeta>(),
     /**
      * De dónde salió el prospecto. NULL = nadie la capturó, y entonces la API
      * la deduce. Así no hace falta backfill ni marcar en falso los contactos
@@ -315,6 +341,29 @@ export const leadStageEvent = pgTable(
   ]
 );
 
+/**
+ * Catálogo de motivos de handoff: una sola fuente para la columna de
+ * `conversation` y la bitácora `conversation_handoff_event`.
+ */
+export const HANDOFF_REASONS = [
+  "cliente",
+  "modelo",
+  "error",
+  "ventana",
+  "hostilidad",
+  "manual_reply",
+] as const;
+
+/** Quién provocó un escalamiento (`conversation_handoff_event.source`). */
+export const HANDOFF_SOURCES = [
+  "agente",
+  "bot_externo",
+  "telefono",
+  "operador",
+  "sistema",
+  "migracion",
+] as const;
+
 export const conversation = pgTable(
   "conversation",
   {
@@ -345,14 +394,7 @@ export const conversation = pgTable(
     handoffReason: text("handoff_reason", {
       // 008: manual_reply = el dueño respondió desde la app del teléfono.
       // hostilidad = el lead se puso agresivo y el agente se retiró.
-      enum: [
-        "cliente",
-        "modelo",
-        "error",
-        "ventana",
-        "hostilidad",
-        "manual_reply",
-      ],
+      enum: HANDOFF_REASONS,
     }),
     /**
      * Explicación libre de quien escaló (el agente o el cerebro externo): el
@@ -363,6 +405,17 @@ export const conversation = pgTable(
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
     unreadCount: integer("unread_count").notNull().default(0),
+    /**
+     * 09: responsable de la conversación (a lo sumo uno). NULL = sin asignar.
+     * Solo usuarios miembros de la org; las `is_test` nunca se asignan. La
+     * baja de un vendedor la devuelve a NULL (`onMemberRemoved`); el
+     * ON DELETE SET NULL cubre además un borrado físico del usuario.
+     */
+    assignedUserId: text("assigned_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** 09: cuándo la tomó su responsable actual (NULL si sin asignar). */
+    assignedAt: timestamp("assigned_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -372,6 +425,132 @@ export const conversation = pgTable(
       .on(t.organizationId, t.contactId)
       .where(sql`${t.isTest} = false`),
     index("conversation_org_last_idx").on(t.organizationId, t.lastMessageAt),
+    // 09: Bandeja por responsable ("Mías" / "Sin asignar").
+    index("conversation_org_assignee_idx").on(
+      t.organizationId,
+      t.assignedUserId
+    ),
+    // 06: orden de la Bandeja (keyset sobre (sort_at, id), migración 0016).
+    // NO parcial: `is_test = false` viaja como parámetro y un plan genérico
+    // no podría probar el predicado de un índice parcial. Las expresiones van
+    // como SQL crudo para que el texto (`DESC`, sin `NULLS LAST`) sea idéntico
+    // al ORDER BY de `listConversations` (dev-tasks/06, "Contrato 06-0").
+    index("conversation_org_sort_idx").on(
+      t.organizationId,
+      sql`(coalesce(${t.lastMessageAt}, ${t.createdAt})) DESC`,
+      sql`${t.id} DESC`
+    ),
+  ]
+);
+
+/**
+ * 04 — Bitácora de la ficha: append-only. Una fila por clave cuyo valor cambió
+ * o cuyo intento de escritura se ignoró (candado humano, tipo, opción, tope…).
+ * Reenviar el mismo valor no genera fila.
+ *
+ * Regla dura: la ÚNICA puerta que inserta aquí —y que escribe `contact.ficha`
+ * y `contact.ficha_meta`— es `src/server/bot/ficha.ts`.
+ *
+ * Los valores son de calificación de un cliente ajeno: viven aquí (BD propia)
+ * pero jamás en logs (Constitución I).
+ */
+export const fichaEvent = pgTable(
+  "ficha_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contact.id, { onDelete: "cascade" }),
+    /** En qué conversación ocurrió (agente / bot); NULL = edición desde la UI. */
+    conversationId: text("conversation_id").references(() => conversation.id, {
+      onDelete: "set null",
+    }),
+    key: text("key").notNull(),
+    /** Escalar (o NULL = no había valor). */
+    oldValue: jsonb("old_value").$type<string | number | boolean | null>(),
+    /** Escalar (o NULL = borrado / intento sin valor guardable). */
+    newValue: jsonb("new_value").$type<string | number | boolean | null>(),
+    source: text("source", { enum: ["ia", "humano", "bot"] }).notNull(),
+    /** Solo `source = "humano"`. */
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    outcome: text("outcome", {
+      enum: ["aplicado", "ignorado_humano", "invalido"],
+    }).notNull(),
+    /** `FichaIgnoreReason` (src/lib/ficha-fields.ts); NULL si se aplicó. */
+    reason: text("reason", {
+      enum: [
+        "candado_humano",
+        "clave_desconocida",
+        "no_la_llena_el_agente",
+        "tipo",
+        "opcion",
+        "tope",
+      ],
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("ficha_event_org_contact_idx").on(
+      t.organizationId,
+      t.contactId,
+      t.createdAt
+    ),
+  ]
+);
+
+/**
+ * 02/05 — Bitácora de escalamientos a humano: append-only. Una fila por cada
+ * TRANSICIÓN a handoff (`conversation.handoff_at` de NULL a una fecha). El
+ * estado de `conversation` se limpia al reactivar y se sobrescribe; esta
+ * tabla es el historial que permite contar escalamientos por motivo y periodo.
+ *
+ * Regla dura: la ÚNICA puerta que inserta aquí es `markHandoff`
+ * (`src/server/inbox/handoff.ts`), en la misma transacción que el UPDATE de
+ * `conversation`. Nadie actualiza ni borra (un unit test de vigilancia lo
+ * exige). Las conversaciones `is_test` (Laboratorio) jamás se registran.
+ *
+ * `created_at` ES la hora del evento (no hay `occurred_at`): las filas
+ * sembradas por la migración 0017 llevan `created_at = handoff_at` y
+ * `approximate = true` (cuentan para totales, jamás para promedios de tiempo).
+ */
+export const conversationHandoffEvent = pgTable(
+  "conversation_handoff_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    /** Hoy solo "opened"; "closed" queda reservado (reactivar no registra). */
+    kind: text("kind", { enum: ["opened", "closed"] }).notNull(),
+    /** Motivo (catálogo de `conversation.handoffReason`); NULL en "closed". */
+    reason: text("reason", { enum: HANDOFF_REASONS }),
+    /** Nota libre recortada (`toHandoffNote`), igual que `handoff_note`. */
+    note: text("note"),
+    /**
+     * Quién escaló: el agente in-process, el cerebro externo (`/api/bot`),
+     * el dueño desde el teléfono (manual_reply), un operador, el sistema o
+     * la siembra de la migración.
+     */
+    source: text("source", { enum: HANDOFF_SOURCES }).notNull(),
+    /** NULL = no lo hizo una persona con sesión en el CRM. */
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** true = sembrada en la migración (hora aproximada). */
+    approximate: boolean("approximate").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("hoe_org_created_idx").on(t.organizationId, t.createdAt),
+    index("hoe_org_reason_idx").on(t.organizationId, t.reason),
   ]
 );
 
@@ -420,6 +599,8 @@ export const message = pgTable(
       t.conversationId,
       t.createdAt
     ),
+    // 02: barrido por rango de fechas de toda la org (Reportes, migración 0017).
+    index("message_org_created_idx").on(t.organizationId, t.createdAt),
   ]
 );
 
@@ -581,6 +762,12 @@ export const agentProfile = pgTable(
     instructions: text("instructions"),
     escalationRules: text("escalation_rules"),
     greeting: text("greeting"),
+    /**
+     * 04 — Definición de los campos de la ficha (orden = orden del panel).
+     * NULL = sin definición: ficha libre y el agente no llena nada.
+     * Se valida con `fichaFieldsSchema` (src/lib/ficha-fields.ts).
+     */
+    fichaFields: jsonb("ficha_fields").$type<FichaFieldDef[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -646,6 +833,13 @@ export const agentTestRun = pgTable(
       .default("running"),
     score: integer("score"),
     error: text("error"),
+    /**
+     * 08 — Perfil + KB + personas + modelos al crear la corrida (RF-08-15).
+     * Pesado: los listados NO lo seleccionan. NULL = corrida anterior a 08.
+     */
+    configSnapshot: jsonb("config_snapshot").$type<LabConfigSnapshot>(),
+    /** 08 — Claves de las personas de la corrida (delta comparable). */
+    personaKeys: jsonb("persona_keys").$type<string[]>(),
     startedAt: timestamp("started_at").notNull().defaultNow(),
     finishedAt: timestamp("finished_at"),
   },
@@ -689,6 +883,31 @@ export const calendarSettings = pgTable(
     connector: text("connector").notNull().default("enlace-fijo"),
     /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
     meetingLink: text("meeting_link"),
+    /* ── 10 — Recordatorios de cita (contrato 10-0, migración 0018) ── */
+    /** Apagado por defecto: activarlo exige plantilla aprobada y mapeo completo. */
+    reminderEnabled: boolean("reminder_enabled").notNull().default(false),
+    /**
+     * Instante (puesto por JS) de la última transición apagado → encendido.
+     * Solo se avisan recordatorios cuyo momento de envío (`scheduled_at −
+     * offset`) sea ≥ esta fecha: encender no dispara una ráfaga sobre las
+     * citas ya agendadas. Apagar no lo borra; re-encender lo reescribe.
+     */
+    reminderEnabledAt: timestamp("reminder_enabled_at"),
+    /** Plantilla aprobada de WhatsApp; borrarla deja el ajuste sin plantilla. */
+    reminderTemplateId: text("reminder_template_id").references(
+      () => template.id,
+      { onDelete: "set null" }
+    ),
+    /** Anticipaciones en minutos (1 o 2 valores, 60..4320). */
+    reminderOffsetsMinutes: jsonb("reminder_offsets_minutes")
+      .$type<number[]>()
+      .notNull()
+      .default([1440]),
+    /** Campo del catálogo por cada `{{n}}` (índice = n − 1). */
+    reminderVariables: jsonb("reminder_variables")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -799,6 +1018,105 @@ export const offeredSlot = pgTable(
 );
 
 /**
+ * 10 — Un recordatorio de cita: una fila por `(cita, anticipación, hora de la
+ * cita)`. El UNIQUE de esa terna ES el claim atómico (`INSERT … ON CONFLICT DO
+ * NOTHING RETURNING`): dos ticks simultáneos —o dos réplicas— no pueden enviar
+ * dos veces (a lo sumo una vez, D-10-02).
+ *
+ * `scheduled_for` es la copia de `booking.scheduled_at` al reclamar: al
+ * reprogramar, la clave cambia y nacen recordatorios nuevos; los de la hora
+ * anterior quedan como historial.
+ *
+ * Todos los tiempos de la lógica (`claimed_at`, `sent_at`) los pone JS con el
+ * reloj inyectado (`runReminderTick(now)`), nunca un `DEFAULT now()` de SQL:
+ * así se prueba "interrumpido a los 10 min" sin esperar 10 min.
+ *
+ * Las citas `is_test` (Laboratorio) JAMÁS generan fila.
+ */
+export const bookingReminder = pgTable(
+  "booking_reminder",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => booking.id, { onDelete: "cascade" }),
+    /** Minutos antes de la cita (una de las anticipaciones configuradas). */
+    offsetMinutes: integer("offset_minutes").notNull(),
+    /** La hora de la cita (UTC, sin zona, igual que `booking.scheduled_at`). */
+    scheduledFor: timestamp("scheduled_for").notNull(),
+    /** Ver `BOOKING_REMINDER_STATUSES` (`src/lib/reminders.ts`). */
+    status: text("status", { enum: BOOKING_REMINDER_STATUSES }).notNull(),
+    /** Motivo de `skipped` (catálogo `BOOKING_REMINDER_SKIP_REASONS`). */
+    reason: text("reason", { enum: BOOKING_REMINDER_SKIP_REASONS }),
+    /** Texto legible del fallo (`failed`), p. ej. `interrumpido`. */
+    error: text("error"),
+    /** Plantilla con la que se intentó (la del ajuste en ese momento). */
+    templateId: text("template_id").references(() => template.id, {
+      onDelete: "set null",
+    }),
+    /** Mensaje persistido por `sendTemplate`: de aquí sale el estado de entrega. */
+    messageId: text("message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    /** Id de Meta del envío (copia cruda; la entrega se lee de `message`). */
+    waMessageId: text("wa_message_id"),
+    /** 1 = intento automático; 2 = el único reintento manual (D-10-02). */
+    attempts: integer("attempts").notNull().default(1),
+    /** Puesto por JS al reclamar (y al reintentar). Sin default a propósito. */
+    claimedAt: timestamp("claimed_at").notNull(),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("booking_reminder_claim_uq").on(
+      t.bookingId,
+      t.offsetMinutes,
+      t.scheduledFor
+    ),
+    index("booking_reminder_org_status_idx").on(
+      t.organizationId,
+      t.status,
+      t.claimedAt
+    ),
+  ]
+);
+
+/**
+ * 10 — Bitácora APPEND-ONLY de rondas de horarios ofrecidos (D-10-07): el
+ * denominador de "oferta → cita". `offered_slot` no sirve porque se borra en
+ * cada ronda. Se inserta DESPUÉS de confirmar la oferta, en try/catch: un
+ * fallo del registro jamás revierte ni bloquea la oferta. Nadie actualiza ni
+ * borra.
+ */
+export const agendaOfferLog = pgTable(
+  "agenda_offer_log",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    /** Copia de `conversation.is_test`: las métricas lo excluyen. */
+    isTest: boolean("is_test").notNull().default(false),
+    /** Instantes UTC ofrecidos (ISO-8601), en el orden mostrado. */
+    slots: jsonb("slots").$type<string[]>().notNull().default([]),
+    slotCount: integer("slot_count").notNull(),
+    /** Hora de la ronda (la pone JS; el default solo cubre inserciones a mano). */
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("agenda_offer_log_org_created_idx").on(t.organizationId, t.createdAt),
+    index("agenda_offer_log_conv_idx").on(t.conversationId),
+  ]
+);
+
+/**
  * Credenciales del conector Zoom (app Server-to-Server del propio negocio).
  * Tabla explícita como las de WhatsApp e Instagram: unas credenciales tienen
  * forma fija y conocida, y así conservan tipado e índices. El secreto se cifra
@@ -872,6 +1190,13 @@ export const agentTestCase = pgTable(
     transcript: jsonb("transcript"),
     veredicto: text("veredicto", { enum: ["verde", "amarillo", "rojo"] }),
     hallazgos: jsonb("hallazgos"),
+    /**
+     * 04 — Chequeo determinista de llenado de la ficha por persona. Aparte de
+     * `transcript` (que alimenta al juez) y fuera del score: informativo.
+     */
+    fichaCheck: jsonb("ficha_check").$type<FichaCheck>(),
+    /** 08 — La persona tal como corrió (sobrevive a ediciones y archivado). */
+    personaSnapshot: jsonb("persona_snapshot").$type<LabPersonaSnapshot>(),
     status: text("status", {
       enum: ["pending", "running", "done", "judge_failed"],
     })
@@ -880,6 +1205,91 @@ export const agentTestCase = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("test_case_run_idx").on(t.runId)]
+);
+
+/* ============================================================
+ * 08 — Laboratorio por cliente
+ * ============================================================ */
+
+/**
+ * Personas guionadas del Laboratorio, por organización. `key` es un slug
+ * ESTABLE: el juez y el ai-mock despachan por ella y `agent_test_case.persona`
+ * la guarda. Borrar = archivar (`archived_at`). La siembra va en código
+ * (`ensureSeedPersonas`), no en la migración.
+ */
+export const labPersona = pgTable(
+  "lab_persona",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    objetivo: text("objetivo").notNull().default(""),
+    rasgos: text("rasgos"),
+    /** 1..8 mensajes; el primero es el mensaje inicial. */
+    guion: jsonb("guion").$type<string[]>().notNull(),
+    criteriosExito: text("criterios_exito"),
+    contactName: text("contact_name").notNull(),
+    /** Sintético (`52100000…`), lo genera el servidor; jamás del usuario. */
+    phone: text("phone").notNull(),
+    seed: jsonb("seed").$type<LabPersonaSeedData>(),
+    expectFicha: jsonb("expect_ficha")
+      .$type<LabExpectFichaRule[]>()
+      .notNull()
+      .default([]),
+    /** `autos` | `neutro` si nació de la semilla (D-08-01); NULL = personalizada. */
+    seedSet: text("seed_set", { enum: ["autos", "neutro"] }),
+    active: boolean("active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lab_persona_org_key_uq").on(t.organizationId, t.key),
+    index("lab_persona_org_pos_idx").on(t.organizationId, t.position),
+  ]
+);
+
+/**
+ * Sugerencia del juez ya aplicada (RF-08-13). UNIQUE (test_case_id,
+ * hallazgo_index): el INSERT … ON CONFLICT DO NOTHING es el candado de
+ * idempotencia, en la MISMA transacción que el efecto (KB o perfil).
+ */
+export const labSuggestionApplication = pgTable(
+  "lab_suggestion_application",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    testCaseId: text("test_case_id")
+      .notNull()
+      .references(() => agentTestCase.id, { onDelete: "cascade" }),
+    hallazgoIndex: integer("hallazgo_index").notNull(),
+    target: text("target", { enum: ["kb", "profile"] }).notNull(),
+    /** Solo `profile`: tone | escalationRules | instructions. */
+    field: text("field", {
+      enum: ["tone", "escalationRules", "instructions"],
+    }),
+    kbEntryId: text("kb_entry_id").references(() => kbEntry.id, {
+      onDelete: "set null",
+    }),
+    appliedText: text("applied_text").notNull(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lab_suggestion_case_hallazgo_uq").on(
+      t.testCaseId,
+      t.hallazgoIndex
+    ),
+    index("lab_suggestion_org_idx").on(t.organizationId),
+  ]
 );
 
 /* ============================================================
@@ -1012,4 +1422,38 @@ export const capiSettings = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("capi_settings_org_uq").on(t.organizationId)]
+);
+
+/* ============================================================
+ * 09 — Respuestas rápidas (catálogo de la organización)
+ * ============================================================ */
+
+/**
+ * Textos oficiales del negocio que el equipo inserta con `/` en el
+ * compositor. Los gestiona el Propietario; todos los leen. `shortcut` se
+ * guarda en minúsculas (`^[a-z0-9_-]{1,32}$`) y es único por org.
+ */
+export const quickReply = pgTable(
+  "quick_reply",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    shortcut: text("shortcut").notNull(),
+    title: text("title").notNull(),
+    /** 1-4096; admite {{nombre}}, {{nombre_completo}}, {{vendedor}}, {{negocio}}. */
+    body: text("body").notNull(),
+    /** Orden del selector y de los chips (ascendente). */
+    position: integer("position").notNull().default(0),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("quick_reply_org_shortcut_uq").on(t.organizationId, t.shortcut),
+    index("quick_reply_org_pos_idx").on(t.organizationId, t.position),
+  ]
 );

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { parseBody, withAuth } from "@/lib/api";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
 import { listBookings } from "@/server/agenda/queries";
+import { getSettings } from "@/server/agenda/settings";
 import { createBlock, createSessionBooking } from "@/server/agenda/service";
 import { bookingErrorResponse, bookingPayload } from "@/server/agenda/http";
 
@@ -9,8 +10,14 @@ export const dynamic = "force-dynamic";
 
 export const GET = withAuth(async (session) => {
   if (!agendaEnabled()) return agendaDisabledResponse();
-  const bookings = await listBookings(session.organizationId);
-  return Response.json({ bookings });
+  const [bookings, settings] = await Promise.all([
+    listBookings(session.organizationId),
+    getSettings(session.organizationId),
+  ]);
+  // 10 — `businessTimezone` (aditivo): el Vendedor no puede leer
+  // `/api/calendar/settings` y la UI formatea en la zona del NEGOCIO la hora
+  // de envío de cada recordatorio pendiente, no en la del navegador.
+  return Response.json({ bookings, businessTimezone: settings.timezone });
 });
 
 const postSchema = z.discriminatedUnion("kind", [

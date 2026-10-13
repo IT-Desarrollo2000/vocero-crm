@@ -76,3 +76,22 @@ describe("computeScore (FR-033: judge_failed excluido del denominador)", () => {
     expect(computeScore(rojos)).toBe(0);
   });
 });
+
+describe("03 — el juez recibe la descripción y la semilla de la persona", () => {
+  it("judgeCase pasa descripción + semilla; la clave sigue al frente (el ai-mock la busca)", async () => {
+    chatJson.mockReset();
+    chatJson.mockResolvedValue({ ok: true, data: { veredicto: "verde", hallazgos: [] }, raw: "{}" });
+    await judgeCase({
+      personaKey: "cliente_que_regresa",
+      personaDescription: "Ya había preguntado antes",
+      seedText: "- modelo_interes: Leapmotor T03",
+      transcript: [],
+      kbText: "",
+      behaviorText: "",
+    });
+    const user = (chatJson.mock.calls[0]![1] as { content: string }[])[1]!.content;
+    expect(user).toContain("PERSONA SIMULADA: cliente_que_regresa — Ya había preguntado antes");
+    expect(user).toContain("El agente tenía estos datos del cliente");
+    expect(user).toContain("Leapmotor T03");
+  });
+});

@@ -23,4 +23,4 @@ export const GET = withAuth(async (session, req: Request) => {
   const limit = Number.isFinite(parsed) ? parsed : undefined;
   const events = await listConversionActivity(session.organizationId, limit);
   return Response.json({ events });
-});
+}, { role: "owner" });

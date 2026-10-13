@@ -1,4 +1,4 @@
-import { count, eq, sql } from "drizzle-orm";
+import { asc, count, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 
@@ -65,6 +65,11 @@ export async function resolveActiveOrganizationId(
   return (await resolveMembership(userId))?.organizationId ?? null;
 }
 
+/**
+ * Membresía efectiva de un usuario. Determinista (RF-00-14): si hubiera más de
+ * una, gana la de mayor privilegio (owner), luego la más antigua y el id como
+ * desempate estable — el mismo criterio con el que 0013 deduplicó.
+ */
 export async function resolveMembership(
   userId: string
 ): Promise<{ organizationId: string; role: string } | null> {
@@ -76,6 +81,11 @@ export async function resolveMembership(
     })
     .from(schema.member)
     .where(eq(schema.member.userId, userId))
+    .orderBy(
+      asc(sql`case when ${schema.member.role} = 'owner' then 0 else 1 end`),
+      asc(schema.member.createdAt),
+      asc(schema.member.id)
+    )
     .limit(1);
   return rows[0] ?? null;
 }

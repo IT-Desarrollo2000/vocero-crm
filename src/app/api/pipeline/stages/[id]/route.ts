@@ -38,7 +38,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
     .returning();
   if (!updated[0]) return apiError(404, "not_found", "Etapa no encontrada");
   return Response.json({ stage: updated[0] });
-});
+}, { role: "owner" });
 
 export const DELETE = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
@@ -121,4 +121,4 @@ export const DELETE = withAuth(async (session, req: Request, ctx: Params) => {
       )
     );
   return Response.json({ deleted: true, movedLeads: n });
-});
+}, { role: "owner" });

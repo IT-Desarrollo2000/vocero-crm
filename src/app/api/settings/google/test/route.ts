@@ -39,4 +39,4 @@ export const POST = withAuth(async (session, req: Request) => {
   });
   if (!check.ok) return apiError(422, "google_invalid", check.error);
   return Response.json({ ok: true, detail: check.detail ?? null });
-});
+}, { role: "owner" });

@@ -65,6 +65,27 @@ ok("las 3 personas de prueba están en la bandeja",
 const page = await ctx.newPage();
 const rows = () => page.locator("ul > li button").allInnerTexts();
 
+/**
+ * 06: búsqueda, etapa y pastillas son filtros de SERVIDOR (la búsqueda con
+ * debounce de 300 ms + la petición). Una espera fija de 300-400 ms corría
+ * contra esa petición; se espera la respuesta de la lista con los
+ * parámetros esperados (`want(params)`) y un respiro para pintar. Si la
+ * acción no cambia nada (no hay petición), se sigue al vencer el tope.
+ */
+const settle = async (action, want = () => true) => {
+  const resp = page
+    .waitForResponse((r) => {
+      const u = new URL(r.url());
+      return u.pathname === "/api/conversations" && u.searchParams.has("limit") &&
+        !u.searchParams.has("cursor") && want(u.searchParams);
+    }, { timeout: 8000 })
+    .catch(() => null);
+  await action();
+  await resp;
+  await page.waitForTimeout(150);
+};
+const withQ = (q) => (p) => (p.get("q") ?? "") === q.trim();
+
 console.log("\n== Bandeja: teclear mientras la página aún carga (el bug) ==");
 await page.goto(`${BASE}/inbox`, { waitUntil: "commit" });
 const box = page.getByLabel("Buscar conversación");
@@ -81,8 +102,7 @@ ok("y la lista quedó filtrada a esa persona",
 
 console.log("\n== Bandeja: búsqueda tolerante ==");
 const search = async (q) => {
-  await box.fill(q);
-  await page.waitForTimeout(400);
+  await settle(() => box.fill(q), withQ(q));
   return rows();
 };
 const has = (l, name) => l.some((t) => t.includes(name));
@@ -109,8 +129,7 @@ ok("dos dígitos sueltos no emparejan teléfonos",
    !has(list, `Zoraida${S}`), JSON.stringify(list));
 
 await search(`Zoraida${S}`);
-await page.getByLabel("Limpiar búsqueda").click();
-await page.waitForTimeout(300);
+await settle(() => page.getByLabel("Limpiar búsqueda").click(), withQ(""));
 ok("el botón X limpia la búsqueda", (await box.inputValue()) === "");
 ok("y vuelven todas las conversaciones", (await rows()).length >= 3);
 
@@ -121,18 +140,15 @@ const options = await sel.locator("option").allInnerTexts();
 ok("ofrece 'Toda etapa' + las etapas presentes",
    options[0] === "Toda etapa" && options.length > 1, JSON.stringify(options));
 const stage = options[1];
-await sel.selectOption(stage);
-await page.waitForTimeout(400);
+await settle(() => sel.selectOption(stage), (p) => p.has("stage"));
 list = await rows();
 ok(`filtrar por '${stage}' deja solo esa etapa`,
    list.length > 0 && list.every((t) => t.includes(stage)), JSON.stringify(list.length));
-await sel.selectOption("all");
-await page.waitForTimeout(300);
+await settle(() => sel.selectOption("all"), (p) => !p.has("stage"));
 ok("volver a 'Toda etapa' restaura la lista", (await rows()).length >= 3);
 
-await box.fill(`Zoraida${S}`);
-await sel.selectOption(stage);
-await page.waitForTimeout(400);
+await settle(() => box.fill(`Zoraida${S}`), withQ(`Zoraida${S}`));
+await settle(() => sel.selectOption(stage), (p) => p.has("stage") && withQ(`Zoraida${S}`)(p));
 list = await rows();
 ok("búsqueda y etapa se combinan (nunca contradicen)",
    list.every((t) => t.includes(`Zoraida${S}`) && t.includes(stage)), JSON.stringify(list));
@@ -167,8 +183,7 @@ const hoPill = page.getByRole("button", { name: /^Atención humana/ });
 // Recarga: lo que se prueba es el filtro, no la propagación por SSE.
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
-await hoPill.click();
-await page.waitForTimeout(400);
+await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
 // Toda fila del filtro lleva UNO de los dos distintivos, nunca ambos: handoff
 // → "Atención humana"; IA apagada a mano sin handoff → "IA pausada".
@@ -200,8 +215,7 @@ const pausar = await setAi(false);
 ok("pausar la IA de Anónima (PATCH aiEnabled:false)", pausar.ok(), String(pausar.status()));
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
-await hoPill.click();
-await page.waitForTimeout(400);
+await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
 ok("con la IA pausada, Anónima aparece en 'Atención humana'", has(list, anon),
    JSON.stringify(list.length));
@@ -217,20 +231,17 @@ const reactivar = await setAi(true);
 ok("reactivar la IA de Anónima (PATCH aiEnabled:true)", reactivar.ok(), String(reactivar.status()));
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
-await hoPill.click();
-await page.waitForTimeout(400);
+await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
 ok("con la IA reactivada, Anónima sale del filtro", !has(list, anon),
    JSON.stringify(list.length));
 
-await box.fill(`Zoraida${S}`);
-await page.waitForTimeout(400);
+await settle(() => box.fill(`Zoraida${S}`), (p) => withQ(`Zoraida${S}`)(p) && p.get("filter") === "human");
 ok("búsqueda de alguien sin handoff + pastilla → estado vacío coherente",
    (await rows()).length === 0 &&
      (await page.getByText("Ninguna conversación requiere atención humana.").isVisible()));
-await box.fill("");
-await page.getByRole("button", { name: /^Todas/ }).click();
-await page.waitForTimeout(300);
+await settle(() => box.fill(""), withQ(""));
+await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
 ok("volver a 'Todas' restaura la lista", (await rows()).length >= 3);
 
 console.log("\n== Contactos: búsqueda tolerante + filtro por etapa ==");

@@ -29,6 +29,18 @@ const prefixes = {
   adAttribution: "att",
   conversionEvent: "cve",
   capiSettings: "capi",
+  // 04 — bitácora de la ficha
+  fichaEvent: "fe",
+  // 09 — respuestas rápidas
+  quickReply: "qr",
+  // 02/05 — bitácora de escalamientos a humano
+  handoffEvent: "hoe",
+  // 10 — recordatorios de cita y bitácora de ofertas
+  bookingReminder: "brm",
+  agendaOfferLog: "aol",
+  // 08 — Laboratorio por cliente
+  labPersona: "lpe",
+  labSuggestionApplication: "lsa",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

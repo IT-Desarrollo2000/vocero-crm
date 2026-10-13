@@ -6,6 +6,8 @@ import { Send } from "lucide-react";
 import type { TemplateDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 
 /** Cuenta {{1}}..{{n}} igual que el servidor, para pedir sus valores. */
 function countVariables(body: string): number {
@@ -29,6 +31,8 @@ export function StartConversation({
   contactId: string;
   onStarted: (conversationId: string) => void;
 }) {
+  // Crear plantillas es un ajuste del Propietario (dev-tasks/00, RF-00-08).
+  const owner = isOwner(useViewer());
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
   const [templateId, setTemplateId] = useState("");
   const [vars, setVars] = useState<string[]>([]);
@@ -85,11 +89,17 @@ export function StartConversation({
           contactarla con una <strong>plantilla aprobada</strong>, y todavía no
           tienes ninguna.
         </p>
-        <Link href="/settings/templates">
-          <Button size="sm" variant="secondary" className="mt-2">
-            Ir a plantillas
-          </Button>
-        </Link>
+        {owner ? (
+          <Link href="/settings/templates">
+            <Button size="sm" variant="secondary" className="mt-2">
+              Ir a plantillas
+            </Button>
+          </Link>
+        ) : (
+          <p className="mt-2 text-[13px] text-text-3">
+            Pide al propietario que cree una plantilla.
+          </p>
+        )}
       </div>
     );
   }

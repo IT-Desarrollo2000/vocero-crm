@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { FichaFieldsEditor } from "./ficha-fields-editor";
 
 type Profile = {
   enabled: boolean;
@@ -114,6 +115,8 @@ export function AgentClient() {
       <div className="grid gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-2">
         <ProfileSection profile={profile} onSave={saveProfile} />
         <KbSection entries={entries} kbSize={kbSize} onChanged={() => void refetch()} />
+        {/* A todo lo ancho, debajo: en medio dejaría un hueco en la rejilla. */}
+        <FichaFieldsEditor />
       </div>
     </div>
   );

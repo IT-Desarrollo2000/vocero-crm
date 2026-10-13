@@ -5,12 +5,28 @@ import { publish } from "@/server/events/bus";
 import { runAgentTurn } from "@/server/ai/pipeline";
 import { renderKb } from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
-import { PERSONAS, type Persona } from "@/server/lab/personas";
+import {
+  compileExpectFicha,
+  personaSnapshot,
+  type PersonaSeed,
+} from "@/server/lab/personas";
+import { ensureSeedPersonas, loadRunPersonas } from "@/server/lab/persona-store";
+import { behaviorTextOf, loadConfigSnapshot } from "@/server/lab/snapshot";
+import { resetTestContact } from "@/server/bot/ficha";
+import { scoped } from "@/lib/db/tenant";
+import type { FichaCheck, FichaFieldDef } from "@/lib/ficha-fields";
+import {
+  LAB_MAX_SCRIPT_MESSAGES,
+  type LabConfigSnapshot,
+  type LabPersonaSnapshot,
+} from "@/lib/lab";
+import { computeFichaCheck } from "@/server/lab/ficha-check";
 
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
  * proceso (sin cola externa), turnos secuenciales con debounce 0, timeout
- * global (10 min por defecto, `LAB_RUN_TIMEOUT_MS`), y lock de concurrencia
+ * global (`LAB_RUN_TIMEOUT_MS`, o escalado con la corrida: `runTimeoutMsFor`),
+ * y lock de concurrencia
  * por índice parcial UNIQUE en BD (máx. 1 corrida `running` por organización).
  *
  * Cancelación cooperativa: al vencer el timeout se aborta la corrida y TODA
@@ -45,15 +61,72 @@ export function parseRunTimeoutMs(raw: string | undefined): number {
   return ms;
 }
 
+/** 08 (D-08-03) — Presupuesto por mensaje del guion (turno del agente). */
+export const RUN_TIMEOUT_PER_MESSAGE_MS = 15_000;
+/** 08 (D-08-03) — Presupuesto fijo por caso (juez + contacto + ficha). */
+export const RUN_TIMEOUT_PER_CASE_MS = 30_000;
+
+/**
+ * 08 (D-08-03) — Timeout de una corrida: `LAB_RUN_TIMEOUT_MS` si es válido
+ * (manda siempre); si no, escala con la corrida:
+ * `max(10 min, casos × (mensajes_max × 15 s + 30 s))`. Tope 10 personas × 8
+ * mensajes ⇒ 25 min. Hoy (7 personas, ≤ 5 mensajes) ⇒ 12 min 15 s.
+ * Lo usa `executeRun` con los casos y el guion más largo de la corrida.
+ */
+export function runTimeoutMsFor(
+  raw: string | undefined,
+  run: { cases: number; maxMessages: number }
+): number {
+  const value = raw?.trim();
+  if (value && /^\d+$/.test(value)) {
+    const ms = Number(value);
+    if (Number.isSafeInteger(ms) && ms > 0 && ms <= MAX_TIMER_MS) return ms;
+  }
+  const scaled =
+    Math.max(0, run.cases) *
+    (Math.max(0, run.maxMessages) * RUN_TIMEOUT_PER_MESSAGE_MS +
+      RUN_TIMEOUT_PER_CASE_MS);
+  return Math.min(MAX_TIMER_MS, Math.max(DEFAULT_RUN_TIMEOUT_MS, scaled));
+}
+
 export class RunConflictError extends Error {}
 
-export async function startRun(organizationId: string): Promise<string> {
+/** Lo que la corrida necesita en memoria (sin releerlo de la BD). */
+type RunPlan = {
+  config: LabConfigSnapshot;
+  /** Nº de casos: el `total` del progreso, también en `failRun`. */
+  total: number;
+  /** Guion más largo (ya topado a 8): escala el timeout (D-08-03). */
+  maxMessages: number;
+};
+
+/**
+ * 08 — Crea la corrida con las personas de la org (regla 4 del contrato):
+ * siembra perezosa ANTES de insertar el run (D-08-01), personas activas o
+ * las elegidas (`LabError` no_personas/unknown_persona), `config_snapshot`
+ * + `persona_keys` en el INSERT del run y un caso por persona con su
+ * `persona_snapshot`.
+ */
+export async function startRun(
+  organizationId: string,
+  personaKeys?: readonly string[]
+): Promise<string> {
   const db = getDb();
+  await ensureSeedPersonas(organizationId);
+  const personas = await loadRunPersonas(organizationId, personaKeys);
+  const config = await loadConfigSnapshot(organizationId, personas);
+
   let runId: string;
   try {
     const inserted = await db
       .insert(schema.agentTestRun)
-      .values({ id: newId("testRun"), organizationId, status: "running" })
+      .values({
+        id: newId("testRun"),
+        organizationId,
+        status: "running",
+        configSnapshot: config,
+        personaKeys: personas.map((p) => p.key),
+      })
       .returning();
     runId = inserted[0]!.id;
   } catch (err) {
@@ -65,19 +138,29 @@ export async function startRun(organizationId: string): Promise<string> {
   }
 
   await db.insert(schema.agentTestCase).values(
-    PERSONAS.map((p) => ({
+    personas.map((p) => ({
       id: newId("testCase"),
       organizationId,
       runId,
       persona: p.key,
+      personaSnapshot: personaSnapshot(p),
       status: "pending" as const,
     }))
   );
 
+  const plan: RunPlan = {
+    config,
+    total: personas.length,
+    maxMessages: Math.min(
+      LAB_MAX_SCRIPT_MESSAGES,
+      Math.max(0, ...personas.map((p) => p.guion.length))
+    ),
+  };
+
   // Fire-and-forget in-process: el POST regresa ya; el progreso va por SSE.
-  void executeRun(runId, organizationId).catch(async (err) => {
+  void executeRun(runId, organizationId, plan).catch(async (err) => {
     console.error("[lab] corrida falló:", err);
-    await failRun(runId, organizationId, String(err));
+    await failRun(runId, organizationId, String(err), plan.total);
   });
 
   return runId;
@@ -85,9 +168,13 @@ export async function startRun(organizationId: string): Promise<string> {
 
 async function executeRun(
   runId: string,
-  organizationId: string
+  organizationId: string,
+  plan: RunPlan
 ): Promise<void> {
-  const timeoutMs = parseRunTimeoutMs(process.env.LAB_RUN_TIMEOUT_MS);
+  const timeoutMs = runTimeoutMsFor(process.env.LAB_RUN_TIMEOUT_MS, {
+    cases: plan.total,
+    maxMessages: plan.maxMessages,
+  });
   const controller = new AbortController();
   const { signal } = controller;
 
@@ -100,7 +187,7 @@ async function executeRun(
     onTimeout();
   }, timeoutMs);
 
-  const work = runAllCases(runId, organizationId, signal);
+  const work = runAllCases(runId, organizationId, plan, signal);
   // Un rechazo tardío de la corrida abortada no debe quedar sin manejar.
   work.catch(() => {});
 
@@ -118,13 +205,13 @@ async function executeRun(
     // Terminó justo antes de notar el abort: queda `done`, no se pisa.
     if (settled === "resolved") return;
     await closeRunningCases(runId);
-    await failRun(runId, organizationId, String(signal.reason));
+    await failRun(runId, organizationId, String(signal.reason), plan.total);
   } catch (err) {
     // Fallo propio de la corrida (no timeout): se aborta igual por si algo
     // quedara en vuelo.
     controller.abort(err);
     await closeRunningCases(runId);
-    await failRun(runId, organizationId, String(err));
+    await failRun(runId, organizationId, String(err), plan.total);
   } finally {
     clearTimeout(timer);
   }
@@ -169,9 +256,42 @@ async function closeRunningCases(runId: string): Promise<void> {
     );
 }
 
+/**
+ * Persona tal como corre un caso: sale del `persona_snapshot` (no de la fila
+ * viva: editarla a mitad de corrida no cambia este caso). Guion topado a 8.
+ */
+type RunPersona = {
+  key: string;
+  name: string;
+  objetivo: string;
+  rasgos: string | null;
+  criteriosExito: string | null;
+  guion: string[];
+  contactName: string;
+  phone: string;
+  seed?: PersonaSeed;
+  expectFicha?: Record<string, RegExp>;
+};
+
+function runPersonaOf(snap: LabPersonaSnapshot): RunPersona {
+  return {
+    key: snap.key,
+    name: snap.name,
+    objetivo: snap.objetivo,
+    rasgos: snap.rasgos,
+    criteriosExito: snap.criteriosExito,
+    guion: snap.guion.slice(0, LAB_MAX_SCRIPT_MESSAGES),
+    contactName: snap.contactName,
+    phone: snap.phone,
+    seed: snap.seed ?? undefined,
+    expectFicha: compileExpectFicha(snap.expectFicha),
+  };
+}
+
 async function runAllCases(
   runId: string,
   organizationId: string,
+  plan: RunPlan,
   signal: AbortSignal
 ): Promise<void> {
   const db = getDb();
@@ -181,28 +301,35 @@ async function runAllCases(
     .where(eq(schema.agentTestCase.runId, runId))
     .orderBy(asc(schema.agentTestCase.createdAt));
 
-  const kbEntries = await db
-    .select()
-    .from(schema.kbEntry)
-    .where(eq(schema.kbEntry.organizationId, organizationId));
-  const kbText = renderKb(kbEntries);
+  // 08 — Juez y diff ven lo MISMO: el KB y el comportamiento del snapshot.
+  // Con el KB en modo `hashed` (> 1 MB) no hay texto en el snapshot: el juez
+  // lee el KB vivo.
+  const kbText =
+    plan.config.kb.mode === "full"
+      ? renderKb(
+          plan.config.kb.entries.map((e) => ({
+            kind: e.kind,
+            question: "question" in e ? e.question : null,
+            answer: "answer" in e ? e.answer : null,
+            content: "content" in e ? e.content : null,
+          }))
+        )
+      : renderKb(
+          await db
+            .select()
+            .from(schema.kbEntry)
+            .where(scoped(schema.kbEntry.organizationId, organizationId))
+        );
+  const behaviorText = behaviorTextOf(plan.config.profile);
 
+  // La definición de la ficha no entra al snapshot: se lee viva (chequeo
+  // informativo, fuera del score).
   const profileRows = await db
-    .select()
+    .select({ fichaFields: schema.agentProfile.fichaFields })
     .from(schema.agentProfile)
-    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .where(scoped(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  const profile = profileRows[0];
-  const behaviorText = profile
-    ? [
-        `Nombre: ${profile.name}`,
-        profile.tone ? `Tono: ${profile.tone}` : null,
-        profile.instructions ? `Instrucciones: ${profile.instructions}` : null,
-        profile.escalationRules ? `Escalado: ${profile.escalationRules}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "";
+  const fichaFields = profileRows[0]?.fichaFields ?? null;
 
   let done = 0;
   const total = cases.length;
@@ -210,8 +337,8 @@ async function runAllCases(
   publishProgress(organizationId, runId, "running", done, total);
 
   for (const testCase of cases) {
-    const persona = PERSONAS.find((p) => p.key === testCase.persona);
-    if (!persona) continue;
+    if (!testCase.personaSnapshot) continue;
+    const persona = runPersonaOf(testCase.personaSnapshot);
 
     signal.throwIfAborted();
     await db
@@ -219,17 +346,35 @@ async function runAllCases(
       .set({ status: "running" })
       .where(eq(schema.agentTestCase.id, testCase.id));
 
-    const { transcript, conversationId } = await runConversation(
+    const { transcript, conversationId, contactId } = await runConversation(
       organizationId,
       testCase.id,
       persona,
       signal
     );
 
+    // 04 — Chequeo determinista de la ficha (no lo decide el juez). Un fallo
+    // aquí no tumba el caso: el chequeo es informativo.
+    signal.throwIfAborted();
+    const fichaCheck = await readFichaCheck(
+      organizationId,
+      contactId,
+      persona,
+      fichaFields
+    );
+
     // Sin juez si ya se abortó: ahorra la llamada al LLM.
     signal.throwIfAborted();
     const outcome = await judgeCase({
       personaKey: persona.key,
+      // 08 — El juez evalúa contra el objetivo y los criterios de la persona.
+      persona: {
+        name: persona.name,
+        objetivo: persona.objetivo,
+        rasgos: persona.rasgos,
+        criteriosExito: persona.criteriosExito,
+      },
+      seedText: seedText(persona),
       transcript,
       kbText,
       behaviorText,
@@ -244,6 +389,7 @@ async function runAllCases(
         status: outcome.status,
         veredicto: outcome.status === "done" ? outcome.verdict.veredicto : null,
         hallazgos: outcome.status === "done" ? outcome.verdict.hallazgos : null,
+        fichaCheck,
       })
       .where(eq(schema.agentTestCase.id, testCase.id));
 
@@ -274,17 +420,22 @@ async function runAllCases(
 async function runConversation(
   organizationId: string,
   caseId: string,
-  persona: Persona,
+  persona: RunPersona,
   signal: AbortSignal
 ): Promise<{
   transcript: { role: "cliente" | "agente"; text: string }[];
   conversationId: string;
+  contactId: string;
 }> {
   const db = getDb();
 
   // Contacto sintético ARCHIVADO (no aparece en la lista ni genera leads).
   signal.throwIfAborted();
   const contactId = await upsertTestContact(organizationId, persona);
+  // 03 — Cada caso arranca del estado semilla de la persona: una corrida no
+  // hereda las notas ni la ficha que el agente escribió en la anterior.
+  signal.throwIfAborted();
+  await resetTestContact({ organizationId, contactId, seed: persona.seed });
 
   const convId = newId("conversation");
   signal.throwIfAborted();
@@ -303,7 +454,7 @@ async function runConversation(
     .set({ conversationId: convId })
     .where(eq(schema.agentTestCase.id, caseId));
 
-  for (const line of persona.script) {
+  for (const line of persona.guion) {
     signal.throwIfAborted();
     const now = new Date();
     await db.insert(schema.message).values({
@@ -344,6 +495,7 @@ async function runConversation(
 
   return {
     conversationId: convId,
+    contactId,
     transcript: messages
       .filter((m) => m.text)
       .map((m) => ({
@@ -353,9 +505,56 @@ async function runConversation(
   };
 }
 
+/**
+ * 04 — Lee la ficha con la que quedó el contacto sintético y la compara con
+ * lo que la persona debía dejar (`expectFicha`). `null` si no aplica o si la
+ * lectura falla (se registra sin valores).
+ */
+async function readFichaCheck(
+  organizationId: string,
+  contactId: string,
+  persona: RunPersona,
+  fields: readonly FichaFieldDef[] | null
+): Promise<FichaCheck | null> {
+  if (!persona.expectFicha || !fields?.length) return null;
+  try {
+    const rows = await getDb()
+      .select({ ficha: schema.contact.ficha })
+      .from(schema.contact)
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          organizationId,
+          eq(schema.contact.id, contactId)
+        )
+      )
+      .limit(1);
+    return computeFichaCheck({
+      expect: persona.expectFicha,
+      fields,
+      ficha: rows[0]?.ficha ?? null,
+    });
+  } catch (err) {
+    console.error(
+      `[lab] chequeo de ficha no disponible: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return null;
+  }
+}
+
+/** 03 — La semilla en texto para el juez ("el agente tenía estos datos"). */
+function seedText(persona: RunPersona): string | undefined {
+  const s = persona.seed;
+  if (!s) return undefined;
+  const lines: string[] = [];
+  for (const [k, v] of Object.entries(s.ficha ?? {})) lines.push(`- ${k}: ${v}`);
+  if (s.notes) lines.push(`- notas: ${s.notes}`);
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
 async function upsertTestContact(
   organizationId: string,
-  persona: Persona
+  persona: RunPersona
 ): Promise<string> {
   const db = getDb();
   const inserted = await db
@@ -393,17 +592,19 @@ async function upsertTestContact(
   return rows[0]!.id;
 }
 
+/** `total` = nº de casos de la corrida (08: ya no `PERSONAS.length`). */
 async function failRun(
   runId: string,
   organizationId: string,
-  error: string
+  error: string,
+  total: number
 ): Promise<void> {
   const db = getDb();
   await db
     .update(schema.agentTestRun)
     .set({ status: "failed", error, finishedAt: new Date() })
     .where(eq(schema.agentTestRun.id, runId));
-  publishProgress(organizationId, runId, "failed", 0, PERSONAS.length);
+  publishProgress(organizationId, runId, "failed", 0, total);
 }
 
 function publishProgress(

@@ -976,11 +976,13 @@ async function main() {
   );
 
   await agendaChecks();
+  await recordatoriosChecks();
   await atribucionChecks();
   await canalesChecks();
   await labChecks();
+  await asignacionChecks();
 
-  console.log(`\n===== ${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
+  console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
 }
 
@@ -991,6 +993,47 @@ async function main() {
  * innegociables con sus CÓDIGOS EXACTOS, la carrera del hueco, el enlace
  * pendiente cuando el proveedor falla, y el sandbox del Laboratorio.
  * ============================================================ */
+
+/* ============================================================
+ * 10 — Recordatorios de cita y reporte de citas (el guion completo, con
+ * reloj simulado, claim concurrente, sandbox y reintento, es
+ * scripts/e2e-recordatorios.mjs). Aquí: la bandera y que las superficies
+ * respondan.
+ * ============================================================ */
+
+async function recordatoriosChecks() {
+  const encendida = /^(on|1|true|si|sí|yes)$/i.test(
+    (process.env.AGENDA ?? "").trim()
+  );
+  console.log("\n== 10: recordatorios de cita ==");
+  const tick = await api("/api/dev/reminders/tick", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  const rep = await api("/api/reports/bookings");
+  if (!encendida) {
+    ok("/api/dev/reminders/tick → 404 con la agenda apagada", tick.res.status === 404, `status=${tick.res.status}`);
+    ok("/api/reports/bookings → 404 con la agenda apagada", rep.res.status === 404, `status=${rep.res.status}`);
+    return;
+  }
+  ok(
+    "tick forzado → 200 con el resultado de la vuelta",
+    tick.res.ok && typeof tick.json?.claimed === "number" && typeof tick.json?.now === "string",
+    JSON.stringify(tick.json)
+  );
+  ok(
+    "reporte de citas → 200 con sus tres bloques",
+    rep.res.ok && ["offers", "attendance", "byReminder"].every((k) => rep.json?.[k]),
+    `status=${rep.res.status}`
+  );
+  const lista = (await api("/api/bookings")).json;
+  ok(
+    "GET /api/bookings trae businessTimezone y reminders por cita",
+    typeof lista?.businessTimezone === "string" &&
+      (lista?.bookings ?? []).every((b) => Array.isArray(b.reminders)),
+    JSON.stringify(lista?.businessTimezone)
+  );
+}
 
 async function agendaChecks() {
   const encendida = /^(on|1|true|si|sí|yes)$/i.test(
@@ -2117,6 +2160,17 @@ async function labChecks() {
     await sleep(1000);
   }
 
+  // 08 — Una BD limpia siembra el set neutro; us4-lab.md describe el de autos.
+  const restore = await api("/api/lab/personas/restore-defaults", {
+    method: "POST",
+    body: JSON.stringify({ set: "autos" }),
+  });
+  ok(
+    "POST /api/lab/personas/restore-defaults {set:autos} → 200",
+    restore.res.status === 200 && restore.json?.set === "autos",
+    `status=${restore.res.status} ${JSON.stringify(restore.json)?.slice(0, 200)}`
+  );
+
   const launch = await api("/api/lab/runs", { method: "POST" });
   if (launch.json?.error?.code === "ai_not_configured") {
     ok(
@@ -2195,4 +2249,61 @@ async function labChecks() {
   ok("DELETE repetido → 404", otraVez.res.status === 404, `status=${otraVez.res.status}`);
   const inexistente = await api("/api/lab/runs/tr_no_existe_e2e", { method: "DELETE" });
   ok("DELETE de un id inexistente → 404", inexistente.res.status === 404, `status=${inexistente.res.status}`);
+}
+
+/* ============================================================
+ * 09 — Asignación (T-09-16; el guion completo con vendedores es
+ * scripts/e2e-asignacion.mjs). Como Propietario: cada conversación trae
+ * `assignedTo`/`assignedAt` y el owner las sigue viendo todas — las de este
+ * guion quedan "sin asignar" (el envío del Propietario no asigna).
+ * ============================================================ */
+
+async function asignacionChecks() {
+  console.log("\n== 09: asignación (vista del Propietario) ==");
+  const todas = (await api("/api/conversations")).json?.conversations ?? [];
+  ok("el owner ve conversaciones en la Bandeja", todas.length > 0, `n=${todas.length}`);
+  const sinCampos = todas.filter((c) => !("assignedTo" in c) || !("assignedAt" in c));
+  ok(
+    "cada conversación trae assignedTo y assignedAt",
+    sinCampos.length === 0,
+    sinCampos.map((c) => c.id).join(", ")
+  );
+  ok(
+    "assignedAt presente si y solo si hay responsable",
+    todas.every((c) => (c.assignedTo === null) === (c.assignedAt === null)),
+    JSON.stringify(todas.filter((c) => (c.assignedTo === null) !== (c.assignedAt === null)).map((c) => c.id))
+  );
+  ok(
+    "las del self-test siguen sin asignar (el envío del owner no asigna)",
+    todas
+      .filter((c) => c.contact?.name === "Dueña Dental")
+      .every((c) => c.assignedTo === null),
+    JSON.stringify(todas.filter((c) => c.contact?.name === "Dueña Dental").map((c) => c.assignedTo))
+  );
+
+  // La org puede traer asignaciones de guiones previos (e2e-asignacion corre
+  // sobre la misma BD): se comprueban particiones, no un estado fijo.
+  const yo = (await api("/api/auth/get-session")).json?.user?.id;
+  const ids = (list) => list.map((c) => c.id).sort().join(",");
+  const all = (await api("/api/conversations?assigned=all")).json?.conversations ?? [];
+  ok("?assigned=all = la lista por defecto", ids(all) === ids(todas));
+  const libres = (await api("/api/conversations?assigned=unassigned")).json?.conversations ?? [];
+  ok(
+    "?assigned=unassigned = exactamente las sin responsable",
+    ids(libres) === ids(todas.filter((c) => c.assignedTo === null))
+  );
+  const mias = (await api("/api/conversations?assigned=me")).json?.conversations ?? [];
+  ok(
+    "?assigned=me = exactamente las del owner",
+    !!yo && ids(mias) === ids(todas.filter((c) => c.assignedTo?.userId === yo)),
+    `yo=${yo} n=${mias.length}`
+  );
+  const deOtros = todas.filter((c) => c.assignedTo && c.assignedTo.userId !== yo);
+  ok(
+    "el owner ve todas: también las asignadas a otros",
+    todas.length === libres.length + mias.length + deOtros.length,
+    `todas=${todas.length} libres=${libres.length} mias=${mias.length} otros=${deOtros.length}`
+  );
+  const malo = await api("/api/conversations?assigned=otro");
+  ok("?assigned inválido → 422", malo.res.status === 422, `status=${malo.res.status}`);
 }

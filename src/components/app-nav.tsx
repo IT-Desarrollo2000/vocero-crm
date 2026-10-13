@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BarChart3,
   CalendarDays,
   FlaskConical,
   Inbox,
@@ -21,7 +22,9 @@ import type { ThemePreference } from "@/lib/theme";
 import { NAV_COLLAPSED_COOKIE, NAV_COLLAPSED_COOKIE_MAX_AGE } from "@/lib/nav";
 import { cn, initials } from "@/lib/utils";
 import { signOut } from "@/lib/auth/client";
-import { useEvents } from "@/components/use-events";
+import { roleLabel, type Role } from "@/lib/roles";
+import { filterNavForRole } from "@/components/nav-items";
+import { useUnreadCount } from "@/components/alerts-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
 
@@ -30,14 +33,17 @@ type NavItem = {
   label: string;
   icon: typeof Inbox;
   badge?: boolean;
+  /** Solo Propietario (dev-tasks/00, RF-00-05): el Vendedor no lo ve. */
+  ownerOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
-  { href: "/agent", label: "Agente", icon: Sparkles },
-  { href: "/lab", label: "Laboratorio", icon: FlaskConical },
+  { href: "/reports", label: "Reportes", icon: BarChart3, ownerOnly: true },
+  { href: "/agent", label: "Agente", icon: Sparkles, ownerOnly: true },
+  { href: "/lab", label: "Laboratorio", icon: FlaskConical, ownerOnly: true },
 ];
 
 /** 015 — "Citas" solo existe si esta instancia encendió la agenda. */
@@ -60,7 +66,7 @@ export function AppNav({
 }: {
   branding: Branding;
   userName: string;
-  role: string;
+  role: Role;
   theme: ThemePreference;
   /**
    * Lateral contraído a solo iconos. Solo aplica en `lg+`: en móvil el cajón
@@ -84,7 +90,10 @@ export function AppNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [unread, setUnread] = useState(0);
+  // 05: el MISMO N que el título y el favicon (`AlertsProvider`): una sola
+  // petición de `/counts` por evento y por pestaña. El 401 → /login lo
+  // atiende el indicador.
+  const unread = useUnreadCount() ?? 0;
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   function toggleCollapsed() {
@@ -93,30 +102,15 @@ export function AppNav({
     document.cookie = `${NAV_COLLAPSED_COOKIE}=${value ? "1" : "0"};path=/;max-age=${NAV_COLLAPSED_COOKIE_MAX_AGE};samesite=lax`;
   }
 
-  async function refetchUnread() {
-    const res = await fetch("/api/conversations").catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as {
-      conversations: { unreadCount: number }[];
-    };
-    setUnread(data.conversations.reduce((a, c) => a + c.unreadCount, 0));
-  }
-
-  useEffect(() => {
-    void refetchUnread();
-  }, []);
-
-  useEvents({
-    onMessageNew: () => void refetchUnread(),
-    onConversationUpdated: () => void refetchUnread(),
-  });
-
   const sha = commit || BUILD_COMMIT;
   // Citas va después de Pipeline: es el paso siguiente de un trato, no una
   // sección aparte.
-  const items = agenda
-    ? [...NAV.slice(0, 2), AGENDA_ITEM, ...NAV.slice(2)]
-    : NAV;
+  // Primero se arma el menú completo y luego se filtra por rol: así la
+  // posición de Citas no depende de qué ítems ve cada quien.
+  const items = filterNavForRole(
+    agenda ? [...NAV.slice(0, 2), AGENDA_ITEM, ...NAV.slice(2)] : NAV,
+    role
+  );
 
   return (
     <aside
@@ -271,7 +265,7 @@ export function AppNav({
         <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
           <span className="block truncate text-[13px] font-semibold">{userName}</span>
           <span className="block text-[11px] text-text-3">
-            {role === "owner" ? "Propietario" : "Equipo"} · En línea
+            {roleLabel(role)} · En línea
           </span>
         </span>
         <ThemeToggle initial={theme} />

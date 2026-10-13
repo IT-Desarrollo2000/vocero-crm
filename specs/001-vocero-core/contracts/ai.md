@@ -25,8 +25,21 @@ const AgentAction = z.discriminatedUnion('action', [
 ])
 ```
 
+- **04 — `ficha` acompañante**: TODA acción acepta además
+  `ficha: z.record(z.unknown()).nullable().optional().catch(undefined)` — un
+  `ficha` que no sea objeto se descarta sin invalidar la acción (jamás
+  provoca reintentos ni handoff `error`). Antes de validar (`z.preprocess`):
+  `{"action":"update_ficha", ficha, text|reply?}` se traduce a `reply` (con
+  texto) o `none`; `reply` sin `text` toma `reply`. Un `reply` que sigue sin
+  texto es inválido aunque traiga `ficha` (reintento; tras 3 fallos, handoff
+  `error`): nunca se vuelve `none` en silencio. La
+  ficha se escribe DESPUÉS de entregar la respuesta, por `upsertFicha({ source:
+  "ia" })` (coerción por tipo, "el humano gana", bitácora `ficha_event`), en
+  `try/catch` con logs sin valores. Sin campos con `agentFills`, el prompt no
+  menciona la ficha y lo que mande el modelo se ignora.
 - `move_stage.stage` se resuelve contra nombres de etapas de la org (fuzzy exacto →
-  lower-case); sin match → se degrada a `reply` si trae texto, o `none`.
+  lower-case); sin match → se degrada a `reply` si trae texto, o `none` (la
+  `ficha` se conserva en la acción degradada).
 - Regex de respaldo de handoff (se evalúa sobre el mensaje del cliente ANTES del LLM):
   `/(hablar|comunicar|contactar)[\s\S]{0,40}?(asesor|humano|persona|alguien)|un asesor|atenci[oó]n humana/i`
   — "somos 4 personas" NO matchea (unit test).
@@ -57,7 +70,25 @@ reporte); la corrida continúa.
 
 ## Personas guionadas (fijas, sin LLM)
 
-6 claves: `comprador_decidido`, `pregunton_precios`, `cliente_enojado`, `fuera_de_kb`,
-`pide_humano`, `errores_modismos`. Cada una: 4–5 mensajes predefinidos; el runner envía
-mensaje → espera el turno del agente (pipeline real, debounce 0) → siguiente. Fin del
-guion o primer handoff → juez.
+7 claves: `comprador_decidido`, `pregunton_precios`, `cliente_enojado`, `fuera_de_kb`,
+`pide_humano`, `errores_modismos`, `cliente_que_regresa` (03). Cada una: 4–5 mensajes
+predefinidos; el runner envía mensaje → espera el turno del agente (pipeline real,
+debounce 0) → siguiente. Fin del guion o primer handoff → juez.
+
+03 — Al inicio de cada caso el contacto sintético se reinicia a la `seed` de la persona
+(notas + ficha; vacías si no tiene) con `resetTestContact` (`server/bot/ficha.ts`), que
+solo actúa sobre contactos archivados de personas sintéticas. El juez recibe, además de
+la clave, la descripción de la persona y su semilla ("el agente tenía estos datos").
+
+## Contexto del contacto (03)
+
+Cada turno inserta en el ÚNICO system prompt —después de perfil/KB/etapas y antes del
+formato de salida— el bloque "DATOS DEL CONTACTO" (`server/ai/contact-context.ts`):
+datos entre `<<<DATOS_CONTACTO>>>` … `<<<FIN_DATOS_CONTACTO>>>`, precedidos de la
+instrucción de que son DATOS y no instrucciones; ≤ 3 000 caracteres con recorte fijo
+(notas → ficha fuera de la definición → cuerpo del anuncio → resto de la ficha); valores
+sanitizados (controles, saltos, delimitadores y `<think>` neutralizados). Un fallo al
+armarlo no tumba el turno. El historial (`server/ai/history.ts`) representa los mensajes
+no-texto con marcadores (`[imagen] «pie»`, `[audio — no puedes escucharlo]`,
+`[ubicación: …]`…) y marca los salientes del equipo con `"autor":"asesor"` /
+`"autor":"plantilla"`. El regex de respaldo también se evalúa sobre el pie de foto.

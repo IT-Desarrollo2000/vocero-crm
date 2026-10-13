@@ -2,10 +2,16 @@
 
 import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
-import type { ConversationDto } from "@/lib/types";
+import { isClosingSoon } from "@/lib/closing-window";
+import type { ConversationDto, InboxFilter } from "@/lib/types";
 
-/** Pastillas de la bandeja: todas, no leídas o pidiendo atención humana. */
-export type ConversationFilter = "all" | "unread" | "handoff";
+/**
+ * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana, (09)
+ * por responsable: las mías o las que nadie ha tomado, y (05) «Ventana por
+ * cerrar». 06: mismos nombres que
+ * `GET /api/conversations?filter=` (`human` = atención humana).
+ */
+export type ConversationFilter = InboxFilter;
 
 /**
  * Atención humana = nadie automático va a contestar: la conversación tiene
@@ -27,27 +33,46 @@ export function needsHuman(c: ConversationDto): boolean {
  * Solo nombre y teléfono, como cualquier filtro de contactos. Antes también
  * miraba el preview, y como el agente nombra al dueño en sus propios
  * mensajes, buscar ese nombre devolvía media bandeja.
+ *
+ * 06: el filtro de verdad lo hace el servidor; esto queda como su ESPEJO en
+ * el cliente (mismas reglas: `matchesQuery` ≡ `contactSearchSql`,
+ * `needsHuman` ≡ `human`) para decidir si una fila que llega por SSE entra en
+ * la lista activa y para los contadores de respaldo.
  */
 export function filterConversations(
   conversations: readonly ConversationDto[],
   opts: {
     query: string;
+    /** Nombre de la etapa, o "all". Respaldo cuando la fila no trae `stageId`. */
     stage: string;
+    /** 06: etapa por id (D-06-2); manda sobre el nombre si la fila lo trae. */
+    stageId?: string;
     inbox: Channel | "all";
     filter: ConversationFilter;
+    /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
+    viewerId?: string;
+    /** 05: reloj de «Ventana por cerrar» (ms); por defecto, ahora. */
+    now?: number;
   }
 ): {
   searched: ConversationDto[];
   inInbox: ConversationDto[];
   visible: ConversationDto[];
 } {
-  const { query, stage, inbox, filter } = opts;
+  const { query, stage, stageId, inbox, filter, viewerId } = opts;
+  const now = opts.now ?? Date.now();
+  const stageOk = (c: ConversationDto): boolean => {
+    if (!stageId) return stage === "all" || c.stageName === stage;
+    if (c.stageId != null) return c.stageId === stageId;
+    // Servidor anterior a 06 (DTO sin `stageId`): se compara por nombre.
+    return stage !== "all" && c.stageName === stage;
+  };
   const searched = conversations.filter(
     (c) =>
       matchesQuery(query, {
         text: [c.contact.name],
         phone: c.contact.phone,
-      }) && (stage === "all" || c.stageName === stage)
+      }) && stageOk(c)
   );
   // La bandeja elegida es el filtro de AFUERA: las pastillas cuentan dentro
   // de ella, no sobre la suma de los canales.
@@ -56,10 +81,43 @@ export function filterConversations(
   const visible =
     filter === "unread"
       ? inInbox.filter((c) => c.unreadCount > 0)
-      : filter === "handoff"
+      : filter === "human"
         ? inInbox.filter(needsHuman)
-        : inInbox;
+        : filter === "mine"
+          ? inInbox.filter((c) => isMine(c, viewerId))
+          : filter === "unassigned"
+            ? inInbox.filter((c) => c.assignedTo === null)
+            : filter === "closing"
+              ? inInbox.filter((c) => isClosingSoon(c.channel, c.lastInboundAt, now))
+              : inInbox;
   return { searched, inInbox, visible };
+}
+
+/** 09: ¿la conversación es de quien mira? */
+export function isMine(c: ConversationDto, viewerId: string | undefined): boolean {
+  return viewerId != null && c.assignedTo?.userId === viewerId;
+}
+
+/**
+ * 09: cómo se nombra al responsable en la fila y en el panel. El Vendedor
+ * solo ve las suyas y las sin asignar ("Tuya" / "Sin asignar"); el
+ * Propietario ve además el nombre de quien atiende las ajenas.
+ */
+export function assigneeLabel(
+  c: ConversationDto,
+  viewerId: string | undefined
+): { kind: "none" | "mine" | "other"; label: string } {
+  if (!c.assignedTo) return { kind: "none", label: "Sin asignar" };
+  if (isMine(c, viewerId)) return { kind: "mine", label: "Tuya" };
+  return { kind: "other", label: c.assignedTo.name || "Otro miembro" };
+}
+
+/** 09: iniciales para el distintivo del responsable ("Ana López" → "AL"). */
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase() || "?";
 }
 
 export function formatTime(iso: string | null): string {

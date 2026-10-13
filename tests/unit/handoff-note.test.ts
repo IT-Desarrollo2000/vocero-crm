@@ -17,6 +17,28 @@ vi.mock("@/lib/ai", () => ({
   chatJson: vi.fn(),
 }));
 
+// 03 — Historial y contexto del contacto en sus módulos (ver lab-sandbox):
+// la cola de selects queda en conversación → perfil → kb → etapas.
+const loadHistoryRows = vi.fn();
+vi.mock("@/server/ai/history", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/server/ai/history")>();
+  return { ...original, loadHistoryRows };
+});
+vi.mock("@/server/ai/contact-context", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@/server/ai/contact-context")>();
+  return {
+    ...original,
+    loadContactContext: vi.fn().mockResolvedValue({
+      now: new Date(),
+      timezone: "America/Mexico_City",
+      contact: null,
+      lead: null,
+      recurrent: null,
+    }),
+  };
+});
+
 // BD simulada: cola de selects + captura de cada `update().set(valores)`.
 const selectQueue: unknown[][] = [];
 const updates: Record<string, unknown>[] = [];
@@ -31,8 +53,8 @@ function thenableChain(rows: unknown[]) {
   return chain;
 }
 
-vi.mock("@/lib/db", () => ({
-  getDb: () => ({
+vi.mock("@/lib/db", () => {
+  const fakeDb = {
     select: () => thenableChain(selectQueue.shift() ?? []),
     insert: () => ({
       values: (values: unknown) => {
@@ -51,7 +73,10 @@ vi.mock("@/lib/db", () => ({
         return {
           where: () => {
             const chain = {
-              returning: () => Promise.resolve([{ id: "cv_x", ...values }]),
+              // La conversación de estos turnos es del Laboratorio: markHandoff
+              // lee `isTest` del RETURNING para no registrar ni publicar.
+              returning: () =>
+                Promise.resolve([{ id: "cv_x", isTest: true, ...values }]),
               then: (resolve: (v: unknown) => void) =>
                 Promise.resolve([{}]).then(resolve),
             };
@@ -60,18 +85,23 @@ vi.mock("@/lib/db", () => ({
         };
       },
     }),
-  }),
-  schema: new Proxy(
-    {},
-    {
-      get: (_t, tableName) =>
-        new Proxy(
-          {},
-          { get: (_t2, col) => `${String(tableName)}.${String(col)}` }
-        ),
-    }
-  ),
-}));
+    // markHandoff (05/02-0) escribe dentro de una transacción.
+    transaction: <T,>(fn: (tx: unknown) => Promise<T>) => fn(fakeDb),
+  };
+  return {
+    getDb: () => fakeDb,
+    schema: new Proxy(
+      {},
+      {
+        get: (_t, tableName) =>
+          new Proxy(
+            {},
+            { get: (_t2, col) => `${String(tableName)}.${String(col)}` }
+          ),
+      }
+    ),
+  };
+});
 
 const labConversation = {
   id: "cv_lab",
@@ -113,13 +143,10 @@ describe("handoff del agente: el reason libre se guarda como nota", () => {
       },
       raw: "{}",
     });
-    selectQueue.push(
-      [labConversation],
-      [profile],
-      [{ id: "msg_1", direction: "in", text: "¿me haces precio por 500 piezas?", createdAt: new Date() }],
-      [],
-      []
-    );
+    selectQueue.push([labConversation], [profile], [], []);
+    loadHistoryRows.mockResolvedValueOnce([
+      { direction: "in", text: "¿me haces precio por 500 piezas?" },
+    ]);
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     await runAgentTurn("cv_lab");
@@ -139,13 +166,8 @@ describe("handoff del agente: el reason libre se guarda como nota", () => {
       data: { action: "handoff" },
       raw: "{}",
     });
-    selectQueue.push(
-      [labConversation],
-      [profile],
-      [{ id: "msg_1", direction: "in", text: "hola", createdAt: new Date() }],
-      [],
-      []
-    );
+    selectQueue.push([labConversation], [profile], [], []);
+    loadHistoryRows.mockResolvedValueOnce([{ direction: "in", text: "hola" }]);
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     await runAgentTurn("cv_lab");
@@ -154,6 +176,32 @@ describe("handoff del agente: el reason libre se guarda como nota", () => {
     expect(handoff).toBeDefined();
     expect(handoff!.handoffReason).toBe("modelo");
     expect(handoff!.handoffNote).toBeNull();
+  });
+
+  it("03 — foto con pie 'quiero hablar con un asesor' → handoff 'cliente' sin llamar al LLM", async () => {
+    const { chatJson } = await import("@/lib/ai");
+    vi.mocked(chatJson).mockClear();
+    selectQueue.push([labConversation], [profile]);
+    loadHistoryRows.mockResolvedValueOnce([
+      {
+        direction: "in",
+        type: "image",
+        text: null,
+        media: {
+          kind: "image",
+          caption: "quiero hablar con un asesor",
+          fileName: null,
+          payload: null,
+        },
+      },
+    ]);
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_lab");
+
+    const handoff = updates.find((u) => u.handoffAt instanceof Date);
+    expect(handoff?.handoffReason).toBe("cliente");
+    expect(chatJson).not.toHaveBeenCalled();
   });
 });
 

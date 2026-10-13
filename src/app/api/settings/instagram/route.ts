@@ -42,7 +42,7 @@ export const GET = withAuth(async (session) => {
     },
     webhook: webhookInfo(),
   });
-});
+}, { role: "owner" });
 
 const putSchema = z.object({
   source: z.enum(["zernio", "meta"]),
@@ -87,7 +87,7 @@ export const PUT = withAuth(async (session, req: Request) => {
   });
 
   return Response.json({ ok: true, username: check.username ?? null });
-});
+}, { role: "owner" });
 
 type Check =
   | { ok: true; username: string | null }
@@ -156,4 +156,4 @@ export const DELETE = withAuth(async (session) => {
   if (!isChannelEnabled("instagram")) return channelDisabledResponse();
   await deleteInstagramCredentials(session.organizationId);
   return Response.json({ ok: true });
-});
+}, { role: "owner" });

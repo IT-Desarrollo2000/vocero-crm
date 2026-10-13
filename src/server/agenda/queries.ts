@@ -2,6 +2,8 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { partsInTz } from "@/lib/time/slots";
+import type { BookingReminderDto } from "@/lib/reminders";
+import { remindersForBookings } from "@/server/agenda/reminders";
 import { getSettings } from "@/server/agenda/settings";
 
 /** 015 — Listado de citas para la UI, con la hora en la zona del negocio. */
@@ -25,6 +27,11 @@ export type BookingListItem = {
   linkPending: boolean;
   isTest: boolean;
   notes: string | null;
+  /**
+   * 10 — Recordatorios de la hora VIGENTE (aditivo). Vacío en bloqueos, en
+   * citas de prueba y con los recordatorios apagados.
+   */
+  reminders: BookingReminderDto[];
 };
 
 export async function listBookings(
@@ -44,6 +51,12 @@ export async function listBookings(
     .where(scoped(schema.booking.organizationId, organizationId))
     .orderBy(desc(schema.booking.scheduledAt))
     .limit(200);
+
+  const reminders = await remindersForBookings(
+    organizationId,
+    rows.map((r) => r.booking.id),
+    new Date()
+  );
 
   return rows.map((r) => {
     const scheduledAtUtc = r.booking.scheduledAt.toISOString();
@@ -67,6 +80,7 @@ export async function listBookings(
       linkPending: r.booking.linkPending,
       isTest: r.booking.isTest,
       notes: r.booking.notes,
+      reminders: reminders.get(r.booking.id) ?? [],
     };
   });
 }

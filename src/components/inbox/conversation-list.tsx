@@ -1,26 +1,81 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
-import type { ConversationDto } from "@/lib/types";
+import { Hourglass, PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
+import type { ConversationCounts, ConversationDto } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { useStages } from "@/components/use-stages";
+import { useViewer } from "@/components/viewer-context";
+import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
+import { closingRemainingMs } from "@/lib/closing-window";
 import {
-  filterConversations,
+  assigneeLabel,
+  formatRemaining,
   formatTime,
-  needsHuman,
+  initials,
   previewText,
   type ConversationFilter,
 } from "./helpers";
+import { hasActiveFilters, type InboxFilters } from "./list-state";
+import { CLOSING_TICK_MS, type InboxListError } from "./use-inbox-list";
+import { AlertsBanner } from "./alerts-banner";
+
+/** Pausa de la búsqueda antes de pedirla al servidor. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * 09 — Responsable en la fila. Al Propietario le dice quién la atiende (con
+ * sus iniciales); al Vendedor, "Tuya" o "Sin asignar" (no ve otras).
+ */
+function AssigneeTag({
+  c,
+  viewerId,
+  owner,
+}: {
+  c: ConversationDto;
+  viewerId: string;
+  owner: boolean;
+}) {
+  const { kind, label } = assigneeLabel(c, viewerId);
+  if (kind === "none") {
+    return (
+      <span className="ml-auto inline-flex shrink-0 items-center rounded-full border border-dashed px-2 py-0.5 text-[11px] text-text-3">
+        Sin asignar
+      </span>
+    );
+  }
+  const name = c.assignedTo?.name ?? label;
+  return (
+    <span
+      title={kind === "mine" ? "La atiendes tú" : `La atiende ${name}`}
+      className={cn(
+        "ml-auto inline-flex min-w-0 shrink items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px]",
+        kind === "mine"
+          ? "border-brand-soft bg-brand-tint text-brand-text"
+          : "bg-secondary text-text-2"
+      )}
+    >
+      <span
+        aria-hidden
+        className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-full bg-background text-[8.5px] font-semibold"
+      >
+        {initials(name)}
+      </span>
+      <span className="truncate">{owner && kind === "other" ? name : label}</span>
+    </span>
+  );
+}
 
 function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   const [seeding, setSeeding] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Sembrar la demo escribe datos del negocio: solo Propietario (dev-tasks/00).
+  const owner = isOwner(useViewer());
 
   async function seed() {
     setSeeding(true);
@@ -39,7 +94,7 @@ function EmptyState({ onSeeded }: { onSeeded: () => void }) {
         Cuando alguien escriba a tu número de WhatsApp, su conversación
         aparecerá aquí en tiempo real.
       </p>
-      {!failed && (
+      {owner && !failed && (
         <Button
           size="sm"
           variant="outline"
@@ -54,25 +109,131 @@ function EmptyState({ onSeeded }: { onSeeded: () => void }) {
   );
 }
 
+/**
+ * 06 — Pie de la lista paginada. El botón "Cargar más" es el respaldo
+ * accesible del scroll infinito (teclado, lectores de pantalla, navegadores
+ * sin IntersectionObserver).
+ */
+function ListFooter({
+  hasMore,
+  loadingMore,
+  failed,
+  empty,
+  onLoadMore,
+}: {
+  hasMore: boolean;
+  loadingMore: boolean;
+  failed: boolean;
+  empty: boolean;
+  onLoadMore?: () => void;
+}) {
+  if (loadingMore) {
+    return (
+      <p role="status" className="p-4 text-center text-xs text-text-3">
+        Cargando…
+      </p>
+    );
+  }
+  if (failed) {
+    return (
+      <div className="flex flex-col items-center gap-2 p-4 text-center">
+        <p className="text-xs text-text-3">No se pudieron cargar más conversaciones.</p>
+        <Button size="sm" variant="outline" onClick={onLoadMore}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+  if (hasMore) {
+    return (
+      <div className="flex justify-center p-4">
+        <Button size="sm" variant="outline" onClick={onLoadMore}>
+          Cargar más
+        </Button>
+      </div>
+    );
+  }
+  if (empty) return null;
+  return (
+    <p className="p-4 text-center text-xs text-text-3">No hay más conversaciones</p>
+  );
+}
+
 export function ConversationList({
   conversations: conversationsProp,
+  counts,
+  filters,
+  onFiltersChange,
   channels,
   selectedId,
   onSelect,
   onSeeded,
+  teamMode = false,
+  hasMore = false,
+  loadingMore = false,
+  error = null,
+  onLoadMore,
+  onRetry,
 }: {
+  /** 06: lo cargado y dentro del filtro activo; null = primera carga. */
   conversations: ConversationDto[] | null;
+  /** 06: contadores de `/counts` (o los de respaldo sobre lo cargado). */
+  counts: ConversationCounts | null;
+  /** 06: filtros activos; viven en `useInboxList` (son del servidor). */
+  filters: InboxFilters;
+  onFiltersChange: (patch: Partial<InboxFilters>) => void;
+  /**
+   * 09: ¿se enseña la asignación (pastillas "Mías"/"Sin asignar" y
+   * responsable en la fila)? No con el Propietario trabajando solo.
+   */
+  teamMode?: boolean;
   /** Canales encendidos en esta instancia (ADR-001). */
   channels: readonly Channel[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeeded: () => void;
+  /** 06: ¿hay página siguiente (`nextCursor`)? */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  error?: InboxListError;
+  onLoadMore?: () => void;
+  /** 06: reintenta la primera página tras un error. */
+  onRetry?: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<ConversationFilter>("all");
-  const [stage, setStage] = useState<string>("all");
-  const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
+  const viewer = useViewer();
+  const viewerOwner = isOwner(viewer);
+  const filter: ConversationFilter =
+    !teamMode && (filters.filter === "mine" || filters.filter === "unassigned")
+      ? "all"
+      : filters.filter;
+  const stage = filters.stageId ?? "all";
+  const inbox: Channel | "all" = filters.channel ?? "all";
+
+  // La búsqueda la hace el servidor (06): se manda tras una pausa al teclear.
+  const onFiltersChangeRef = useRef(onFiltersChange);
+  onFiltersChangeRef.current = onFiltersChange;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function pushQuery(value: string, now = false) {
+    setQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (now) {
+      searchTimer.current = null;
+      onFiltersChangeRef.current({ q: value });
+      return;
+    }
+    searchTimer.current = setTimeout(() => {
+      searchTimer.current = null;
+      onFiltersChangeRef.current({ q: value });
+    }, SEARCH_DEBOUNCE_MS);
+  }
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    []
+  );
 
   /**
    * Rescate de lo tecleado ANTES de que hidratara el JS. La caja se pinta en
@@ -83,41 +244,53 @@ export function ConversationList({
    */
   useEffect(() => {
     const typed = inputRef.current?.value ?? "";
-    if (typed) setQuery(typed);
+    if (typed) pushQuery(typed, true);
+  }, []);
+
+  // 05: reloj de la cuenta regresiva «Cierra en …» (desde `lastInboundAt`,
+  // no del `windowRemainingMs` serializado, que envejece).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), CLOSING_TICK_MS);
+    return () => clearInterval(t);
   }, []);
 
   const loading = conversationsProp === null;
-  const conversations = conversationsProp ?? [];
-  // Búsqueda (nombre y teléfono) + etapa → bandeja → pastilla. Ver helpers.
-  const { searched, inInbox, visible } = filterConversations(conversations, {
-    query,
-    stage,
-    inbox,
-    filter,
-  });
-  const inboxCount = (ch: Channel) =>
-    searched.filter((c) => c.channel === ch).length;
-  const unreadCount = inInbox.filter((c) => c.unreadCount > 0).length;
-  const handoffCount = inInbox.filter(needsHuman).length;
+  const visible = conversationsProp ?? [];
+  const pills: { id: ConversationFilter; label: string; count: number }[] = [
+    { id: "all", label: "Todas", count: counts?.all ?? 0 },
+    { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
+    { id: "human", label: "Atención humana", count: counts?.human ?? 0 },
+    ...(teamMode
+      ? [
+          { id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 },
+          {
+            id: "unassigned" as const,
+            label: "Sin asignar",
+            count: counts?.unassigned ?? 0,
+          },
+        ]
+      : []),
+    { id: "closing", label: "Ventana por cerrar", count: counts?.closing ?? 0 },
+  ];
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
   const multiChannel = channels.length > 1;
 
-  // Etapas presentes en la bandeja, en el orden en que llegan del pipeline.
-  const stages: string[] = [];
-  for (const c of conversations) {
-    if (c.stageName && !stages.includes(c.stageName)) stages.push(c.stageName);
-  }
-
-  // El color del punto sale del tipo y la posición de la etapa en el
-  // pipeline, no de su nombre (ver lib/stage-colors).
+  // 06: las opciones salen del pipeline completo (el filtro va por id y la
+  // página cargada ya no representa a toda la Bandeja). El color del punto
+  // sale del tipo y la posición de la etapa (ver lib/stage-colors).
   const { stages: pipelineStages, reload: reloadStages } = useStages();
   // Si aparece un nombre que la lista no conoce (el dueño renombró o creó una
   // etapa con la Bandeja abierta), se pide la lista otra vez — una sola vez
   // por combinación de nombres desconocidos, para no entrar en bucle.
-  const unknownStages = stages
-    .filter((n) => !pipelineStages.some((s) => s.name === n))
-    .join("|");
+  const unknownStages = [
+    ...new Set(
+      visible
+        .map((c) => c.stageName)
+        .filter((n): n is string => !!n && !pipelineStages.some((s) => s.name === n))
+    ),
+  ].join("|");
   const askedFor = useRef("");
   useEffect(() => {
     if (!unknownStages || pipelineStages.length === 0) return;
@@ -126,18 +299,67 @@ export function ConversationList({
     void reloadStages();
   }, [unknownStages, pipelineStages.length, reloadStages]);
 
+  function selectStage(id: string) {
+    if (id === "all") {
+      onFiltersChange({ stageId: null, stageName: null });
+      return;
+    }
+    const s = pipelineStages.find((x) => x.id === id);
+    onFiltersChange({ stageId: id, stageName: s?.name ?? null });
+  }
+
   function clearQuery() {
     if (inputRef.current) inputRef.current.value = "";
-    setQuery("");
+    pushQuery("", true);
     inputRef.current?.focus();
   }
+
+  // Scroll infinito: un centinela al pie pide la página siguiente al
+  // acercarse (400px antes). Se vuelve a observar tras cada página para que,
+  // si el centinela sigue a la vista, se pida la otra.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+  const canLoadMore = hasMore && !loadingMore && error !== "more";
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !canLoadMore || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMoreRef.current?.();
+      },
+      { root: scrollRef.current, rootMargin: "400px 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [canLoadMore, visible.length]);
+
+  // La fila activa a la vista (CA-06-05): el enlace `?contact=` puede abrir
+  // una conversación antigua que entra por su `sortAt` al fondo de lo
+  // cargado. Depende solo de QUÉ fila y de SI ya está pintada — no de la
+  // lista entera — para no mover el scroll en cada upsert por SSE; con
+  // `nearest`, al hacer clic en una fila ya visible no pasa nada.
+  const activeRendered = selectedId != null && visible.some((c) => c.id === selectedId);
+  useEffect(() => {
+    if (!activeRendered || !selectedId) return;
+    const rows = scrollRef.current?.querySelectorAll<HTMLElement>("[data-conversation-id]");
+    const row = Array.from(rows ?? []).find(
+      (el) => el.dataset.conversationId === selectedId
+    );
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedId, activeRendered]);
+
+  const noFilters = !hasActiveFilters({ ...filters, filter, q: query });
 
   return (
     <div className="flex h-full flex-col">
       <header className="border-b px-4 pb-3 pt-4">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="text-[17px] font-[650] tracking-tight">Bandeja</h2>
-          <span className="text-sm text-text-3">{conversations.length}</span>
+          <span className="text-sm text-text-3">{counts?.all ?? visible.length}</span>
           {multiChannel && (
             <div className="ml-auto flex items-center gap-1">
               {channels.map((ch) => {
@@ -145,7 +367,7 @@ export function ConversationList({
                 return (
                   <button
                     key={ch}
-                    onClick={() => setInbox(on ? "all" : ch)}
+                    onClick={() => onFiltersChange({ channel: on ? null : ch })}
                     aria-pressed={on}
                     title={
                       on
@@ -164,7 +386,7 @@ export function ConversationList({
                       channel={ch}
                       className="h-[13px] w-[13px] rounded-[4px]"
                     />
-                    {inboxCount(ch)}
+                    {counts?.byChannel[ch] ?? 0}
                   </button>
                 );
               })}
@@ -178,7 +400,7 @@ export function ConversationList({
             placeholder="Buscar por nombre o teléfono…"
             aria-label="Buscar conversación"
             defaultValue=""
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => pushQuery(e.target.value)}
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-3"
           />
           {query && (
@@ -193,23 +415,18 @@ export function ConversationList({
         </div>
       </header>
 
+      <AlertsBanner />
+
       {/* Con tres pastillas no cabe todo en 360px: el selector de etapa baja
-          a una segunda línea en vez de salirse por la derecha. */}
+          a una segunda línea en vez de salirse por la derecha. Con las de
+          asignación (09) "Mías" y "Sin asignar" bajan juntas a esa línea, y
+          (05) "Ventana por cerrar" detrás (D-05-7: flex-wrap). */}
       <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5">
-        {(
-          [
-            { id: "all", label: "Todas", count: inInbox.length },
-            { id: "unread", label: "No leídas", count: unreadCount },
-            {
-              id: "handoff",
-              label: "Atención humana",
-              count: handoffCount,
-            },
-          ] as const
-        ).map((f) => (
+        {pills.map((f) => (
           <button
             key={f.id}
-            onClick={() => setFilter(f.id)}
+            onClick={() => onFiltersChange({ filter: f.id })}
+            aria-pressed={filter === f.id}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
               filter === f.id
@@ -229,10 +446,10 @@ export function ConversationList({
           </button>
         ))}
 
-        {stages.length > 0 && (
+        {pipelineStages.length > 0 && (
           <select
             value={stage}
-            onChange={(e) => setStage(e.target.value)}
+            onChange={(e) => selectStage(e.target.value)}
             aria-label="Filtrar por etapa del embudo"
             className={cn(
               "ml-auto min-w-0 max-w-[42%] truncate rounded-full border px-2 py-[5px] text-[12.5px] font-medium transition-colors",
@@ -242,33 +459,53 @@ export function ConversationList({
             )}
           >
             <option value="all">Toda etapa</option>
-            {stages.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            {pipelineStages.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </select>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {loading ? (
-          <p className="p-6 text-center text-xs text-text-3">Cargando…</p>
-        ) : conversations.length === 0 ? (
+          error === "first" ? (
+            <div className="flex flex-col items-center gap-2 p-6 text-center">
+              <p className="text-xs text-text-3">No se pudo cargar la Bandeja.</p>
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                Reintentar
+              </Button>
+            </div>
+          ) : (
+            <p className="p-6 text-center text-xs text-text-3">Cargando…</p>
+          )
+        ) : visible.length === 0 && noFilters && !hasMore ? (
           <EmptyState onSeeded={onSeeded} />
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && !hasMore ? (
           <p className="p-6 text-center text-xs text-text-3">
-            {filter === "handoff"
+            {filter === "human"
               ? "Ninguna conversación requiere atención humana."
-              : "Sin resultados para este filtro."}
+              : filter === "mine"
+                ? "No tienes conversaciones a tu nombre."
+                : filter === "unassigned"
+                  ? "Todas las conversaciones tienen responsable."
+                  : filter === "closing"
+                    ? "Ninguna ventana de 24 h cierra en las próximas 2 horas."
+                    : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
             {visible.map((c) => {
               const unread = c.unreadCount > 0;
+              const closesIn = closingRemainingMs(c.channel, c.lastInboundAt, now);
               const active = selectedId === c.id;
               return (
-                <li key={c.id} className="relative border-b border-border/70">
+                <li
+                  key={c.id}
+                  data-conversation-id={c.id}
+                  className="relative border-b border-border/70"
+                >
                   {active && (
                     <span className="absolute inset-y-0 left-0 w-[3px] bg-brand" />
                   )}
@@ -350,6 +587,17 @@ export function ConversationList({
                             IA pausada
                           </span>
                         ) : null}
+                        {closesIn !== null && (
+                          <span
+                            data-testid="closing-chip"
+                            title="La ventana de 24 h para responder sin plantilla está por cerrar"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text"
+                          >
+                            <Hourglass className="h-3 w-3" strokeWidth={1.7} />
+                            Cierra en {formatRemaining(closesIn)}
+                          </span>
+                        )}
+                        {teamMode && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
                       </span>
                     </span>
                   </button>
@@ -358,6 +606,16 @@ export function ConversationList({
             })}
           </ul>
         )}
+        {!loading && (
+          <ListFooter
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            failed={error === "more"}
+            empty={visible.length === 0}
+            onLoadMore={onLoadMore}
+          />
+        )}
+        <div ref={sentinelRef} aria-hidden className="h-px" />
       </div>
     </div>
   );

@@ -72,7 +72,13 @@ es del bot.
 18. `GET /api/bot/context?conversationId={id}` con la key → **200** con
     `contact` (id, name, waIdentity, phone), `conversation`
     (id, aiEnabled, handoffAt, windowOpen, windowRemainingMs) y `lead`
-    (id, stageName).
+    (id, stageName). Desde 03, además (solo ADITIVO): `contact.source`,
+    `contact.createdAt`, `contact.notes` (recortadas como en el prompt),
+    `lead.stageKind`/`amountCents`/`currency`, `attribution` (solo con
+    `ATRIBUCION`), `bookings {next,last}` (solo con `AGENDA`), `recurrent`,
+    `now {iso,timezone}` y `agentContext.block` — el texto exacto del bloque
+    "DATOS DEL CONTACTO" que recibe el agente in-process
+    (ver [us-contexto-agente.md](us-contexto-agente.md)).
 19. `GET /api/bot/context?waIdentity={identidad}` → la MISMA conversación. Es el
     camino que usa el bot cuando le llega un mensaje y solo tiene el remitente.
 20. Tras un entrante reciente, `windowOpen: true` y `windowRemainingMs` > 0.
@@ -95,6 +101,12 @@ CRM no impone un cuestionario.
     números no finitos— se ignoran en silencio y el resto sí se guarda: un 422
     le tiraría al bot datos de calificación que ya costaron una conversación.
 26. Conversación inexistente → **404**. Cuerpo sin `ficha` → **422**.
+27. (04, D-04-4) Una clave que editó una persona en la bandeja tiene candado:
+    el PUT responde **200** con `ignored: [{key, reason:"candado_humano"}]` y el
+    valor del equipo queda intacto (`scripts/e2e-ficha-lead.mjs`). Lo que sí
+    escribe el bot queda con `fichaMeta[key].by = "bot"`; `GET /api/bot/context`
+    trae `contact.fichaMeta` y `fichaFields` (la definición de campos, o
+    `null`).
 
 ## El bot envía a través del CRM
 

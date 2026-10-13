@@ -45,4 +45,4 @@ export const POST = withAuth(async (session, req: Request) => {
     }
     throw err;
   }
-});
+}, { role: "owner" });

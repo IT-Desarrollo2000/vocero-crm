@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEvents } from "@/components/use-events";
+import type { BookingReminderDto } from "@/lib/reminders";
+import { describeReminder, formatDue, retryErrorMessage } from "./reminder-labels";
 
 /** 015 — Citas: lo agendado por el operador y por la IA, con sus acciones. */
 
@@ -26,6 +28,11 @@ type Booking = {
   linkPending: boolean;
   isTest: boolean;
   notes: string | null;
+  /**
+   * 10 — Recordatorios de la hora vigente, uno por anticipación (vacío si
+   * están apagados o la cita no es `session`).
+   */
+  reminders: BookingReminderDto[];
 };
 
 type Slot = { startUtc: string; label: string };
@@ -39,6 +46,9 @@ const STATUS_LABEL: Record<Booking["status"], string> = {
 
 export function BookingsClient() {
   const [bookings, setBookings] = useState<Booking[] | null>(null);
+  // 10 — Zona del negocio (de `GET /api/bookings`) para la hora de envío de
+  // los recordatorios; sin ella, la del navegador.
+  const [businessTimezone, setBusinessTimezone] = useState<string | undefined>();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,8 +69,12 @@ export function BookingsClient() {
       fetch("/api/calendar/availability").catch(() => null),
     ]);
     if (list?.ok) {
-      const data = (await list.json()) as { bookings: Booking[] };
+      const data = (await list.json()) as {
+        bookings: Booking[];
+        businessTimezone?: string;
+      };
       setBookings(data.bookings);
+      setBusinessTimezone(data.businessTimezone || undefined);
     } else {
       setBookings([]);
     }
@@ -87,6 +101,25 @@ export function BookingsClient() {
       return;
     }
     setRescheduling(null);
+    await refresh();
+  }
+
+  // 10 — Reintento manual (a lo sumo uno) de un recordatorio fallido. La
+  // respuesta trae la fila ya resuelta; se recarga la lista igual que tras
+  // cualquier acción (y el SSE `booking.updated` también llegará).
+  async function retryReminder(bookingId: string, reminderId: string) {
+    setBusy(bookingId);
+    setError(null);
+    const res = await fetch(
+      `/api/bookings/${bookingId}/reminders/${reminderId}/retry`,
+      { method: "POST" }
+    ).catch(() => null);
+    setBusy(null);
+    const body: unknown = res ? await res.json().catch(() => null) : null;
+    const message = res
+      ? retryErrorMessage(res.status, body)
+      : "No se pudo reintentar el recordatorio.";
+    if (message) setError(message);
     await refresh();
   }
 
@@ -211,6 +244,42 @@ export function BookingsClient() {
                 )}
                 {b.notes && <span>{b.notes}</span>}
               </div>
+
+              {/* 10 — Recordatorios de esta cita: un chip por anticipación.
+                  Un fallo no toca la cita; se reintenta desde aquí. */}
+              {b.kind === "session" && (b.reminders ?? []).length > 0 && (
+                <ul
+                  aria-label="Recordatorios de la cita"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  {(b.reminders ?? []).map((r) => {
+                    const view = describeReminder(r, (iso) =>
+                      formatDue(iso, businessTimezone)
+                    );
+                    const reminderId = r.id;
+                    return (
+                      <li
+                        key={`${r.offsetMinutes}-${reminderId ?? "pendiente"}`}
+                        data-reminder-status={r.status}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <Badge variant={view.tone}>{view.text}</Badge>
+                        {r.canRetry && reminderId && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            aria-label="Reintentar recordatorio"
+                            disabled={busy === b.id}
+                            onClick={() => retryReminder(b.id, reminderId)}
+                          >
+                            Reintentar recordatorio
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
 
               {/* El proveedor falló al crear la reunión. La cita existe; lo
                   único que falta es el enlace, y se reintenta desde aquí — sin

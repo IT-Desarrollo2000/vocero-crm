@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { filterConversations, needsHuman } from "@/components/inbox/helpers";
+import {
+  assigneeLabel,
+  filterConversations,
+  initials,
+  isMine,
+  needsHuman,
+} from "@/components/inbox/helpers";
 import type { ConversationDto } from "@/lib/types";
 
 let seq = 0;
@@ -16,6 +22,7 @@ function mk(
     aiEnabled: true,
     handoffAt: null,
     handoffReason: null,
+    handoffNote: null,
     lastInboundAt: null,
     lastMessageAt: null,
     unreadCount: 0,
@@ -25,8 +32,14 @@ function mk(
     outboundMedia: true,
     templates: true,
     preview: null,
+    // 09: sin asignar por defecto.
+    assignedTo: null,
+    assignedAt: null,
+    // 06: clave de orden y etapa por id.
+    sortAt: "2026-01-01T00:00:00.000Z",
+    stageId: null,
     ...rest,
-  } as ConversationDto;
+  } satisfies ConversationDto;
 }
 
 const base = { query: "", stage: "all", inbox: "all" as const };
@@ -68,8 +81,8 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(names(visible)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
   });
 
-  it("'handoff' deja las que tienen handoffAt o la IA apagada", () => {
-    const { visible } = filterConversations(all, { ...base, filter: "handoff" });
+  it("'human' deja las que tienen handoffAt o la IA apagada", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Diego Pérez", "Ana Kevinsky", "Lucía Sol"]);
   });
 
@@ -77,7 +90,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(needsHuman(lucia)).toBe(true);
     expect(needsHuman(diego)).toBe(true);
     expect(needsHuman(pablo)).toBe(false);
-    const { visible } = filterConversations([lucia], { ...base, filter: "handoff" });
+    const { visible } = filterConversations([lucia], { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Lucía Sol"]);
   });
 
@@ -85,7 +98,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
     // Diego tiene ambos; no se duplica en la lista ni en el contador.
     const { visible } = filterConversations([diego, pablo], {
       ...base,
-      filter: "handoff",
+      filter: "human",
     });
     expect(names(visible)).toEqual(["Diego Pérez"]);
     expect([diego, pablo].filter(needsHuman)).toHaveLength(1);
@@ -96,11 +109,11 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(needsHuman(juan)).toBe(true);
   });
 
-  it("'handoff' se combina con la búsqueda", () => {
+  it("'human' se combina con la búsqueda", () => {
     const { visible, inInbox } = filterConversations(all, {
       ...base,
       query: "kevin",
-      filter: "handoff",
+      filter: "human",
     });
     // La búsqueda trae a Kevin y a Ana Kevinsky; solo Ana pidió un humano.
     expect(names(inInbox)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
@@ -117,7 +130,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
   });
 
   it("búsqueda sin coincidencias → nada, en cualquier pastilla", () => {
-    for (const filter of ["all", "unread", "handoff"] as const) {
+    for (const filter of ["all", "unread", "human"] as const) {
       const { visible } = filterConversations(all, {
         ...base,
         query: "zzz-no-existe",
@@ -143,7 +156,7 @@ describe("filterConversations — etapa y canal", () => {
     const { visible } = filterConversations(all, {
       ...base,
       stage: "Interesado",
-      filter: "handoff",
+      filter: "human",
     });
     expect(names(visible)).toEqual(["Alfa", "Gama"]);
   });
@@ -152,10 +165,61 @@ describe("filterConversations — etapa y canal", () => {
     const { searched, inInbox, visible } = filterConversations(all, {
       ...base,
       inbox: "instagram",
-      filter: "handoff",
+      filter: "human",
     });
     expect(searched).toHaveLength(3);
     expect(names(inInbox)).toEqual(["Gama"]);
     expect(names(visible)).toEqual(["Gama"]);
+  });
+});
+
+describe("filterConversations — asignación (09)", () => {
+  const yo = "usr_yo";
+  const mia = mk({ name: "Mía", assignedTo: { userId: yo, name: "Yo Vendedor" } });
+  const libre = mk({ name: "Libre", unreadCount: 1 });
+  const ajena = mk({ name: "Ajena", assignedTo: { userId: "usr_otro", name: "Otra Persona" } });
+  const all = [mia, libre, ajena];
+
+  it("'mine' deja solo las asignadas a quien mira", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "mine", viewerId: yo });
+    expect(names(visible)).toEqual(["Mía"]);
+  });
+
+  it("'mine' sin viewerId no adivina: queda vacía", () => {
+    const { visible } = filterConversations(all, { ...base, filter: "mine" });
+    expect(visible).toHaveLength(0);
+  });
+
+  it("'unassigned' deja las que nadie tiene", () => {
+    const { visible } = filterConversations(all, {
+      ...base,
+      filter: "unassigned",
+      viewerId: yo,
+    });
+    expect(names(visible)).toEqual(["Libre"]);
+  });
+
+  it("se combina con la búsqueda y el canal", () => {
+    const ig = mk({ name: "Libre IG", channel: "instagram" });
+    const { visible } = filterConversations([...all, ig], {
+      ...base,
+      query: "libre",
+      inbox: "instagram",
+      filter: "unassigned",
+      viewerId: yo,
+    });
+    expect(names(visible)).toEqual(["Libre IG"]);
+  });
+
+  it("isMine / assigneeLabel / initials", () => {
+    expect(isMine(mia, yo)).toBe(true);
+    expect(isMine(ajena, yo)).toBe(false);
+    expect(isMine(libre, yo)).toBe(false);
+    expect(assigneeLabel(mia, yo)).toEqual({ kind: "mine", label: "Tuya" });
+    expect(assigneeLabel(libre, yo)).toEqual({ kind: "none", label: "Sin asignar" });
+    expect(assigneeLabel(ajena, yo)).toEqual({ kind: "other", label: "Otra Persona" });
+    expect(initials("Ana María López")).toBe("AL");
+    expect(initials("ana")).toBe("A");
+    expect(initials("  ")).toBe("?");
   });
 });

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { REMOVED_ACCOUNT_MESSAGE } from "@/server/auth/policy";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +27,10 @@ export default function LoginPage() {
       setError(
         err.status === 429
           ? "Demasiados intentos. Espera unos minutos."
-          : "Correo o contraseña incorrectos."
+          : err.status === 403
+            ? // Cuenta dada de baja (RF-00-13): decir el motivo, no "incorrectos".
+              REMOVED_ACCOUNT_MESSAGE
+            : "Correo o contraseña incorrectos."
       );
       return;
     }

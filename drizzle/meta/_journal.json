@@ -92,6 +92,55 @@
       "when": 1791583937729,
       "tag": "0012_handoff_nota",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791825041891,
+      "tag": "0013_roles_miembros",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791830672789,
+      "tag": "0014_ficha_campos",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791832012265,
+      "tag": "0015_asignacion_respuestas_rapidas",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791837702996,
+      "tag": "0016_indices_bandeja",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791838954876,
+      "tag": "0017_metricas_escalamientos",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791843811312,
+      "tag": "0018_recordatorios_citas",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791844998023,
+      "tag": "0019_laboratorio_por_cliente",
+      "breakpoints": true
     }
   ]
 }

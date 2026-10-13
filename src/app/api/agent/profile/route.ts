@@ -3,6 +3,7 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isAiConfigured } from "@/lib/env";
+import { isOwner } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,14 @@ export const GET = withAuth(async (session) => {
     .limit(1);
   const p = rows[0];
   if (!p) return apiError(404, "not_found", "Perfil del agente no encontrado");
+  // El Vendedor solo necesita el interruptor (panel del contacto): nunca ve
+  // el prompt, las reglas de escalamiento, el tono ni el saludo (RF-00-09).
+  if (!isOwner(session)) {
+    return Response.json({
+      profile: { enabled: p.enabled },
+      aiConfigured: isAiConfigured(),
+    });
+  }
   return Response.json({
     profile: {
       enabled: p.enabled,
@@ -49,4 +58,4 @@ export const PUT = withAuth(async (session, req: Request) => {
     .returning();
   if (!updated[0]) return apiError(404, "not_found", "Perfil no encontrado");
   return Response.json({ ok: true });
-});
+}, { role: "owner" });

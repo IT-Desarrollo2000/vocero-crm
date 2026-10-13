@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { upsertFicha } from "@/server/bot/ficha";
+import type { BotFichaResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,11 @@ const bodySchema = z.object({
  * Merge campo a campo contra lo que ya había; `null` explícito borra la clave.
  * Devuelve la ficha COMPLETA resultante, no solo el parche, para que el bot no
  * tenga que llevar su propia copia sincronizada.
+ *
+ * 04 (D-04-4) — El cerebro externo respeta el candado humano: una clave que
+ * editó una persona no se escribe y vuelve en `ignored` con
+ * `reason: "candado_humano"` (o `"tope"` si no cabe). Lo escrito queda con
+ * procedencia `bot`. `ignored` es aditivo: `[]` si nada se ignoró.
  */
 export async function PUT(req: Request) {
   const denied = requireBotKey(req);
@@ -49,7 +55,13 @@ export async function PUT(req: Request) {
     organizationId,
     contactId: rows[0].contactId,
     ficha: body.data.ficha,
+    source: "bot",
+    conversationId: body.data.conversationId,
   });
   if (!result) return apiError(404, "not_found", "Contacto no encontrado");
-  return Response.json(result);
+  const response: BotFichaResponse = {
+    ficha: result.ficha as BotFichaResponse["ficha"],
+    ignored: result.ignored,
+  };
+  return Response.json(response);
 }

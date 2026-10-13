@@ -18,7 +18,24 @@ export type SseEvent =
         error?: string | null;
       };
     }
-  | { type: "conversation.updated"; data: { conversation: unknown } }
+  /**
+   * 09 (RF-09-09): SOLO el id — "algo cambió, refetchea con tu vista". Nada
+   * de nombre, teléfono, nota de handoff ni responsable: viaja a todos los
+   * roles y el cliente ya ignoraba el payload.
+   */
+  | { type: "conversation.updated"; data: { conversation: { id: string } } }
+  /**
+   * 05/02-0: una conversación PASÓ a necesitar humano (transición de
+   * `handoff_at` de NULL a una fecha). Lo publica solo `markHandoff`
+   * (`src/server/inbox/handoff.ts`), nunca para `is_test`. Payload mínimo:
+   * nombre, teléfono y nota se piden por la API con la vista del usuario.
+   * `reason` es el catálogo de `conversation.handoffReason` (incluye
+   * `manual_reply`; el cliente decide no alertar por ese).
+   */
+  | {
+      type: "conversation.handoff";
+      data: { conversationId: string; reason: string; handoffAt: string };
+    }
   /** 015 — algo cambió en la agenda: la pantalla de Citas se refresca sola. */
   | { type: "booking.updated"; data: { bookingId: string } }
   | {

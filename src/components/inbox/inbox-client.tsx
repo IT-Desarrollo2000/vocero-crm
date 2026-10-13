@@ -2,17 +2,41 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronLeft, PanelRight } from "lucide-react";
+import { ChevronLeft, Info, PanelRight, X } from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
-import type { ConversationDto, MessageDto } from "@/lib/types";
+import type {
+  AssignBody,
+  ConversationDto,
+  ConversationsPage,
+  MessageDto,
+} from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { useEvents } from "@/components/use-events";
+import { useViewer } from "@/components/viewer-context";
+import { reportOpenConversation } from "@/components/alerts-coordinator";
+import { isOwner } from "@/lib/roles";
 import { ConversationList } from "./conversation-list";
 import { MessageThread } from "./message-thread";
 import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
+import { AssignmentControl, type TeamOption } from "./assignment-control";
+import { useInboxList } from "./use-inbox-list";
+
+/** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
+const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
+const NOTICE_LINK = "Esta conversación la atiende otro vendedor o aún no existe.";
+const NOTICE_GONE = "Esta conversación ya no está disponible.";
+const NOTICE_TAKEN = "Ya la tomó otro vendedor.";
+
+type ApiErrorBody = {
+  error?: {
+    code?: string;
+    message?: string;
+    assignedTo?: { userId: string; name: string };
+  };
+} | null;
 
 /**
  * Texto que ya salió del compositor pero cuyo POST todavía viaja. Existe solo
@@ -37,10 +61,13 @@ const isWideEnoughForPanel = () =>
 
 export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   const multiChannel = channels.length > 1;
-  const [conversations, setConversations] = useState<ConversationDto[] | null>(
-    null
-  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * 06: copia de la conversación abierta. Si deja de cumplir el filtro activo
+   * sale de la lista, pero el hilo sigue abierto con esta copia (contrato
+   * 06-0); solo se cierra si `?ids=` dice que ya no es visible.
+   */
+  const [selectedDto, setSelectedDto] = useState<ConversationDto | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [pending, setPending] = useState<PendingOut[]>([]);
   // Arranca cerrado: en pantallas angostas el panel de detalles es un cajón
@@ -65,56 +92,263 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   }, []);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
-  const lastFetchRef = useRef<string | null>(null);
+
+  // 05 (RF-05-04): la pestaña informa qué conversación tiene abierta para que
+  // la líder no avise de lo que alguien ya está viendo. Al salir, ninguna.
+  useEffect(() => {
+    reportOpenConversation(selectedId);
+    return () => reportOpenConversation(null);
+  }, [selectedId]);
   const tmpSeq = useRef(0);
   // Los envíos salen en fila: el compositor ya no espera, pero WhatsApp debe
   // recibir "hola" antes que el renglón siguiente. Sin esta cadena, dos POST
   // simultáneos pueden llegar a Meta en desorden.
   const sendQueue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const refetchConversations = useCallback(async () => {
-    const res = await fetch("/api/conversations").catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as { conversations: ConversationDto[] };
-    setConversations(data.conversations);
-    lastFetchRef.current = new Date().toISOString();
-  }, []);
-
-  const refetchMessages = useCallback(async (conversationId: string) => {
-    const res = await fetch(
-      `/api/conversations/${conversationId}/messages`
-    ).catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as { messages: MessageDto[] };
-    if (selectedIdRef.current === conversationId) setMessages(data.messages);
-  }, []);
-
+  // 09 — Asignación. La regla de quién ve qué vive en el servidor: aquí solo
+  // se refleja (y se reacciona cuando una conversación deja de ser visible).
+  const viewer = useViewer();
+  const owner = isOwner(viewer);
+  const ownerRef = useRef(owner);
+  ownerRef.current = owner;
+  const [team, setTeam] = useState<TeamOption[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    void refetchConversations();
-  }, [refetchConversations]);
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
-  const select = useCallback(
+  // Solo el Propietario elige responsable: el equipo es owner-only.
+  useEffect(() => {
+    if (!owner) return;
+    let cancelled = false;
+    fetch("/api/settings/team")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { members?: TeamOption[] } | null) => {
+        if (cancelled || !d?.members) return;
+        setTeam(d.members.map((m) => ({ userId: m.userId, name: m.name })));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [owner]);
+
+  /**
+   * La conversación abierta dejó de ser visible (la reasignaron o la tomó
+   * otro): se cierra la selección y se avisa sin bloquear. `silentForOwner`:
+   * si desaparece de la lista del Propietario no es por asignación (él ve
+   * todo), así que no hay nada que explicarle.
+   */
+  const closeLost = useCallback((id: string, silentForOwner: boolean) => {
+    if (selectedIdRef.current !== id) return;
+    selectedIdRef.current = null;
+    setSelectedId(null);
+    setMessages([]);
+    if (!ownerRef.current) setNotice(NOTICE_LOST);
+    else if (!silentForOwner) setNotice(NOTICE_GONE);
+  }, []);
+
+  /**
+   * 06 — Lista paginada. Los eventos ya no recargan todo: cada id se resuelve
+   * con `?ids=` (ráfagas juntas). Id ausente = ya no la ves → si estaba
+   * abierta se cierra con el aviso; presente = la copia abierta se actualiza
+   * aunque haya salido de la lista por el filtro.
+   */
+  const list = useInboxList({
+    viewerId: viewer.userId,
+    localTeamMode: !owner || (team?.length ?? 0) > 1,
+    onResolved: ({ gone, present }) => {
+      const sel = selectedIdRef.current;
+      if (!sel) return;
+      const fresh = present.get(sel);
+      if (fresh) setSelectedDto(fresh);
+      if (gone.includes(sel)) closeLost(sel, true);
+    },
+  });
+  const { resolveIds, refreshCounts, loadFirst, refreshFirst } = list;
+
+  /** Una conversación cambió por algo que hicimos aquí: se relee solo esa. */
+  const refreshOne = useCallback(
     (id: string) => {
-      setSelectedId(id);
-      setMessages([]);
-      void refetchMessages(id);
-      void fetch(`/api/conversations/${id}`, {
+      resolveIds([id]);
+      refreshCounts();
+    },
+    [resolveIds, refreshCounts]
+  );
+
+  /**
+   * Recarga desde cero (sin datos, "Reintentar", demo recién sembrada):
+   * primera página con los filtros activos + contadores (sin `since`,
+   * RF-06-13). La abierta se conserva aunque no venga en la página, salvo que
+   * `?ids=` diga que ya no es visible.
+   */
+  const reloadList = useCallback(() => {
+    void loadFirst();
+    refreshCounts({ now: true });
+    if (selectedIdRef.current) resolveIds([selectedIdRef.current]);
+  }, [loadFirst, refreshCounts, resolveIds]);
+
+  /**
+   * Puesta al día SIN perder la posición (pestaña que vuelve a estar visible
+   * o reconexión del SSE): la página 1 se FUSIONA sobre lo cargado
+   * (`refreshFirst`, conserva las páginas siguientes, su cursor y el
+   * scroll), + contadores + la abierta por `?ids=`. Antes se reemplazaba
+   * todo por la página 1 y un alt-tab devolvía al agente al principio.
+   */
+  const catchUp = useCallback(() => {
+    void refreshFirst();
+    refreshCounts({ now: true });
+    // Siempre se llama: además de la abierta, despacha los ids que quedaron
+    // en cola porque su `?ids=` falló sin red.
+    resolveIds(selectedIdRef.current ? [selectedIdRef.current] : []);
+  }, [refreshFirst, refreshCounts, resolveIds]);
+
+
+  const refetchMessages = useCallback(
+    async (conversationId: string) => {
+      const res = await fetch(
+        `/api/conversations/${conversationId}/messages`
+      ).catch(() => null);
+      if (res?.status === 404) {
+        closeLost(conversationId, false);
+        return;
+      }
+      if (!res?.ok) return;
+      const data = (await res.json()) as { messages: MessageDto[] };
+      if (selectedIdRef.current === conversationId) setMessages(data.messages);
+    },
+    [closeLost]
+  );
+
+  const markRead = useCallback(
+    async (conversationId: string) => {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ markRead: true }),
-      });
+      }).catch(() => null);
+      if (res?.status === 404) closeLost(conversationId, false);
+      // Con "No leídas" activa, la recién leída sale de la lista y el
+      // contador baja (CA-06-04) sin esperar al evento.
+      else if (res?.ok) refreshOne(conversationId);
     },
-    [refetchMessages]
+    [closeLost, refreshOne]
   );
 
-  // Enlace directo desde Contactos/Pipeline: /inbox?contact=<id>
+  const itemsRef = useRef(list.items);
+  itemsRef.current = list.items;
+  const { releasePin } = list;
+  const select = useCallback(
+    (id: string, dto?: ConversationDto) => {
+      releasePin(id);
+      setSelectedId(id);
+      setSelectedDto(dto ?? itemsRef.current?.find((c) => c.id === id) ?? null);
+      setMessages([]);
+      void refetchMessages(id);
+      void markRead(id);
+    },
+    [refetchMessages, markRead, releasePin]
+  );
+
+  // Enlace directo desde Contactos/Pipeline: /inbox?contact=<id>. Si no está
+  // en lo cargado (conversación antigua, otra página), se pide suelta con
+  // `?contact=`. 09: si tampoco viene, el Vendedor no la ve (o no existe) y
+  // se dice por qué en vez de dejar el hilo vacío. Una vez por enlace.
   const searchParams = useSearchParams();
   const contactParam = searchParams.get("contact");
+  const loaded = list.items !== null;
+  const linkChecked = useRef<string | null>(null);
   useEffect(() => {
-    if (!contactParam || selectedIdRef.current) return;
-    const match = conversations?.find((c) => c.contact.id === contactParam);
-    if (match) select(match.id);
-  }, [contactParam, conversations, select]);
+    if (!contactParam || !loaded) return;
+    if (linkChecked.current === contactParam) return;
+    linkChecked.current = contactParam;
+    if (selectedIdRef.current) return;
+    const match = itemsRef.current?.find((c) => c.contact.id === contactParam);
+    if (match) {
+      select(match.id, match);
+      return;
+    }
+    void (async () => {
+      const res = await fetch(
+        `/api/conversations?${new URLSearchParams({ contact: contactParam })}`
+      ).catch(() => null);
+      const data = res?.ok
+        ? ((await res.json().catch(() => null)) as ConversationsPage | null)
+        : null;
+      // Se busca por contacto (no se toma la primera fila): un servidor que
+      // aún no entiende `contact` devuelve la lista completa.
+      const found = data?.conversations?.find((c) => c.contact.id === contactParam);
+      if (found) {
+        // Anclada arriba (CA-06-05): por su `sortAt` caería al fondo de lo
+        // cargado y el scroll infinito la empujaría fuera de la vista.
+        list.upsert(found, { pin: true });
+        if (!selectedIdRef.current) select(found.id, found);
+      } else if (!ownerRef.current) {
+        setNotice(NOTICE_LINK);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `list.upsert` es estable
+  }, [contactParam, loaded, select]);
+
+  /**
+   * 09 — Tomar / liberar / (re)asignar. `POST .../assign` con `AssignBody`;
+   * el resultado real llega con el refetch (la lista manda).
+   */
+  const assign = useCallback(
+    async (userId: string | null) => {
+      const conversationId = selectedIdRef.current;
+      if (!conversationId) return;
+      const body: AssignBody = { userId };
+      const res = await fetch(`/api/conversations/${conversationId}/assign`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      if (!res) {
+        setNotice("Sin conexión con el servidor.");
+      } else if (res.status === 404) {
+        closeLost(conversationId, false);
+      } else if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as ApiErrorBody;
+        const code = data?.error?.code;
+        if (code === "already_assigned") {
+          const who = data?.error?.assignedTo?.name;
+          setNotice(who ? `Ya la tomó ${who}.` : NOTICE_TAKEN);
+          // El Vendedor ya no puede verla: se cierra aquí, antes del refetch,
+          // para que el aviso sea este y no el genérico de "perdiste acceso".
+          if (!ownerRef.current && selectedIdRef.current === conversationId) {
+            selectedIdRef.current = null;
+            setSelectedId(null);
+            setMessages([]);
+          }
+        } else if (res.status === 501) {
+          setNotice("La asignación todavía no está disponible en este servidor.");
+        } else {
+          setNotice(data?.error?.message ?? "No se pudo cambiar el responsable.");
+        }
+      }
+      refreshOne(conversationId);
+    },
+    [closeLost, refreshOne]
+  );
+
+  // SSE caído: al volver a la pestaña se pone al día lo que se vea
+  // (RF-06-13) sin perder lo cargado. Igual al volver la red: sin red el
+  // `EventSource` puede seguir abierto (no hay `onReconnect`) mientras las
+  // peticiones de `?ids=`/`/counts` fallan.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") catchUp();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", catchUp);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", catchUp);
+    };
+  }, [catchUp]);
 
   useEvents({
     onMessageNew: ({ conversationId, message }) => {
@@ -123,13 +357,9 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         setMessages((prev) =>
           prev.some((x) => x.id === m.id) ? prev : [...prev, m]
         );
-        void fetch(`/api/conversations/${conversationId}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ markRead: true }),
-        });
+        void markRead(conversationId);
       }
-      void refetchConversations();
+      refreshOne(conversationId);
       // Un entrante nuevo puede crear/mover el lead: refresca el panel.
       setDetailRev((v) => v + 1);
     },
@@ -147,20 +377,32 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         )
       );
     },
-    onConversationUpdated: () => {
-      void refetchConversations();
+    onConversationUpdated: ({ conversation }) => {
+      // 09 deja el payload en `{ id }`: el DTO se pide con `?ids=` (que
+      // aplica visibilidad). Sin id legible, se recarga la primera página.
+      const id = (conversation as { id?: unknown } | null)?.id;
+      if (typeof id === "string" && id) refreshOne(id);
+      else catchUp();
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
       setDetailRev((v) => v + 1);
     },
     onReconnect: () => {
-      // Catch-up tras reconexión (contrato sse.md): refetch completo.
-      void refetchConversations();
+      // Catch-up tras reconexión: página 1 fusionada + contadores, sin
+      // `since` y sin perder las páginas ya cargadas.
+      catchUp();
       if (selectedIdRef.current) void refetchMessages(selectedIdRef.current);
       setDetailRev((v) => v + 1);
     },
   });
 
-  const selected = conversations?.find((c) => c.id === selectedId) ?? null;
+  // La abierta sale de la lista si está cargada; si salió por el filtro (o
+  // llegó por el enlace profundo), de su copia.
+  const listed = list.items?.find((c) => c.id === selectedId) ?? null;
+  const selected =
+    listed ?? (selectedDto && selectedDto.id === selectedId ? selectedDto : null);
+  useEffect(() => {
+    if (listed) setSelectedDto(listed);
+  }, [listed]);
 
   /**
    * Hilo visible = lo confirmado + lo que aún viaja. El mensaje real puede
@@ -235,6 +477,13 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
           drop();
           return "Sin conexión con el servidor";
         }
+        if (res.status === 404) {
+          // 09: otro vendedor la tomó entre que se abrió y se envió; el
+          // mensaje NO salió (el reclamo es la compuerta del envío).
+          drop();
+          closeLost(conversationId, false);
+          return NOTICE_LOST;
+        }
         if (!res.ok) {
           const data = (await res.json().catch(() => null)) as {
             error?: { message?: string };
@@ -246,7 +495,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         // revés, la burbuja parpadearía.
         await refetchMessages(conversationId);
         drop();
-        void refetchConversations();
+        refreshOne(conversationId);
         return null;
       };
 
@@ -254,21 +503,44 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       sendQueue.current = queued.catch(() => null);
       return queued;
     },
-    [refetchMessages, refetchConversations]
+    [refetchMessages, refreshOne, closeLost]
   );
 
   const patchConversation = useCallback(
     async (patch: { aiEnabled?: boolean; reactivate?: boolean }) => {
-      if (!selectedIdRef.current) return;
-      await fetch(`/api/conversations/${selectedIdRef.current}`, {
+      const conversationId = selectedIdRef.current;
+      if (!conversationId) return;
+      const res = await fetch(`/api/conversations/${conversationId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => null);
-      void refetchConversations();
+      if (res?.status === 404) closeLost(conversationId, false);
+      refreshOne(conversationId);
     },
-    [refetchConversations]
+    [refreshOne, closeLost]
   );
+
+  /**
+   * 09: la asignación solo se enseña si hay equipo. Con el Propietario solo
+   * (instancia de un usuario) la Bandeja queda exactamente como antes; el
+   * Vendedor, por definición, trabaja en equipo. 06: la regla la resuelve
+   * `/counts` (estable, no depende de lo cargado); si no responde, la de
+   * siempre sobre lo cargado (ver `useInboxList`).
+   */
+  const teamMode = list.teamMode;
+
+  const assignmentControl = (className?: string) =>
+    selected && teamMode ? (
+      <AssignmentControl
+        conversation={selected}
+        owner={owner}
+        viewerId={viewer.userId}
+        team={team}
+        onAssign={assign}
+        className={className}
+      />
+    ) : null;
 
   return (
     <div className="flex h-full">
@@ -281,11 +553,20 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
         )}
       >
         <ConversationList
-          conversations={conversations}
+          conversations={list.visible}
+          counts={list.counts}
+          filters={list.filters}
+          onFiltersChange={list.setFilters}
           channels={channels}
           selectedId={selectedId}
           onSelect={select}
-          onSeeded={() => void refetchConversations()}
+          onSeeded={() => reloadList()}
+          teamMode={teamMode}
+          hasMore={list.hasMore}
+          loadingMore={list.loadingMore}
+          error={list.error}
+          onLoadMore={() => void list.loadMore()}
+          onRetry={() => reloadList()}
         />
       </section>
 
@@ -334,6 +615,10 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
                   </p>
                 </div>
               </div>
+              {/* 09: el control de responsable vive en UN solo lugar a la
+                  vez — aquí con el panel cerrado, en el panel si está
+                  abierto — para que sus aria-label no se repitan. */}
+              {!panelOpen && assignmentControl()}
               {!panelOpen && (
                 <button
                   onClick={() => togglePanel(true)}
@@ -347,11 +632,12 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
             <MessageThread messages={thread} />
             <Composer
               conversation={selected}
+              onNotVisible={() => closeLost(selected.id, false)}
               onSend={sendText}
               onSent={() => {
                 if (selectedIdRef.current)
                   void refetchMessages(selectedIdRef.current);
-                void refetchConversations();
+                if (selectedIdRef.current) refreshOne(selectedIdRef.current);
               }}
             />
           </>
@@ -390,10 +676,29 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
               refreshKey={detailRev}
               onPatchConversation={patchConversation}
               onClose={() => togglePanel(false)}
+              assignment={panelOpen ? assignmentControl("max-w-none") : null}
             />
           </div>
         )}
       </section>
+
+      {/* 09: aviso no bloqueante (pérdida de acceso, carrera al tomar…). */}
+      {notice && (
+        <div
+          role="status"
+          className="fixed inset-x-3 bottom-4 z-50 mx-auto flex max-w-md items-start gap-2 rounded-md border bg-background px-3 py-2.5 text-sm shadow-pop md:bottom-6"
+        >
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" strokeWidth={1.7} />
+          <p className="flex-1">{notice}</p>
+          <button
+            onClick={() => setNotice(null)}
+            aria-label="Cerrar aviso"
+            className="shrink-0 rounded p-0.5 text-text-3 hover:bg-accent hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

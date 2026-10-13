@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -14,8 +14,17 @@ import {
   resolveStage,
   type AgentActionType,
 } from "@/server/ai/actions";
-import { matchesHandoffIntent, toHandoffNote } from "@/server/ai/handoff";
+import { matchesHandoffIntent } from "@/server/ai/handoff";
+import { markHandoff } from "@/server/inbox/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
+import {
+  fichaRenderOptions,
+  loadContactContext,
+  renderContactContext,
+} from "@/server/ai/contact-context";
+import { upsertFicha } from "@/server/bot/ficha";
+import type { FichaFieldDef } from "@/lib/ficha-fields";
+import { loadHistoryRows, toChatHistory } from "@/server/ai/history";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { bookSlot, offerSlots } from "@/server/agenda/agent";
 
@@ -121,21 +130,11 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return;
 
-  const history = await db
-    .select()
-    .from(schema.message)
-    .where(
-      scoped(
-        schema.message.organizationId,
-        organizationId,
-        eq(schema.message.conversationId, conversationId)
-      )
-    )
-    .orderBy(desc(schema.message.createdAt))
-    .limit(20);
-  history.reverse();
-  const lastInbound = [...history].reverse().find((m) => m.direction === "in");
-  if (!lastInbound) return;
+  // Últimos 20 mensajes con su adjunto: los no-texto viajan como marcador
+  // (03), no se descartan.
+  const history = await loadHistoryRows(organizationId, conversationId);
+  if (!history.some((m) => m.direction === "in")) return;
+  const { messages: chatHistory, lastInboundText } = toChatHistory(history);
 
   // Ventana cerrada: el agente JAMÁS envía texto libre → handoff 'ventana'.
   if (!conversation.isTest && !isWindowOpen(conversation.lastInboundAt)) {
@@ -143,8 +142,9 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     return;
   }
 
-  // Patrón de respaldo ANTES del LLM (FR-022).
-  if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
+  // Patrón de respaldo ANTES del LLM (FR-022) — sobre el texto o, si el
+  // último entrante es una foto/video/documento, sobre su pie (RF-03-10).
+  if (lastInboundText && matchesHandoffIntent(lastInboundText)) {
     await applyHandoff(conversationId, organizationId, "cliente");
     return;
   }
@@ -161,24 +161,29 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .orderBy(asc(schema.pipelineStage.position));
 
   const agenda = agendaEnabled();
+  // 04 — Definición de campos (NULL = el agente no llena nada, RF-04-02).
+  const fichaFields = profile.fichaFields ?? null;
+  const contactBlock = await safeContactBlock(
+    organizationId,
+    conversation,
+    fichaFields
+  );
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildAgentSystemPrompt({ profile, kb, stages, agenda }),
+      content: buildAgentSystemPrompt({
+        profile,
+        kb,
+        stages,
+        agenda,
+        contactBlock,
+        fichaFields,
+      }),
     },
-    ...history
-      .filter((m) => m.text)
-      .map((m) =>
-        m.direction === "in"
-          ? { role: "user" as const, content: m.text! }
-          : // Los turnos previos van en el MISMO formato JSON que se le exige:
-            // con texto plano, modelos como MiniMax imitan su historial y
-            // dejan de responder JSON desde el segundo turno.
-            {
-              role: "assistant" as const,
-              content: JSON.stringify({ action: "reply", text: m.text! }),
-            }
-      ),
+    // Los turnos previos van en el MISMO formato JSON que se le exige (con
+    // texto plano, MiniMax imita su historial y deja de responder JSON desde
+    // el segundo turno); los del equipo, marcados con "autor" (history.ts).
+    ...chatHistory,
   ];
 
   const result = await chatJson(agentActionSchema(agenda), messages);
@@ -190,7 +195,32 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     return;
   }
 
-  let action: AgentActionType = result.data;
+  const chosen: AgentActionType = result.data;
+  await executeAction(chosen, { organizationId, conversation, stages, agenda });
+
+  // 04 — La ficha va DESPUÉS de entregar la respuesta (RF-04-10): el cliente
+  // ya tiene su mensaje pase lo que pase aquí.
+  await applyAgentFicha({
+    organizationId,
+    conversation,
+    fields: fichaFields,
+    ficha: chosen.ficha,
+  });
+}
+
+/** Ejecuta la acción del turno (y entrega su respuesta, si la hay). */
+async function executeAction(
+  initial: AgentActionType,
+  t: {
+    organizationId: string;
+    conversation: Conversation;
+    stages: { id: string; name: string }[];
+    agenda: boolean;
+  }
+): Promise<void> {
+  const { organizationId, conversation, stages, agenda } = t;
+  const conversationId = conversation.id;
+  let action = initial;
 
   // 015 — Agenda. Un fallo del motor degrada el turno (el agente responde sin
   // agendar), nunca lo tumba: quedarse callado es peor que no agendar.
@@ -269,6 +299,74 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
 
 type Conversation = typeof schema.conversation.$inferSelect;
 
+/**
+ * 03 — Bloque "DATOS DEL CONTACTO" del turno. Armar el contexto JAMÁS tumba
+ * el turno (RF-03-13): si algo truena, se registra el tipo de error (sin
+ * valores personales) y el agente responde sin la sección.
+ */
+async function safeContactBlock(
+  organizationId: string,
+  conversation: Conversation,
+  fichaFields: readonly FichaFieldDef[] | null
+): Promise<string | undefined> {
+  try {
+    const ctx = await loadContactContext({
+      organizationId,
+      conversation,
+      now: new Date(),
+    });
+    // 04 — Mismo gancho que `GET /api/bot/context`: campos definidos primero
+    // y lo que el agente no puede pisar, marcado "(confirmado por el equipo)".
+    return renderContactContext(ctx, fichaRenderOptions(ctx, fichaFields));
+  } catch (err) {
+    console.error(
+      `[agente] contexto no disponible: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * 04 — Escribe en la ficha lo que el agente descubrió en este turno, por la
+ * puerta única (`source: "ia"`: coerción por tipo + "el humano gana").
+ *
+ * Nunca tumba el turno ni provoca handoff (RF-04-10): cualquier error se
+ * registra con las CLAVES y el tipo de error, jamás con valores
+ * (Constitución I). Sin campos que llene el agente, no hace nada (RF-04-02).
+ * En el Laboratorio escribe igual sobre el contacto sintético (RF-04-15): es
+ * la BD propia, no una API externa.
+ */
+async function applyAgentFicha(input: {
+  organizationId: string;
+  conversation: Conversation;
+  fields: readonly FichaFieldDef[] | null;
+  ficha: Record<string, unknown> | null | undefined;
+}): Promise<void> {
+  const { organizationId, conversation, fields, ficha } = input;
+  if (!ficha || Object.keys(ficha).length === 0) return;
+  if (!fields?.some((f) => f.agentFills)) return;
+  try {
+    const res = await upsertFicha({
+      organizationId,
+      contactId: conversation.contactId,
+      ficha,
+      source: "ia",
+      fields,
+      conversationId: conversation.id,
+    });
+    if (res?.changed) {
+      publish(organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id: conversation.id } },
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[agente] ficha no guardada (claves: ${Object.keys(ficha).slice(0, 40).join(", ")}): ${err instanceof Error ? err.name : typeof err}`
+    );
+  }
+}
+
 /** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
 async function deliverReply(
   conversation: Conversation,
@@ -322,36 +420,25 @@ export type ConversationHandoffReason = NonNullable<
   (typeof schema.conversation.$inferSelect)["handoffReason"]
 >;
 
+/**
+ * Escalamiento del agente in-process. Pasa por la puerta única `markHandoff`
+ * (05/02-0): solo escribe si no había handoff abierto (el primer motivo gana),
+ * registra el evento y publica — salvo en el Laboratorio. No apaga la IA
+ * (`ai_enabled` se queda como estaba): el agente se detiene por `handoff_at`.
+ */
 export async function applyHandoff(
   conversationId: string,
   organizationId: string,
   reason: ConversationHandoffReason,
   note?: string | null
 ): Promise<void> {
-  const db = getDb();
-  const handoffNote = toHandoffNote(note);
-  const updated = await db
-    .update(schema.conversation)
-    .set({
-      handoffAt: new Date(),
-      handoffReason: reason,
-      handoffNote,
-      updatedAt: new Date(),
-    })
-    .where(
-      scoped(
-        schema.conversation.organizationId,
-        organizationId,
-        eq(schema.conversation.id, conversationId)
-      )
-    )
-    .returning();
-  if (!updated[0]) return;
-  publish(organizationId, {
-    type: "conversation.updated",
-    data: {
-      conversation: { id: conversationId, handoffReason: reason, handoffNote },
-    },
+  await markHandoff({
+    organizationId,
+    conversationId,
+    reason,
+    note,
+    source: "agente",
+    pauseAi: false,
   });
 }
 

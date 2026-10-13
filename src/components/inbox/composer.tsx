@@ -10,10 +10,26 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import type { ConversationDto, TemplateDto } from "@/lib/types";
+import type { ConversationDto, QuickReplyDto, TemplateDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useViewer } from "@/components/viewer-context";
 import { formatBytes, formatRemaining } from "./helpers";
 import { TemplateSender } from "./template-sender";
+import { useQuickReplies } from "./use-quick-replies";
+import {
+  QUICK_REPLY_LISTBOX_ID,
+  QuickReplyPicker,
+  quickReplyOptionId,
+} from "./quick-reply-picker";
+import {
+  matchQuickReplies,
+  renderQuickReply,
+  slashQuery,
+} from "@/lib/quick-replies";
+import { insertQuickReply, quickReplyContext } from "./quick-reply-render";
+
+/** Máximo de opciones visibles en el selector `/`. */
+const QUICK_REPLY_PICKER_MAX = 8;
 
 /** 008 — Panel secundario del clip: formulario de ubicación o contacto. */
 type AttachPanel = "location" | "contact" | null;
@@ -35,10 +51,13 @@ export function Composer({
   conversation,
   onSend,
   onSent,
+  onNotVisible,
 }: {
   conversation: ConversationDto;
   onSend: (text: string) => Promise<string | null>;
   onSent: () => void;
+  /** 09: un envío respondió 404 — la conversación ya la atiende otro. */
+  onNotVisible?: () => void;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -53,6 +72,63 @@ export function Composer({
   const [contactPhone, setContactPhone] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 09 — Respuestas rápidas: `/atajo` al inicio o tras un espacio abre el
+  // selector; Esc lo cierra hasta que se escriba otra `/`.
+  const viewer = useViewer();
+  const { quickReplies, reload: reloadQuickReplies } = useQuickReplies();
+  const [caret, setCaret] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  const slash = slashQuery(text, caret);
+  // El GET ya viene por `position`; el selector muestra las primeras.
+  const matches = slash
+    ? matchQuickReplies(quickReplies, slash.query).slice(0, QUICK_REPLY_PICKER_MAX)
+    : [];
+  const pickerOpen =
+    slash !== null && matches.length > 0 && dismissedAt !== slash.start;
+  const active = Math.min(activeIndex, Math.max(matches.length - 1, 0));
+  const activeReply = pickerOpen ? matches[active] : undefined;
+
+  /** Texto de la respuesta con las variables ya resueltas para ESTE contacto. */
+  function renderFor(reply: QuickReplyDto): string {
+    return renderQuickReply(
+      reply.body,
+      quickReplyContext(conversation.contact.name, viewer)
+    );
+  }
+
+  /** Reemplaza el `/atajo` por la respuesta; queda editable, nada se envía. */
+  function pickQuickReply(reply: QuickReplyDto) {
+    if (!slash) return;
+    const next = insertQuickReply(text, slash.start, caret, renderFor(reply));
+    setText(next.text);
+    setCaret(next.caret);
+    setDismissedAt(null);
+    setTimeout(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+      autogrow();
+    }, 0);
+  }
+
+  /** Sigue el cursor: el selector depende de la palabra donde está. */
+  function trackCaret(value: string, position: number) {
+    const before = slashQuery(text, caret);
+    const after = slashQuery(value, position);
+    setCaret(position);
+    if (!after || after.start !== before?.start) {
+      setDismissedAt(null);
+      setActiveIndex(0);
+    } else if (after.query !== before.query) {
+      setActiveIndex(0);
+    }
+    // Al abrir el selector se pide la lista otra vez: alguien pudo editarla
+    // en Ajustes mientras esta Bandeja estaba abierta.
+    if (after && !before) void reloadQuickReplies();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -91,10 +167,20 @@ export function Composer({
   }
 
   async function apiSend(path: string, init: RequestInit): Promise<string | null> {
-    const res = await fetch(path, init);
+    const res = await fetch(path, init).catch(() => null);
+    if (!res) return "Sin conexión con el servidor";
     if (res.ok) return null;
-    const data = (await res.json().catch(() => null)) as { message?: string } | null;
-    return data?.message ?? `Error ${res.status}`;
+    if (res.status === 404 && onNotVisible) {
+      // 09: otro vendedor la tomó; el envío no salió. La Bandeja cierra el
+      // hilo y avisa.
+      onNotVisible();
+      return "Esta conversación ahora la atiende otro vendedor.";
+    }
+    const data = (await res.json().catch(() => null)) as {
+      message?: string;
+      error?: { message?: string };
+    } | null;
+    return data?.error?.message ?? data?.message ?? `Error ${res.status}`;
   }
 
   async function submit() {
@@ -239,7 +325,33 @@ export function Composer({
 
   return (
     <div className="border-t bg-background px-[18px] pb-3.5 pt-3">
-      {conversation.templates && templates.length > 0 && !file && panel === null && (
+      {/* 09: los chips son las primeras respuestas rápidas del catálogo (en
+          cualquier canal); sin catálogo, como antes, las plantillas. */}
+      {quickReplies.length > 0 && !file && panel === null && (
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
+          {[...quickReplies]
+            .sort((a, b) => a.position - b.position)
+            .slice(0, 4)
+            .map((r) => (
+              <button
+                key={r.id}
+                className="rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-text-2 transition-colors hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
+                onClick={() => {
+                  const value = renderFor(r);
+                  setText(value);
+                  setCaret(value.length);
+                  taRef.current?.focus();
+                  setTimeout(autogrow, 0);
+                }}
+                title={r.body}
+              >
+                {r.title}
+              </button>
+            ))}
+        </div>
+      )}
+
+      {quickReplies.length === 0 && conversation.templates && templates.length > 0 && !file && panel === null && (
         <div className="mb-2.5 flex flex-wrap gap-1.5">
           {templates.slice(0, 4).map((t) => (
             <button
@@ -361,7 +473,15 @@ export function Composer({
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-md border bg-background px-3 py-2 transition-shadow focus-within:border-brand focus-within:ring-[3px] focus-within:ring-brand-soft">
+      <div className="relative flex items-end gap-2 rounded-md border bg-background px-3 py-2 transition-shadow focus-within:border-brand focus-within:ring-[3px] focus-within:ring-brand-soft">
+        {pickerOpen && (
+          <QuickReplyPicker
+            matches={matches}
+            activeIndex={active}
+            onHover={setActiveIndex}
+            onPick={pickQuickReply}
+          />
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -408,11 +528,41 @@ export function Composer({
           placeholder={file ? "Pie del adjunto (opcional)…" : "Escribe una respuesta…"}
           value={text}
           rows={1}
+          aria-autocomplete="list"
+          aria-controls={pickerOpen ? QUICK_REPLY_LISTBOX_ID : undefined}
+          aria-activedescendant={
+            activeReply ? quickReplyOptionId(activeReply.id) : undefined
+          }
           onChange={(e) => {
+            trackCaret(e.target.value, e.target.selectionStart);
             setText(e.target.value);
             autogrow();
           }}
+          onSelect={(e) => {
+            const position = e.currentTarget.selectionStart;
+            if (position !== caret) trackCaret(text, position);
+          }}
           onKeyDown={(e) => {
+            // Con el selector abierto, las flechas, Enter/Tab y Esc son suyos:
+            // Enter INSERTA la respuesta, no envía (RF-09-23).
+            if (pickerOpen && slash) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const step = e.key === "ArrowDown" ? 1 : -1;
+                setActiveIndex((active + step + matches.length) % matches.length);
+                return;
+              }
+              if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+                e.preventDefault();
+                if (activeReply) pickQuickReply(activeReply);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setDismissedAt(slash.start);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void submit();

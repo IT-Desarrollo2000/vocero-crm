@@ -39,6 +39,10 @@ const envSchema = z.object({
   // 015: motor de agenda. Apagado por defecto — sin el, toda la superficie de
   // agenda responde 404 y la UI no la menciona. Ej.: AGENDA=on
   AGENDA: z.string().optional(),
+  // 10: periodo (ms) del reloj in-process de recordatorios de cita; solo
+  // corre con AGENDA encendida. Sin ella, 60000; 0 = el reloj no arranca (el
+  // self-test fuerza las vueltas con POST /api/dev/reminders/tick).
+  AGENDA_REMINDER_TICK_MS: z.coerce.number().int().min(0).optional(),
   // 016: atribucion de anuncios y reporte a la Conversions API de Meta.
   // Apagada por defecto: sin ella no se captura de que anuncio vino una
   // conversacion, no se le reporta nada a Meta y la superficie da 404.

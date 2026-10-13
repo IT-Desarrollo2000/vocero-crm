@@ -25,4 +25,4 @@ export const GET = withAuth(async (session) => {
     warnAt: WARN_CHARS,
     warning: chars >= WARN_CHARS,
   });
-});
+}, { role: "owner" });

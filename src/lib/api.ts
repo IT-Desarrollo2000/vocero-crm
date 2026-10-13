@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireSession, UnauthorizedError, type SessionContext } from "@/lib/auth/session";
+import { isOwner, type Role } from "@/lib/roles";
 
 /** Respuesta de error estándar de la API interna (contrato api.md). */
 export function apiError(
@@ -10,12 +11,37 @@ export function apiError(
   return Response.json({ error: { code, message } }, { status });
 }
 
+export type WithAuthOptions = {
+  /** Rol mínimo exigido. Hoy solo "owner" restringe; sin rol = cualquiera. */
+  role?: Role;
+};
+
+/** 403 estándar cuando la acción es solo del Propietario. */
+function forbidden(): Response {
+  return apiError(403, "forbidden", "Solo el Propietario puede hacer esto");
+}
+
+/**
+ * Chequeo de Propietario DENTRO de un handler (políticas `any*` que bifurcan
+ * por rol). Devuelve la Response 403 a retornar tal cual, o null si pasa —
+ * mismo patrón que `parseBody` (resultado, no excepción):
+ *
+ *   const denied = requireOwner(session);
+ *   if (denied) return denied;
+ */
+export function requireOwner(session: { role: Role }): Response | null {
+  return isOwner(session) ? null : forbidden();
+}
+
 /**
  * Envuelve un route handler autenticado: resuelve la sesión (401 si no hay),
- * captura errores no controlados (500 sin stack) y deja pasar Response.
+ * aplica la guarda de rol si se pide (`{ role: "owner" }` → 403 `forbidden`
+ * sin ejecutar el handler ni leer el body), captura errores no controlados
+ * (500 sin stack) y deja pasar Response.
  */
 export function withAuth<Args extends unknown[]>(
-  handler: (session: SessionContext, ...args: Args) => Promise<Response>
+  handler: (session: SessionContext, ...args: Args) => Promise<Response>,
+  opts?: WithAuthOptions
 ): (...args: Args) => Promise<Response> {
   return async (...args: Args) => {
     let session: SessionContext;
@@ -26,6 +52,9 @@ export function withAuth<Args extends unknown[]>(
         return apiError(401, "unauthorized", "No autenticado");
       }
       throw err;
+    }
+    if (opts?.role === "owner" && !isOwner(session)) {
+      return forbidden();
     }
     try {
       return await handler(session, ...args);
@@ -39,7 +68,9 @@ export function withAuth<Args extends unknown[]>(
 /** Parsea el body JSON con un esquema Zod; inválido → Response 422. */
 export async function parseBody<T>(
   req: Request,
-  schema: z.ZodType<T>
+  // Entrada `unknown`: admite esquemas con transform/preprocess (la salida
+  // tipada es lo que importa; el JSON crudo siempre es desconocido).
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
 ): Promise<{ ok: true; data: T } | { ok: false; response: Response }> {
   let raw: unknown;
   try {
@@ -50,6 +81,35 @@ export async function parseBody<T>(
       response: apiError(422, "invalid_body", "El body debe ser JSON válido"),
     };
   }
+  return validateBody(raw, schema);
+}
+
+/**
+ * Como `parseBody`, pero un body vacío (o solo espacios) cuenta como `{}`:
+ * para POST cuyo cuerpo es opcional y que hoy se llaman sin body.
+ */
+export async function parseOptionalBody<T>(
+  req: Request,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): Promise<{ ok: true; data: T } | { ok: false; response: Response }> {
+  const text = await req.text().catch(() => "");
+  if (!text.trim()) return validateBody({}, schema);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      response: apiError(422, "invalid_body", "El body debe ser JSON válido"),
+    };
+  }
+  return validateBody(raw, schema);
+}
+
+function validateBody<T>(
+  raw: unknown,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+): { ok: true; data: T } | { ok: false; response: Response } {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const detail = parsed.error.issues

@@ -76,7 +76,7 @@ días, citas de 30 min ⇒ decenas de slots por consulta.
 | **V. Calidad verificable** | Gate técnico + unit de la carrera y del contrato de conectores + arnés E2E extendido; códigos y sobre verificados exactos (research D9). |
 | **VI. Specs antes de código** | Carril ciclo completo declarado (toca modelo de datos y `/api/bot/*`); este plan y su spec preceden a todo código; `tasks.md` vendrá de `/speckit-tasks`. |
 | **VII. Trazabilidad** | La reversión del README se argumenta por escrito en el spec; la decisión de conectores queda en ADR-002; el único punto sin confirmar (respuesta síncrona del link de Meet) está marcado NEEDS VERIFICATION en research D6 y contracts. |
-| **VIII. Foco vertical** | Agendar es la conversión natural de una conversación de WhatsApp; el motor vive pegado a contacto/conversación/lead y avanza el pipeline por la puerta única de etapas. No es un producto de calendario: sin free-busy, sin multi-calendario, sin recordatorios en v1. |
+| **VIII. Foco vertical** | Agendar es la conversión natural de una conversación de WhatsApp; el motor vive pegado a contacto/conversación/lead y avanza el pipeline por la puerta única de etapas. No es un producto de calendario: sin free-busy, sin multi-calendario, sin recordatorios en v1 (enmienda post-v1: la tarea 10 los agrega con reloj in-process y claim atómico, detrás de `AGENDA` — `dev-tasks/10-recordatorio-de-citas-y-no-shows.md`). |
 | **IX. Verificación en vivo** | Quickstart define el self-test completo (bandera, garantías, carrera, link pendiente, sandbox) contra la app viva con mocks; nada se declara Hecho sin ese loop en verde. |
 
 **Guardrail del Laboratorio**: las conversaciones `is_test` agendan citas
