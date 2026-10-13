@@ -84,20 +84,19 @@ export default function PrivacidadPage() {
           y sus políticas para desarrolladores; los datos recibidos de Meta se
           usan solo para prestar el servicio de atención descrito aquí.
         </li>
-        <li>
-          Un <strong>proveedor de modelos de IA</strong>, consumido por API, al
-          que se envía el contenido necesario de la conversación para generar
-          una respuesta.
-        </li>
-        <li>
-          Un proveedor de <strong>base de datos alojada</strong> donde se
-          almacena la información del sistema.
-        </li>
+        {LEGAL.processors.map((p) => (
+          <li key={p.name}>
+            <strong>{p.name}</strong>
+            {p.location ? ` (${p.location})` : ""}: {p.role}.
+          </li>
+        ))}
         <li>Autoridades, cuando exista un mandato legal.</li>
       </ul>
       <p>
-        Estos proveedores pueden estar ubicados fuera de México; las
-        transferencias se limitan a lo necesario para operar el servicio.
+        Estos proveedores actúan como encargados: tratan los datos solo por
+        cuenta de {LEGAL.legalName} y para operar el servicio. Algunos están
+        ubicados fuera de México; las transferencias se limitan a lo necesario
+        para operar el servicio.
       </p>
 
       <h2>4. Conservación</h2>
