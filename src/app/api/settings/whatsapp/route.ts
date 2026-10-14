@@ -53,7 +53,7 @@ export const PUT = withAuth(async (session, req: Request) => {
   const sub = await subscribeAppToWaba(body.data.wabaId, body.data.token);
   const notAssigned =
     access.ok === false
-      ? `El usuario del token («${access.userName}») no tiene asignada esta cuenta de WhatsApp: puede leer el número pero Meta rechazará los envíos. En Business Manager → Usuarios del sistema → ${access.userName} → Asignar activos → Cuentas de WhatsApp, dale control total, o usa el token de un usuario del sistema que ya la tenga.`
+      ? `El usuario del token («${access.userName}») no tiene asignada esta cuenta de WhatsApp: puede leer el número pero es probable que Meta rechace los envíos. En Business Manager → Usuarios del sistema → ${access.userName} → Asignar activos → Cuentas de WhatsApp, dale control total, o usa el token de un usuario del sistema que ya la tenga.`
       : null;
   if (notAssigned && !sub.ok) {
     return apiError(422, "waba_not_assigned", notAssigned);
