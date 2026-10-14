@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
   CheckCheck,
   Clock3,
+  Download,
+  FileSpreadsheet,
   FileText,
+  FileX,
+  Loader2,
   MapPin,
   Paperclip,
+  Presentation,
+  ShieldAlert,
   Smartphone,
   Sparkles,
   UserRound,
@@ -106,63 +112,203 @@ function MediaBlock({ media }: { media: MessageMediaDto }) {
     );
   }
 
-  if (media.fetchStatus !== "available") {
+  // 018: estados sin binario que abrir. Ninguno lleva enlace: un archivo
+  // bloqueado no se puede abrir desde el CRM, uno expirado ya no existe.
+  if (media.fetchStatus === "blocked") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-text-3">
-        <Paperclip className="h-3.5 w-3.5" strokeWidth={1.7} />
-        {mediaLabel(media.kind)}
-        {media.fetchStatus === "failed"
-          ? " — contenido no disponible"
-          : " — descargando…"}
+      <MediaNotice tone="danger" icon={ShieldAlert} testId="media-blocked">
+        <span className="block font-medium">Archivo bloqueado por seguridad</span>
+        {media.blockedReason && (
+          <span className="block text-[12px] opacity-80">{media.blockedReason}</span>
+        )}
+      </MediaNotice>
+    );
+  }
+  if (media.fetchStatus === "expired") {
+    return (
+      <MediaNotice icon={FileX} testId="media-expired">
+        <span className="block font-medium">
+          {media.fileName ?? mediaLabel(media.kind)}
+        </span>
+        <span className="block text-[12px]">
+          Archivo eliminado — los archivos se guardan 30 días
+        </span>
+      </MediaNotice>
+    );
+  }
+  if (media.fetchStatus === "pending") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-text-3" data-testid="media-pending">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.7} />
+        {mediaLabel(media.kind)} — descargando…
       </span>
+    );
+  }
+  if (media.fetchStatus === "failed") {
+    return (
+      <MediaNotice icon={Paperclip} testId="media-failed">
+        <span className="block font-medium">{mediaLabel(media.kind)}</span>
+        <span className="block text-[12px]">
+          No disponible (expiró en la plataforma)
+        </span>
+      </MediaNotice>
     );
   }
 
   if (media.kind === "image" || media.kind === "sticker") {
-    return (
-      <a href={src} target="_blank" rel="noreferrer noopener" title="Ver completa">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={media.caption ?? mediaLabel(media.kind)}
-          className="max-h-72 max-w-full rounded-md object-contain"
-          loading="lazy"
-        />
-      </a>
-    );
+    return <InlineImage src={src} alt={media.caption ?? mediaLabel(media.kind)} />;
   }
-  if (media.kind === "video") {
-    return (
-      <video controls preload="metadata" className="max-h-72 max-w-full rounded-md">
-        <source src={src} type={media.mimeType ?? undefined} />
-      </video>
-    );
-  }
-  if (media.kind === "audio") {
-    return <audio controls preload="metadata" src={src} className="max-w-full" />;
+  if (media.kind === "video" || media.kind === "audio") {
+    return <InlinePlayer src={src} kind={media.kind} mimeType={media.mimeType} />;
   }
   // document
+  const DocIcon = documentIcon(media.mimeType, media.fileName);
   return (
     <a
-      className="flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-2 hover:bg-background"
+      className="flex min-w-[200px] max-w-full items-center gap-2.5 rounded-md border bg-background/60 px-2.5 py-2 hover:bg-background"
       href={src}
-      download={media.fileName ?? undefined}
-      target="_blank"
+      download={media.fileName ?? ""}
       rel="noreferrer noopener"
+      data-testid="media-document"
     >
-      <FileText className="h-6 w-6 shrink-0 text-brand" strokeWidth={1.5} />
-      <span className="min-w-0">
+      <DocIcon className="h-7 w-7 shrink-0 text-brand" strokeWidth={1.5} />
+      <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">
           {media.fileName ?? "Documento"}
         </span>
-        {media.fileSize != null && (
-          <span className="block text-[12px] text-text-3">
-            {formatBytes(media.fileSize)}
-          </span>
-        )}
+        <span className="block text-[12px] text-text-3">
+          {[documentLabel(media.mimeType, media.fileName), media.fileSize != null ? formatBytes(media.fileSize) : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
       </span>
+      <Download className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.7} />
     </a>
   );
+}
+
+/** 018 — Aviso en lugar del adjunto (bloqueado, expirado, no disponible). */
+function MediaNotice({
+  icon: Icon,
+  tone = "muted",
+  testId,
+  children,
+}: {
+  icon: typeof Paperclip;
+  tone?: "muted" | "danger";
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      data-testid={testId}
+      className={cn(
+        "flex items-start gap-2 rounded-md border px-2.5 py-2",
+        tone === "danger"
+          ? "border-danger-soft bg-danger-tint text-danger-text"
+          : "bg-background/60 text-text-3"
+      )}
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+      <span className="min-w-0">{children}</span>
+    </span>
+  );
+}
+
+/** Imagen inline; si no carga, un aviso en vez del icono roto. */
+function InlineImage({ src, alt }: { src: string; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <MediaNotice icon={AlertTriangle} testId="media-load-error">
+        No se pudo cargar la imagen
+      </MediaNotice>
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noreferrer noopener" title="Ver completa">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-72 max-w-full rounded-md object-contain"
+        loading="lazy"
+        onError={() => setBroken(true)}
+        data-testid="media-image"
+      />
+    </a>
+  );
+}
+
+/** Audio o video con su reproductor; si no carga, un aviso. */
+function InlinePlayer({
+  src,
+  kind,
+  mimeType,
+}: {
+  src: string;
+  kind: "audio" | "video";
+  mimeType: string | null;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <MediaNotice icon={AlertTriangle} testId="media-load-error">
+        No se pudo cargar el {kind === "audio" ? "audio" : "video"}
+      </MediaNotice>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <audio
+        controls
+        preload="metadata"
+        src={src}
+        className="max-w-full"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return (
+    <video
+      controls
+      preload="metadata"
+      src={src}
+      className="max-h-72 max-w-full rounded-md"
+      onError={() => setBroken(true)}
+    >
+      {mimeType && <source src={src} type={mimeType} />}
+    </video>
+  );
+}
+
+function extOf(fileName: string | null): string {
+  const name = (fileName ?? "").toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1) : "";
+}
+
+/** Icono de la tarjeta de documento según su tipo. */
+function documentIcon(mime: string | null, fileName: string | null): typeof FileText {
+  const m = mime ?? "";
+  const ext = extOf(fileName);
+  if (m.includes("spreadsheetml") || m === "text/csv" || ext === "xlsx" || ext === "csv")
+    return FileSpreadsheet;
+  if (m.includes("presentationml") || ext === "pptx") return Presentation;
+  return FileText;
+}
+
+/** Tipo legible del documento (PDF, Word…). */
+function documentLabel(mime: string | null, fileName: string | null): string | null {
+  const m = mime ?? "";
+  const ext = extOf(fileName);
+  if (m === "application/pdf" || ext === "pdf") return "PDF";
+  if (m.includes("wordprocessingml") || ext === "docx") return "Word";
+  if (m.includes("spreadsheetml") || ext === "xlsx") return "Excel";
+  if (m.includes("presentationml") || ext === "pptx") return "PowerPoint";
+  if (m === "text/csv" || ext === "csv") return "CSV";
+  if (m === "text/plain" || ext === "txt") return "Texto";
+  return null;
 }
 
 function dayLabel(iso: string): string {
@@ -182,13 +328,48 @@ function bubbleTime(iso: string): string {
   });
 }
 
-export function MessageThread({ messages }: { messages: MessageDto[] }) {
+/** 018: cada cuánto se vuelve a pedir el hilo mientras un adjunto descarga. */
+const PENDING_MEDIA_RETRY_MS = 3000;
+/** Y cuántas veces como máximo (una descarga atascada no consulta para siempre). */
+const PENDING_MEDIA_MAX_RETRIES = 10;
+
+export function MessageThread({
+  messages,
+  onPendingMedia,
+}: {
+  messages: MessageDto[];
+  /**
+   * 018: la descarga de un adjunto entrante va en segundo plano y no emite
+   * evento propio; mientras haya alguno en `pending`, el hilo pide un
+   * refetch suave para que pase a disponible sin recargar.
+   */
+  onPendingMedia?: () => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const retries = useRef(0);
+  // En ref: el padre pasa una función nueva en cada render y no debe
+  // reiniciar la espera.
+  const onPendingRef = useRef(onPendingMedia);
+  onPendingRef.current = onPendingMedia;
+  const hasPending = messages.some((m) => m.media?.fetchStatus === "pending");
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!hasPending) {
+      retries.current = 0;
+      return;
+    }
+    if (!onPendingRef.current || retries.current >= PENDING_MEDIA_MAX_RETRIES) return;
+    const t = setTimeout(() => {
+      retries.current++;
+      onPendingRef.current?.();
+    }, PENDING_MEDIA_RETRY_MS);
+    return () => clearTimeout(t);
+  }, [hasPending, messages]);
 
   return (
     <div

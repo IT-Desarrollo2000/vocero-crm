@@ -3,6 +3,7 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { publish } from "@/server/events/bus";
 import {
   getConversation,
+  instagramSourceFor,
   listConversations,
   serializeConversation,
   updateConversation,
@@ -70,7 +71,9 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
       row.contact,
       null,
       null,
-      row.assignee
+      row.assignee,
+      null,
+      await instagramSourceFor(session.organizationId, row.conversation.channel)
     );
     return Response.json({ conversation: dto });
   }

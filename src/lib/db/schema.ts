@@ -607,8 +607,9 @@ export const message = pgTable(
 /**
  * 008 — Adjuntos: archivo (imagen/video/audio/documento/sticker) copiado al
  * volumen local (`MEDIA_DIR`) o contenido estructurado (location/contacts) en
- * `payload`. Meta expira sus archivos (~30 días): el disco propio es la
- * fuente durable (constitución II: sin S3/R2).
+ * `payload`. 018: el disco es una CACHÉ de 30 días (`MEDIA_RETENTION_DAYS`):
+ * después el binario se borra y la fila queda `expired` (constitución II:
+ * sin S3/R2).
  */
 export const mediaAsset = pgTable(
   "media_asset",
@@ -638,12 +639,23 @@ export const mediaAsset = pgTable(
     payload: jsonb("payload"),
     /** Ruta relativa dentro de MEDIA_DIR; NULL si aún no descargado o no aplica. */
     storagePath: text("storage_path"),
+    /**
+     * 018: `expired` = el reloj de purga borró el binario (caché de 30 días);
+     * `blocked` = la firma no pasó la política de archivos y el binario nunca
+     * se guardó (`fetch_error` lleva la razón). Columna text: sin SQL.
+     */
     fetchStatus: text("fetch_status", {
-      enum: ["available", "pending", "failed"],
+      enum: ["available", "pending", "failed", "expired", "blocked"],
     })
       .notNull()
       .default("pending"),
     fetchError: text("fetch_error"),
+    /** 018: `in` = lo mandó el cliente; `out` = el negocio (CRM o echo). */
+    direction: text("direction", { enum: ["in", "out"] })
+      .notNull()
+      .default("in"),
+    /** 018: URL de origen de un entrante de Messenger/Instagram (CDN de Meta). */
+    sourceUrl: text("source_url"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

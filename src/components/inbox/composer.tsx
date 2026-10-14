@@ -34,6 +34,16 @@ const QUICK_REPLY_PICKER_MAX = 8;
 /** 008 — Panel secundario del clip: formulario de ubicación o contacto. */
 type AttachPanel = "location" | "contact" | null;
 
+/** 018 — ¿La extensión del archivo está en el `accept` del canal? */
+function extensionAllowed(name: string, accept: string): boolean {
+  const lower = name.toLowerCase();
+  return accept
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.startsWith("."))
+    .some((e) => lower.endsWith(e));
+}
+
 /** Extrae lat,long de "21.019, -101.257" o de un enlace de Google Maps. */
 function parseCoords(raw: string): { latitude: number; longitude: number } | null {
   const m =
@@ -159,6 +169,13 @@ export function Composer({
   }
 
   function pickFile(f: File | null) {
+    // 018: validación LIGERA por extensión contra el `accept` del canal; el
+    // servidor (firma del contenido) sigue siendo la autoridad.
+    const files = conversation.outboundFiles;
+    if (f && files && !extensionAllowed(f.name, files.accept)) {
+      setError(files.hint);
+      return;
+    }
     if (filePreview) URL.revokeObjectURL(filePreview);
     setFile(f);
     setFilePreview(f && f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
@@ -388,6 +405,9 @@ export function Composer({
             <p className="text-xs text-text-3">
               {formatBytes(file.size)} · el texto de abajo va como pie del adjunto
             </p>
+            <p className="text-[11px] text-text-4">
+              Los archivos se eliminan del CRM a los 30 días.
+            </p>
           </div>
           <button
             onClick={() => pickFile(null)}
@@ -485,42 +505,55 @@ export function Composer({
         <input
           ref={fileRef}
           type="file"
+          accept={conversation.outboundFiles?.accept}
           className="hidden"
-          onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            pickFile(e.target.files?.[0] ?? null);
+            // Permite volver a elegir el mismo archivo tras quitarlo o tras
+            // un rechazo.
+            e.target.value = "";
+          }}
         />
-        {/* 017: adjuntos, ubicación y contactos solo donde el canal los acepta. */}
-        {conversation.outboundMedia && (
+        {/* 018: el clip según `outboundFiles`; ubicación y contactos según
+            `outboundStructured` (matriz por canal, FR-804). */}
+        {(conversation.outboundFiles || conversation.outboundStructured) && (
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              onClick={() => fileRef.current?.click()}
-              aria-label="Adjuntar archivo"
-              title="Adjuntar imagen, video, audio o documento"
-              className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
-            >
-              <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
-            </button>
-            <button
-              onClick={() => setPanel(panel === "location" ? null : "location")}
-              aria-label="Enviar ubicación"
-              title="Enviar ubicación"
-              className={cn(
-                "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-                panel === "location" && "bg-secondary text-brand"
-              )}
-            >
-              <MapPin className="h-[18px] w-[18px]" strokeWidth={1.7} />
-            </button>
-            <button
-              onClick={() => setPanel(panel === "contact" ? null : "contact")}
-              aria-label="Compartir contacto"
-              title="Compartir contacto"
-              className={cn(
-                "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-                panel === "contact" && "bg-secondary text-brand"
-              )}
-            >
-              <UserRound className="h-[18px] w-[18px]" strokeWidth={1.7} />
-            </button>
+            {conversation.outboundFiles && (
+              <button
+                onClick={() => fileRef.current?.click()}
+                aria-label="Adjuntar archivo"
+                title={conversation.outboundFiles.hint}
+                className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
+              >
+                <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
+              </button>
+            )}
+            {conversation.outboundStructured && (
+              <>
+                <button
+                  onClick={() => setPanel(panel === "location" ? null : "location")}
+                  aria-label="Enviar ubicación"
+                  title="Enviar ubicación"
+                  className={cn(
+                    "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
+                    panel === "location" && "bg-secondary text-brand"
+                  )}
+                >
+                  <MapPin className="h-[18px] w-[18px]" strokeWidth={1.7} />
+                </button>
+                <button
+                  onClick={() => setPanel(panel === "contact" ? null : "contact")}
+                  aria-label="Compartir contacto"
+                  title="Compartir contacto"
+                  className={cn(
+                    "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
+                    panel === "contact" && "bg-secondary text-brand"
+                  )}
+                >
+                  <UserRound className="h-[18px] w-[18px]" strokeWidth={1.7} />
+                </button>
+              </>
+            )}
           </div>
         )}
         <textarea

@@ -27,7 +27,10 @@ Dos capacidades de paridad con WhatsApp para el inbox:
    con enlace, contacto). Los archivos se copian a un volumen local
    (`MEDIA_DIR`, sin S3/R2 — constitución II) y se sirven SOLO por
    `GET /api/media/[assetId]` con sesión y scope de organización — siguen
-   disponibles después de que Meta los expire (~30 días).
+   disponibles durante 30 días; luego, expirado (el disco es una caché: a
+   los 30 días se borran y el hilo muestra "Archivo eliminado").
+   *Cambiado por 018 (adjuntos seguros); antes: "disponibles después de que
+   Meta los expire".*
 
 ## Requisitos clave
 
@@ -42,6 +45,9 @@ Dos capacidades de paridad con WhatsApp para el inbox:
   con `fetchStatus available|pending|failed`; descarga in-process
   post-ingesta que nunca bloquea el webhook + reintento on-demand; si Meta
   ya expiró el archivo → 410 y la UI muestra "contenido no disponible".
+  *Cambiado por 018: `fetchStatus` gana `expired` (purga a los 30 días → 410
+  `expired`, "Archivo eliminado") y `blocked` (no pasó la política de
+  archivos → 415).*
 - **FR-5**: envío de archivo = validación previa (413/415) → disco local →
   upload a Graph (`POST /{phone_number_id}/media`) → send por media id; un
   fallo de Graph persiste el mensaje `failed` con el asset ya en disco

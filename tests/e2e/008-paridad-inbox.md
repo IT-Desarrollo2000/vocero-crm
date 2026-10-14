@@ -23,7 +23,7 @@ los pasos visuales de Playwright.
 |---|---|
 | AC-1 imagen + caption + estados | "imagen con caption enviada (201)" + "asset disponible y origin=operator" + outbox `type=image` |
 | AC-2 ubicación | "ubicación enviada" + payload lat/long + outbox `type=location` |
-| AC-3 límite de tamaño ANTES de enviar | "imagen de 6 MB → 413 too_large" |
+| AC-3 límite de tamaño ANTES de enviar | "imagen de 6 MB → 413 too_large" (018: el PNG lleva cabecera real; el tipo se decide por la firma) |
 | AC-4 ventana cerrada = misma regla que texto | cubierto por los checks de ventana existentes (el pre-flight es compartido: `prepareSend`) |
 | AC-5 fallo del canal → mensaje failed visible | unit `media-send.test.ts` (persistencia failed) + sandbox |
 
@@ -33,14 +33,15 @@ los pasos visuales de Playwright.
 |---|---|
 | AC-1 foto ampliable | "imagen entrante queda disponible" + "el binario entrante se sirve" |
 | AC-2 nota de voz reproducible | mismo pipeline que imagen (kind audio); visual en Playwright |
-| AC-3 disponible tras expirar en Meta | el binario se sirve desde `MEDIA_DIR`, no desde Graph (la URL del mock solo se usa al descargar) |
+| AC-3 disponible durante 30 días; luego, expirado (cambiado por 018) | el binario se sirve desde `MEDIA_DIR`, no desde Graph (la URL del mock solo se usa al descargar); a los 30 días la purga lo borra → 410 `expired` y el hilo dice "Archivo eliminado" — ver [us-adjuntos.md](us-adjuntos.md) AC-8 |
 | AC-4 contenido no disponible degradado | "descarga fallida degrada a failed" + "410 gone" |
 
 ## Pasos visuales (Playwright, al cerrar la feature)
 
 1. Login → Inbox → conversación "Lead 008": el hilo muestra la burbuja manual
    con badge 📱 "Celular", la imagen enviada con miniatura y caption, la
-   ubicación con enlace, y el adjunto roto con "contenido no disponible".
+   ubicación con enlace, y el adjunto roto con "No disponible (expiró en la
+   plataforma)" (018; automatizado en `scripts/e2e-adjuntos-ui.mjs`).
 2. Composer: clip 📎 abre el picker; imagen seleccionada muestra preview con
    nombre/tamaño; el texto pasa a ser "pie del adjunto".
 3. Panel de contacto: la conversación pausada muestra "Respondiste desde el

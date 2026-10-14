@@ -4,10 +4,18 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isOwner } from "@/lib/roles";
 import { conversationVisibleTo } from "@/server/inbox/visibility";
+import { rm } from "node:fs/promises";
 import {
   ensureAssetAvailable,
+  mediaFilePath,
   readMediaFile,
 } from "@/server/whatsapp/media";
+import {
+  blockedResponse,
+  expiredResponse,
+  inspectForServing,
+  safeFileHeaders,
+} from "@/server/media/serve";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +26,10 @@ type Params = { params: Promise<{ assetId: string }> };
  * sesión y dentro de la organización (un asset ajeno responde 404: jamás se
  * filtra existencia entre tenants). Si el archivo aún no se descargó,
  * intenta on-demand contra Graph; si Meta ya lo expiró → 410.
+ *
+ * 018 — Expirado por la caché de 30 días → 410 `expired`; bloqueado por la
+ * política → 415 `blocked`. Se sirve con el tipo DETECTADO y cabeceras
+ * seguras (`src/server/media/serve.ts`).
  */
 export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const { assetId } = await ctx.params;
@@ -69,34 +81,65 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
     return apiError(404, "no_binary", "Este adjunto no tiene archivo");
   }
 
+  // 018: estados finales, sin reintento (re-descargar un expirado deshace la
+  // caché de 30 días; un bloqueado no se vuelve seguro).
+  if (asset.fetchStatus === "expired") return expiredResponse();
+  if (asset.fetchStatus === "blocked") {
+    return blockedResponse(asset.fetchError ?? "Archivo bloqueado por seguridad");
+  }
+
   if (asset.fetchStatus !== "available") {
     // On-demand: reintenta la descarga en el momento (pending o failed).
     asset = (await ensureAssetAvailable(session.organizationId, assetId)) ?? asset;
+  }
+  if (asset.fetchStatus === "blocked") {
+    return blockedResponse(asset.fetchError ?? "Archivo bloqueado por seguridad");
   }
   if (asset.fetchStatus !== "available" || !asset.storagePath) {
     return apiError(
       410,
       "gone",
-      "El contenido ya no está disponible (expiró en WhatsApp antes de poder copiarse)"
+      "El contenido ya no está disponible (expiró en la plataforma antes de poder copiarse)"
     );
   }
 
+  let data: Buffer;
   try {
-    const data = await readMediaFile(session.organizationId, assetId);
-    return new Response(new Uint8Array(data), {
-      headers: {
-        "content-type": asset.mimeType ?? "application/octet-stream",
-        "content-length": String(data.byteLength),
-        // El contenido de un asset es inmutable; privado por sesión.
-        "cache-control": "private, max-age=86400",
-        ...(asset.fileName
-          ? {
-              "content-disposition": `inline; filename="${asset.fileName.replace(/[^\w. -]/g, "_")}"`,
-            }
-          : {}),
-      },
-    });
+    data = await readMediaFile(session.organizationId, assetId);
   } catch {
     return apiError(410, "gone", "El archivo del adjunto no está en el volumen");
   }
+
+  // 018: re-inspección al servir — los assets anteriores guardaron el MIME
+  // del remitente. Si ya no pasa la política, se marca y no se entrega.
+  const checked = inspectForServing(data, {
+    fileName: asset.fileName,
+    mime: asset.mimeType,
+  });
+  if (!checked.ok) {
+    await db
+      .update(schema.mediaAsset)
+      .set({ fetchStatus: "blocked", fetchError: checked.reason, updatedAt: new Date() })
+      .where(
+        scoped(
+          schema.mediaAsset.organizationId,
+          session.organizationId,
+          eq(schema.mediaAsset.id, assetId)
+        )
+      );
+    await rm(mediaFilePath(session.organizationId, assetId), { force: true }).catch(
+      () => {}
+    );
+    return checked.response;
+  }
+
+  return new Response(new Uint8Array(data), {
+    headers: safeFileHeaders({
+      inspection: checked.inspection,
+      fileName: asset.fileName,
+      length: data.byteLength,
+      // El contenido de un asset es inmutable; privado por sesión.
+      cacheControl: "private, max-age=86400",
+    }),
+  });
 });

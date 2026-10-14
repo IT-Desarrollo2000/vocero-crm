@@ -16,6 +16,23 @@ export type OutboxEntry = {
    * pueda mandarle un webhook de estado a ESE mensaje sin adivinar el formato.
    */
   waMessageId?: string;
+  /**
+   * 018 — Adjunto de Messenger/Instagram (`type: "attachment"`). Messenger
+   * sube los bytes (multipart `filedata`): `fileName`/`mime`/`bytes` son los
+   * recibidos. Instagram manda una URL que el mock DESCARGA como lo haría
+   * Meta: `fetchedStatus`/`fetchedBytes`/`contentType` son de esa descarga.
+   */
+  attachment?: {
+    channel: "messenger" | "instagram";
+    attachmentType: string;
+    fileName?: string | null;
+    mime?: string | null;
+    bytes?: number;
+    url?: string;
+    fetchedStatus?: number;
+    fetchedBytes?: number;
+    contentType?: string | null;
+  };
 };
 
 export type MockTemplate = {

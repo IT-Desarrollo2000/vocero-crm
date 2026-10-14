@@ -14,14 +14,16 @@ import {
   getInstagramCredentialsByOrg,
   markInstagramReconnectRequired,
 } from "@/server/instagram/credentials";
-import { sendInstagramText } from "@/server/instagram/send";
+import { sendInstagramAttachment, sendInstagramText } from "@/server/instagram/send";
 import {
   getMessengerCredentialsByOrg,
   markMessengerReconnectRequired,
 } from "@/server/messenger/credentials";
-import { sendMessengerText } from "@/server/messenger/send";
+import { sendMessengerAttachment, sendMessengerText } from "@/server/messenger/send";
+import { signMediaUrl } from "@/server/media/signed-url";
 import {
   capabilitiesFor,
+  outboundFilesFor,
   replyModeFor,
   textFits,
   textTooLongMessage,
@@ -29,11 +31,9 @@ import {
 } from "@/server/channels/capabilities";
 import { isChannelEnabled } from "@/server/channels/enabled";
 import { serializeMessage } from "@/server/inbox/ingest";
-import {
-  saveMediaFile,
-  uploadGraphMedia,
-  validateOutgoing,
-} from "@/server/whatsapp/media";
+import { saveMediaFile, uploadGraphMedia } from "@/server/whatsapp/media";
+import { checkChannelFile, inspectOutgoing } from "@/server/media/file-policy";
+import type { OutboundFileKind, OutboundFiles } from "@/lib/outbound-files";
 
 /** Error tipado del envío; `code` mapea a HTTP en la capa de API. */
 export class SendError extends Error {
@@ -64,11 +64,37 @@ type ContactRow = typeof schema.contact.$inferSelect;
 type TextOnlyChannel = Exclude<Channel, "whatsapp">;
 
 /**
- * 017 — Transporte de un canal que (por ahora) solo manda texto. Cada canal
- * aporta el suyo en `TEXT_TRANSPORTS`; el núcleo no sabe de hosts ni de ids.
+ * 018 — Archivo saliente ya validado (firma + matriz del canal) y guardado en
+ * la caché local. `mimeType` es el que se ENTREGA a la plataforma;
+ * `assetId` permite firmar una URL temporal (Instagram solo envía por URL).
+ */
+export type OutboundAttachment = {
+  organizationId: string;
+  assetId: string;
+  kind: OutboundFileKind;
+  data: Buffer;
+  mimeType: string;
+  fileName: string | null;
+  caption?: string;
+};
+
+/**
+ * 017 — Transporte de un canal distinto de WhatsApp. Cada canal aporta el
+ * suyo en `TEXT_TRANSPORTS`; el núcleo no sabe de hosts ni de ids.
  */
 type TextTransport = {
   send(text: string, humanAgentTag: boolean): Promise<string>;
+  /**
+   * 018 — Punto de extensión de adjuntos (Bloque 2: Messenger multipart,
+   * Instagram por URL firmada). Devuelve el id de plataforma SIN prefijo.
+   * Ausente → el envío de archivos responde `unsupported_channel`.
+   */
+  sendAttachment?(file: OutboundAttachment, humanAgentTag: boolean): Promise<string>;
+  /**
+   * 018 — Matriz de archivos de ESTA conexión cuando difiere de la del canal
+   * (Instagram vía Zernio: ninguno → 415). Ausente = la de `capabilities.ts`.
+   */
+  outboundFiles?: OutboundFiles | null;
   markReconnectRequired(): Promise<void>;
 };
 
@@ -132,7 +158,7 @@ const TEXT_TRANSPORTS: Record<
       throw new SendError("reconnect_required", RECONNECT_MESSAGE.instagram);
     }
     const recipient = stripPrefix(contact.waIdentity, IG_PREFIX);
-    return {
+    const transport: TextTransport = {
       send: async (text, humanAgentTag) =>
         (
           await sendInstagramText({
@@ -143,8 +169,26 @@ const TEXT_TRANSPORTS: Record<
             humanAgentTag,
           })
         ).platformMessageId,
+      // 018: el mismo criterio que el DTO (`outboundFilesFor`).
+      outboundFiles: outboundFilesFor("instagram", creds.source),
       markReconnectRequired: () => markInstagramReconnectRequired(organizationId),
     };
+    if (creds.source === "meta") {
+      // Instagram no acepta subidas: descarga el archivo de una URL firmada
+      // y temporal del CRM (10 min). `APP_BASE_URL` debe ser alcanzable por
+      // Meta (en producción lo es: es el dominio público de la instancia).
+      transport.sendAttachment = async (file, humanAgentTag) =>
+        (
+          await sendInstagramAttachment({
+            credentials: creds,
+            recipient,
+            kind: file.kind,
+            url: signMediaUrl(file.organizationId, file.assetId),
+            humanAgentTag,
+          })
+        ).platformMessageId;
+    }
+    return transport;
   },
   messenger: async (organizationId, contact) => {
     const creds = await getMessengerCredentialsByOrg(organizationId);
@@ -165,6 +209,16 @@ const TEXT_TRANSPORTS: Record<
             credentials: creds,
             recipient,
             text,
+            humanAgentTag,
+          })
+        ).platformMessageId,
+      // 018: multipart con `filedata` (FR-810).
+      sendAttachment: async (file, humanAgentTag) =>
+        (
+          await sendMessengerAttachment({
+            credentials: creds,
+            recipient,
+            file,
             humanAgentTag,
           })
         ).platformMessageId,
@@ -272,9 +326,9 @@ async function prepareSend(
 }
 
 /**
- * 017 — Lo que solo existe en WhatsApp (adjuntos, ubicación, contactos) falla
- * con un 4xx claro en los demás canales, en vez de un 500 por credenciales
- * que no existen.
+ * 017 — Lo que solo existe en WhatsApp (ubicación, contactos; 018: los
+ * archivos ya van por la matriz del canal) falla con un 4xx claro en los
+ * demás canales, en vez de un 500 por credenciales que no existen.
  */
 function requireWhatsApp(
   target: SendTarget,
@@ -394,9 +448,14 @@ export async function sendText(input: {
 
 /**
  * 008 — Envía un adjunto de archivo (imagen/video/audio/documento).
- * El archivo queda ANTES en el volumen local (fuente durable de la preview);
- * si Graph falla tras eso, el mensaje se persiste `failed` (visible en el
- * hilo, nunca se pierde en silencio) y el SendError lleva `messageId`.
+ * El archivo queda ANTES en el volumen local (caché de la preview, 30 días);
+ * si la plataforma falla tras eso, el mensaje se persiste `failed` (visible
+ * en el hilo, nunca se pierde en silencio) y el SendError lleva `messageId`.
+ *
+ * 018 (FR-803) — Orden de validación: tope global → firma y lista blanca
+ * (415 con la razón) → matriz del canal: tipo (415 con la frase del canal) y
+ * tamaño (413). Lo guardado es el MIME DETECTADO, nunca el del navegador.
+ * El sandbox del Laboratorio (`prepareSend`) sigue antes de cualquier red.
  */
 export async function sendMediaMessage(input: {
   conversationId: string;
@@ -404,12 +463,37 @@ export async function sendMediaMessage(input: {
   file: { data: Buffer; mimeType: string; fileName?: string };
   caption?: string;
 }): Promise<SendResult> {
-  // Validación previa (FR-007): tipo y tamaño antes de tocar disco o red.
-  const kind = validateOutgoing(input.file.mimeType, input.file.data.byteLength);
+  // Puro: ni disco ni red. Lanza MediaValidationError (413/415).
+  const inspection = inspectOutgoing(input.file.data, {
+    fileName: input.file.fileName,
+    mime: input.file.mimeType,
+  });
 
   const target = await prepareSend(input.conversationId, input.organizationId);
-  requireWhatsApp(target, "adjuntos");
-  const { credentials, recipient } = target;
+  const channel = target.conversation.channel;
+  const caps = capabilitiesFor(channel);
+  // 018: la conexión puede restringir la matriz del canal (Instagram vía
+  // Zernio no envía archivos → 415 antes de tocar disco).
+  const outboundFiles =
+    target.kind === "text_only" && target.transport.outboundFiles !== undefined
+      ? target.transport.outboundFiles
+      : caps.outboundFiles;
+  const { rule, sendMime } = checkChannelFile(
+    outboundFiles,
+    inspection,
+    input.file.data.byteLength,
+    caps.label
+  );
+  const kind = rule.kind;
+
+  // 018: el canal declara su matriz, pero el transporte puede no saber
+  // mandar archivos todavía (Bloque 2). Falla claro ANTES de tocar disco.
+  if (target.kind === "text_only" && !target.transport.sendAttachment) {
+    throw new SendError(
+      "unsupported_channel",
+      `Todavía no se pueden enviar archivos por ${CHANNEL_LABEL[target.channel]}; manda el texto`
+    );
+  }
 
   const db = getDb();
   const assetId = newId("mediaAsset");
@@ -424,65 +508,104 @@ export async function sendMediaMessage(input: {
       id: assetId,
       organizationId: input.organizationId,
       kind,
-      mimeType: input.file.mimeType,
+      mimeType: inspection.mime,
       fileName: input.file.fileName ?? null,
       fileSize: input.file.data.byteLength,
-      caption: input.caption ?? null,
+      // Instagram y Messenger no tienen pie en los adjuntos: ahí el caption
+      // viaja como un mensaje de texto aparte (ver abajo), así que la tarjeta
+      // no lo repite. Si el envío falla, se le devuelve para no perderlo.
+      caption: target.kind === "whatsapp" ? (input.caption ?? null) : null,
       storagePath,
       fetchStatus: "available",
+      direction: "out",
     })
     .returning();
   const asset = assetRows[0]!;
 
+  let messageId: string;
   try {
-    const waMediaId = await uploadGraphMedia(credentials, input.file);
-    await db
-      .update(schema.mediaAsset)
-      .set({ waMediaId, updatedAt: new Date() })
-      .where(eq(schema.mediaAsset.id, assetId));
+    let waMessageId: string;
+    if (target.kind === "whatsapp") {
+      const { credentials, recipient } = target;
+      // csv sale como text/plain (WhatsApp no acepta text/csv); el nombre
+      // `.csv` se conserva y es lo que ve el cliente.
+      const waMediaId = await uploadGraphMedia(credentials, {
+        data: input.file.data,
+        mimeType: sendMime,
+        fileName: input.file.fileName,
+      });
+      await db
+        .update(schema.mediaAsset)
+        .set({ waMediaId, updatedAt: new Date() })
+        .where(eq(schema.mediaAsset.id, assetId));
 
-    const mediaPayload: Record<string, unknown> = { id: waMediaId };
-    if (input.caption && kind !== "audio") mediaPayload.caption = input.caption;
-    if (kind === "document" && input.file.fileName) {
-      mediaPayload.filename = input.file.fileName;
+      const mediaPayload: Record<string, unknown> = { id: waMediaId };
+      if (input.caption && kind !== "audio") mediaPayload.caption = input.caption;
+      if (kind === "document" && input.file.fileName) {
+        mediaPayload.filename = input.file.fileName;
+      }
+      waMessageId = await callGraphSend(credentials, {
+        messaging_product: "whatsapp",
+        to: recipient,
+        type: kind,
+        [kind]: mediaPayload,
+      });
+    } else {
+      const sendAttachment = target.transport.sendAttachment!;
+      waMessageId = await callChannelTransport(target, () =>
+        sendAttachment(
+          {
+            organizationId: input.organizationId,
+            assetId,
+            kind,
+            data: input.file.data,
+            mimeType: sendMime,
+            fileName: input.file.fileName ?? null,
+            caption: input.caption,
+          },
+          target.humanAgentTag
+        )
+      );
     }
-    const waMessageId = await callGraphSend(credentials, {
-      messaging_product: "whatsapp",
-      to: recipient,
-      type: kind,
-      [kind]: mediaPayload,
-    });
 
-    const messageId = await persistOutbound({
+    messageId = await persistOutbound({
       organizationId: input.organizationId,
       conversationId: input.conversationId,
       waMessageId,
       type: kind,
       text: null,
-      status: "pending",
+      status: caps.deliveryReceipts ? "pending" : "sent",
       origin: "operator",
       mediaAssetId: assetId,
       media: asset,
     });
-    return { messageId };
   } catch (err) {
     let sendErr: SendError;
     if (err instanceof SendError) {
       sendErr = err;
-    } else if (err instanceof MetaApiError && err.isAuthError) {
+    } else if (
+      target.kind === "whatsapp" &&
+      err instanceof MetaApiError &&
+      err.isAuthError
+    ) {
       // Mismo criterio que el texto: SOLO 401/código 190 (fix 2026-08-04).
       await markReconnectRequired(input.organizationId);
-      sendErr = new SendError(
-        "reconnect_required",
-        "El token de WhatsApp expiró: reconecta el número en Configuración"
-      );
+      sendErr = new SendError("reconnect_required", RECONNECT_MESSAGE.whatsapp);
     } else {
       sendErr = new SendError(
         "upload_failed",
-        "No se pudo subir el adjunto a WhatsApp"
+        `No se pudo subir el adjunto a ${CHANNEL_LABEL[channel]}`
       );
     }
-    // El contenido NO se pierde: mensaje failed con el asset ya en disco.
+    // El contenido NO se pierde: mensaje failed con el asset ya en disco
+    // (y, en Instagram/Messenger, con el pie que no llegó a salir).
+    if (target.kind === "text_only" && input.caption) {
+      await db
+        .update(schema.mediaAsset)
+        .set({ caption: input.caption, updatedAt: new Date() })
+        .where(eq(schema.mediaAsset.id, assetId));
+      asset.caption = input.caption;
+    }
     sendErr.messageId = await persistOutbound({
       organizationId: input.organizationId,
       conversationId: input.conversationId,
@@ -497,6 +620,48 @@ export async function sendMediaMessage(input: {
     });
     throw sendErr;
   }
+
+  // 018 — Pie en Instagram/Messenger: la plataforma no lo admite en un
+  // adjunto, así que sale DESPUÉS como un mensaje de texto normal (persistido
+  // como el suyo propio, origin operator). Va fuera del try de arriba a
+  // propósito: si el texto falla, el adjunto YA llegó — se devuelve su éxito.
+  // `sendText` no persiste nada cuando la plataforma lo rechaza (lanza antes),
+  // así que el pie se guarda aquí como su propio mensaje `failed`, con el
+  // motivo: visible en el hilo, nunca se pierde en silencio.
+  if (target.kind === "text_only" && input.caption?.trim()) {
+    try {
+      await sendText({
+        conversationId: input.conversationId,
+        organizationId: input.organizationId,
+        text: input.caption,
+      });
+    } catch (err) {
+      const reason =
+        err instanceof Error && err.message
+          ? err.message
+          : `No se pudo enviar el texto a ${CHANNEL_LABEL[channel]}`;
+      console.warn(
+        `[media] el adjunto salió por ${CHANNEL_LABEL[channel]} pero su pie no:`,
+        reason
+      );
+      try {
+        await persistOutbound({
+          organizationId: input.organizationId,
+          conversationId: input.conversationId,
+          waMessageId: null,
+          type: "text",
+          text: input.caption,
+          status: "failed",
+          error: `El archivo sí se envió, pero su texto no: ${reason}`,
+          origin: "operator",
+        });
+      } catch (persistErr) {
+        // El éxito del adjunto no se convierte en error por esto.
+        console.error("[media] no se pudo registrar el pie fallido:", persistErr);
+      }
+    }
+  }
+  return { messageId };
 }
 
 export type LocationInput = {
@@ -550,6 +715,7 @@ export async function sendStructured(
       organizationId: input.organizationId,
       kind: input.kind,
       payload: input.kind === "location" ? input.location : input.contacts,
+      direction: "out",
       fetchStatus: "available",
     })
     .returning();
@@ -611,14 +777,26 @@ async function callChannelSend(
   text: string
 ): Promise<string> {
   const { channel, transport, humanAgentTag } = target;
-  const label = CHANNEL_LABEL[channel];
 
   if (!textFits(channel, text)) {
     throw new SendError("meta_error", textTooLongMessage(channel));
   }
+  return callChannelTransport(target, () => transport.send(text, humanAgentTag));
+}
+
+/**
+ * Ejecuta una llamada del transporte de un canal (texto o adjunto, 018) y
+ * traduce sus errores de Meta a SendError con las reglas del canal.
+ */
+async function callChannelTransport(
+  target: Extract<SendTarget, { kind: "text_only" }>,
+  call: () => Promise<string>
+): Promise<string> {
+  const { channel, transport, humanAgentTag } = target;
+  const label = CHANNEL_LABEL[channel];
 
   try {
-    const platformId = await transport.send(text, humanAgentTag);
+    const platformId = await call();
     return `${OUTBOUND_ID_PREFIX[channel]}${platformId}`;
   } catch (err) {
     if (err instanceof MetaApiError) {

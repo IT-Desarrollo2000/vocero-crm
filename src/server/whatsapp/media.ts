@@ -3,89 +3,27 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { getEnv } from "@/lib/env";
-import { graphRequest, MetaApiError } from "@/lib/meta/client";
+import { graphRequest, graphRequestForm, MetaApiError } from "@/lib/meta/client";
 import {
   getCredentialsByOrg,
   type Credentials,
 } from "@/server/whatsapp/credentials";
+import { inspectFile, MAX_FILE_BYTES } from "@/server/media/file-policy";
+import { MediaFetchError } from "@/server/media/fetch-error";
+import { downloadSourceUrl } from "@/server/media/source-fetch";
+
+export { MediaFetchError };
 
 /**
  * 008 — Única frontera de media con la Graph API (constitución II: todo el
  * tráfico a Meta pasa por adaptadores dedicados) + persistencia en el volumen
- * local `MEDIA_DIR`. Meta expira sus archivos (~30 días, URLs de minutos):
- * el disco propio es la copia durable que la UI previsualiza.
+ * local `MEDIA_DIR`. Meta expira sus archivos (entrantes a los 7 días, URLs
+ * de minutos).
+ *
+ * 018 — El disco es una CACHÉ de 30 días (`src/server/media/purge.ts`), y
+ * nada entra en él sin pasar la política de archivos (`file-policy.ts`): el
+ * tipo se decide por la firma, no por lo que declara el remitente.
  */
-
-export type MediaKind = (typeof schema.mediaAsset.$inferSelect)["kind"];
-
-/** Límites de la Cloud API por tipo (validados ANTES de tocar red, FR-007). */
-export const MEDIA_LIMITS: Record<
-  Exclude<MediaKind, "location" | "contacts">,
-  { maxBytes: number; mimes: RegExp; label: string }
-> = {
-  image: {
-    maxBytes: 5 * 1024 * 1024,
-    mimes: /^image\/(jpeg|png|webp)$/,
-    label: "imagen (jpeg/png/webp, máx. 5 MB)",
-  },
-  sticker: {
-    maxBytes: 100 * 1024,
-    mimes: /^image\/webp$/,
-    label: "sticker (webp, máx. 100 KB)",
-  },
-  audio: {
-    maxBytes: 16 * 1024 * 1024,
-    mimes: /^audio\/(aac|mp4|mpeg|amr|ogg|opus)/,
-    label: "audio (aac/mp4/mpeg/amr/ogg, máx. 16 MB)",
-  },
-  video: {
-    maxBytes: 16 * 1024 * 1024,
-    mimes: /^video\/(mp4|3gpp)$/,
-    label: "video (mp4/3gpp, máx. 16 MB)",
-  },
-  document: {
-    maxBytes: 100 * 1024 * 1024,
-    mimes: /^[\w.-]+\/[\w.+-]+$/,
-    label: "documento (máx. 100 MB)",
-  },
-};
-
-/** Clasifica un MIME de archivo saliente al tipo de mensaje de la Cloud API. */
-export function kindFromMime(mime: string): "image" | "audio" | "video" | "document" {
-  if (MEDIA_LIMITS.image.mimes.test(mime)) return "image";
-  if (MEDIA_LIMITS.audio.mimes.test(mime)) return "audio";
-  if (MEDIA_LIMITS.video.mimes.test(mime)) return "video";
-  return "document";
-}
-
-export class MediaValidationError extends Error {
-  code: "too_large" | "unsupported_type";
-  constructor(code: MediaValidationError["code"], message: string) {
-    super(message);
-    this.name = "MediaValidationError";
-    this.code = code;
-  }
-}
-
-/**
- * Valida MIME y tamaño para envío; devuelve el kind resuelto. Los formatos
- * que WhatsApp no acepta como su tipo nativo (p. ej. image/bmp) van como
- * documento — igual que hace la app de WhatsApp.
- */
-export function validateOutgoing(mime: string, sizeBytes: number) {
-  if (!/^[\w.-]+\/[\w.+-]+$/.test(mime)) {
-    throw new MediaValidationError("unsupported_type", "Tipo de archivo no reconocido");
-  }
-  const kind = kindFromMime(mime);
-  const limit = MEDIA_LIMITS[kind];
-  if (sizeBytes > limit.maxBytes) {
-    throw new MediaValidationError(
-      "too_large",
-      `El archivo excede el límite de ${limit.label}`
-    );
-  }
-  return kind;
-}
 
 /* ---------- Disco local ---------- */
 
@@ -122,16 +60,6 @@ export async function readMediaFile(
 
 type GraphMediaMeta = { url?: string; mime_type?: string; file_size?: number };
 
-export class MediaFetchError extends Error {
-  /** true si Meta ya no tiene el archivo (expirado/borrado) — no reintentar. */
-  gone: boolean;
-  constructor(message: string, gone = false) {
-    super(message);
-    this.name = "MediaFetchError";
-    this.gone = gone;
-  }
-}
-
 /**
  * Descarga un media de Graph: GET {mediaId} → url efímera → GET con Bearer.
  * El token JAMÁS sale del servidor.
@@ -139,8 +67,8 @@ export class MediaFetchError extends Error {
 export async function downloadGraphMedia(
   token: string,
   waMediaId: string,
-  maxBytes: number = MEDIA_LIMITS.document.maxBytes
-): Promise<{ data: Buffer; mimeType: string | null; fileSize: number }> {
+  maxBytes: number = MAX_FILE_BYTES
+):Promise<{ data: Buffer; mimeType: string | null; fileSize: number }> {
   let meta: GraphMediaMeta;
   try {
     meta = await graphRequest<GraphMediaMeta>(waMediaId, { token });
@@ -196,23 +124,63 @@ export async function ensureAssetAvailable(
     .limit(1);
   const asset = rows[0];
   if (!asset || asset.organizationId !== organizationId) return null;
-  if (asset.fetchStatus === "available") return asset;
-  if (!asset.waMediaId) return null; // location/contacts no tienen binario
-
-  const creds = await getCredentialsByOrg(organizationId);
-  if (!creds) return null;
+  // 018: `expired` y `blocked` son finales. Re-descargar un expirado
+  // deshace la caché de 30 días; un bloqueado no se vuelve seguro al reintentar.
+  if (
+    asset.fetchStatus === "available" ||
+    asset.fetchStatus === "expired" ||
+    asset.fetchStatus === "blocked"
+  ) {
+    return asset;
+  }
+  // 018: dos orígenes. WhatsApp → media id + token de la org; Messenger e
+  // Instagram → URL del CDN de Meta, sin token y con lista de hosts
+  // (`source-fetch.ts`). Se decide ANTES de pedir credenciales: una org
+  // solo-Messenger no tiene las de WhatsApp. location/contacts: sin binario.
+  let download: () => Promise<{ data: Buffer; mimeType: string | null; fileSize: number }>;
+  if (asset.waMediaId) {
+    const waMediaId = asset.waMediaId;
+    const creds = await getCredentialsByOrg(organizationId);
+    if (!creds) return null;
+    download = () => downloadGraphMedia(creds.token, waMediaId);
+  } else if (asset.sourceUrl) {
+    const sourceUrl = asset.sourceUrl;
+    download = () => downloadSourceUrl(sourceUrl);
+  } else {
+    return null;
+  }
 
   try {
-    const { data, mimeType, fileSize } = await downloadGraphMedia(
-      creds.token,
-      asset.waMediaId
-    );
+    const { data, mimeType, fileSize } = await download();
+
+    // 018 (FR-806): la firma decide. Bloqueado → el binario NO toca el disco.
+    const inspection = inspectFile(data, {
+      fileName: asset.fileName,
+      mime: asset.mimeType ?? mimeType,
+    });
+    if (!inspection.ok) {
+      const blockedRows = await db
+        .update(schema.mediaAsset)
+        .set({
+          fetchStatus: "blocked",
+          fetchError: inspection.reason,
+          fileSize,
+          storagePath: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.mediaAsset.id, assetId))
+        .returning();
+      console.warn(`[media] asset ${assetId} bloqueado: ${inspection.reason}`);
+      return blockedRows[0] ?? null;
+    }
+
     const storagePath = await saveMediaFile(organizationId, assetId, data);
     const updated = await db
       .update(schema.mediaAsset)
       .set({
         storagePath,
-        mimeType: asset.mimeType ?? mimeType,
+        // El kind (p. ej. sticker) lo dice el mensaje; el MIME, los bytes.
+        mimeType: inspection.mime,
         fileSize,
         fetchStatus: "available",
         fetchError: null,
@@ -243,8 +211,6 @@ export async function uploadGraphMedia(
   credentials: Credentials,
   file: { data: Buffer | Uint8Array; mimeType: string; fileName?: string }
 ): Promise<string> {
-  const env = getEnv();
-  const url = `${env.META_GRAPH_BASE_URL}/${env.META_GRAPH_API_VERSION}/${credentials.phoneNumberId}/media`;
   const form = new FormData();
   form.set("messaging_product", "whatsapp");
   form.set("type", file.mimeType);
@@ -255,39 +221,14 @@ export async function uploadGraphMedia(
     file.fileName ?? "adjunto"
   );
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${credentials.token}` },
-      body: form,
-    });
-  } catch (cause) {
-    throw new MetaApiError("No se pudo contactar la API de Meta", {
-      status: 0,
-      details: cause,
-    });
-  }
-  const text = await res.text();
-  let json: unknown = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {}
-  if (!res.ok) {
-    const err = (json as { error?: { message?: string; code?: number; type?: string } })
-      ?.error;
-    throw new MetaApiError(err?.message ?? `Meta respondió ${res.status}`, {
-      status: res.status,
-      code: err?.code ?? null,
-      type: err?.type ?? null,
-      details: json ?? text,
-    });
-  }
-  const id = (json as { id?: string })?.id;
-  if (!id) {
+  const res = await graphRequestForm<{ id?: string }>(
+    `${credentials.phoneNumberId}/media`,
+    { token: credentials.token, form }
+  );
+  if (!res?.id) {
     throw new MetaApiError("Meta no devolvió ID del media subido", {
-      status: res.status,
+      status: 200,
     });
   }
-  return id;
+  return res.id;
 }

@@ -155,6 +155,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/auth/[...all]": "public",
   "GET /api/health": "public",
   "POST /api/meta/data-deletion": "public",
+  // 018: la descarga Instagram (Meta) sin sesión; la defensa es el token
+  // HMAC de 10 min y solo sirve salientes (`src/server/media/signed-url.ts`).
+  "GET /api/media/out/[token]": "public",
   "GET /api/webhooks/wa/[webhookToken]": "public",
   "POST /api/webhooks/wa/[webhookToken]": "public",
   "GET /api/webhooks/ig/[webhookToken]": "public",
@@ -186,6 +189,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/dev/ai-mock/v1/chat/completions": "dev",
   // 10: una vuelta del ticker de recordatorios con reloj simulado.
   "POST /api/dev/reminders/tick": "dev",
+  // 018: una vuelta de la purga de adjuntos (caché de 30 días), reloj adelantable.
+  "POST /api/dev/media/purge": "dev",
   // 10: falla conmutable de los envíos de WhatsApp del mock.
   "GET /api/dev/wa-mock/fail-sends": "dev",
   "POST /api/dev/wa-mock/fail-sends": "dev",
@@ -203,6 +208,7 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "DELETE /api/dev/wa-mock/graph/[...path]": "dev",
   "POST /api/dev/wa-mock/inbound": "dev",
   "GET /api/dev/wa-mock/media-file/[id]": "dev",
+  "GET /api/dev/wa-mock/cdn/[id]": "dev",
   "GET /api/dev/wa-mock/outbox": "dev",
   "DELETE /api/dev/wa-mock/outbox": "dev",
   "POST /api/dev/wa-mock/status": "dev",

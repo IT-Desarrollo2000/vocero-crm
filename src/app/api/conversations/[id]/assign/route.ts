@@ -5,6 +5,7 @@ import { publish } from "@/server/events/bus";
 import {
   assignConversation,
   getConversation,
+  instagramSourceFor,
   serializeConversation,
 } from "@/server/inbox/queries";
 
@@ -102,7 +103,9 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       row.contact,
       null,
       null,
-      row.assignee
+      row.assignee,
+      null,
+      await instagramSourceFor(session.organizationId, row.conversation.channel)
     ),
   });
 });

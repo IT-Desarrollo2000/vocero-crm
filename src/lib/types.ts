@@ -1,6 +1,7 @@
 /** DTOs que viajan por la API interna (lado cliente). */
 
 import type { Channel, ReplyMode } from "@/lib/channels";
+import type { OutboundFiles } from "@/lib/outbound-files";
 import type {
   FichaFieldDef,
   FichaIgnored,
@@ -32,8 +33,13 @@ export type ConversationDto = {
    * las 24 h y hacía que una conversación de Instagram pidiera plantillas).
    */
   replyMode: ReplyMode;
-  /** 017: ¿el canal acepta adjuntos, ubicación y contactos salientes? */
-  outboundMedia: boolean;
+  /**
+   * 018: qué archivos acepta el canal de salida (matriz FR-804: tipos,
+   * topes, `accept` del input y frase de ayuda); null = ninguno.
+   */
+  outboundFiles: OutboundFiles | null;
+  /** 018: ¿ubicación y contactos salientes? Solo WhatsApp. */
+  outboundStructured: boolean;
   /** 017: ¿existen plantillas en este canal? Solo WhatsApp. */
   templates: boolean;
   preview: string | null;
@@ -155,7 +161,10 @@ export type MessageMediaDto = {
   fileName: string | null;
   fileSize: number | null;
   caption: string | null;
-  fetchStatus: "available" | "pending" | "failed";
+  /** 018: `expired` = borrado a los 30 días; `blocked` = no pasó la política. */
+  fetchStatus: "available" | "pending" | "failed" | "expired" | "blocked";
+  /** 018: razón legible del bloqueo (solo con `fetchStatus = "blocked"`). */
+  blockedReason: string | null;
   /** location {latitude, longitude, name?, address?} / contacts (subset). */
   payload: unknown;
 };

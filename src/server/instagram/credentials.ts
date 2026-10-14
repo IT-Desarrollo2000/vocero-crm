@@ -54,6 +54,21 @@ export async function getInstagramCredentialsByOrg(
   return rows[0] ? toCredentials(rows[0]) : null;
 }
 
+/**
+ * 018 — Solo la fuente de la conexión (sin descifrar el token): la Bandeja la
+ * necesita una vez por petición para saber si Instagram admite archivos.
+ */
+export async function getInstagramSourceByOrg(
+  organizationId: string
+): Promise<InstagramCredentials["source"] | null> {
+  const rows = await getDb()
+    .select({ source: schema.instagramCredentials.source })
+    .from(schema.instagramCredentials)
+    .where(eq(schema.instagramCredentials.organizationId, organizationId))
+    .limit(1);
+  return rows[0]?.source ?? null;
+}
+
 /** Enrutado del webhook de Meta: `entry[].id` es el IG_ID del perfil. */
 export async function getInstagramCredentialsByIgUserId(
   igUserId: string

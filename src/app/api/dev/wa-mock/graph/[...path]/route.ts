@@ -4,7 +4,9 @@ import {
   nextN,
   nextOutboundWamid,
   type MockTemplate,
+  type OutboxEntry,
 } from "@/server/dev/wa-mock-state";
+import { mockDeclaredMime, mockMediaBytes } from "@/server/dev/wa-mock-media";
 
 /**
  * Imitación de la Graph API (contrato mocks.md). El cliente real apunta aquí
@@ -61,6 +63,44 @@ function ownerIdFromToken(token: string): string | null {
   return /-id(\d+)$/.exec(token)?.[1] ?? null;
 }
 
+/**
+ * 017 — Caminos infelices de Instagram/Messenger por token: `-down` = la
+ * plataforma caída (5xx); `-nohumanagent` = la app sin la función Human
+ * Agent aprobada, que Meta rechaza con un error de permiso. null = seguir.
+ */
+function channelSendFailure(token: string, tag: unknown): Response | null {
+  if (token.endsWith("-down")) {
+    return Response.json(
+      { error: { message: "Service temporarily unavailable", type: "OAuthException", code: 2, fbtrace_id: "mock" } },
+      { status: 503 }
+    );
+  }
+  if (token.endsWith("-nohumanagent") && tag === "HUMAN_AGENT") {
+    return Response.json(
+      { error: { message: "(#10) This message is sent outside of allowed window.", type: "OAuthException", code: 10, error_subcode: 2018278, fbtrace_id: "mock" } },
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
+function graphParamError(message: string): Response {
+  return Response.json(
+    { error: { message, type: "GraphMethodException", code: 100, fbtrace_id: "mock" } },
+    { status: 400 }
+  );
+}
+
+function parseJsonField(v: FormDataEntryValue | null): Record<string, unknown> | null {
+  if (typeof v !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(v);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Quita el segmento de versión (v25.0/...) si viene en la ruta. */
 function normalizePath(path: string[]): string[] {
   return path[0] && /^v\d+/.test(path[0]) ? path.slice(1) : path;
@@ -91,10 +131,11 @@ export async function GET(req: Request, ctx: Params) {
   // GET {mediaId} (ids "media...") → metadata de adjunto (media proxy del bot)
   if (path.length === 1 && path[0]!.startsWith("media")) {
     const origin = new URL(req.url).origin;
+    // 018: mime y tamaño coherentes con los bytes reales de media-file.
     return Response.json({
       id: path[0],
-      mime_type: path[0]!.includes("pdf") ? "application/pdf" : "image/jpeg",
-      file_size: 13,
+      mime_type: mockDeclaredMime(path[0]!),
+      file_size: mockMediaBytes(path[0]!).byteLength,
       url: `${origin}/api/dev/wa-mock/media-file/${path[0]}`,
     });
   }
@@ -173,6 +214,52 @@ export async function POST(req: Request, ctx: Params) {
     }
     // El id arranca con "media" para que el GET de metadata lo resuelva.
     return Response.json({ id: `media-up-${nextN()}` });
+  }
+
+  // 018 — POST {pageId}/messages multipart: adjunto de Messenger con
+  // `filedata` (Send API). También va ANTES del parseo JSON.
+  if (
+    path.length === 2 &&
+    path[1] === "messages" &&
+    (req.headers.get("content-type") ?? "").includes("multipart/form-data")
+  ) {
+    const form = await req.formData().catch(() => null);
+    const recipient = parseJsonField(form?.get("recipient") ?? null) as { id?: string } | null;
+    const message = parseJsonField(form?.get("message") ?? null) as {
+      attachment?: { type?: string };
+    } | null;
+    const file = form?.get("filedata");
+    const tag = form?.get("tag") ?? null;
+    if (!recipient?.id || !message?.attachment?.type || !(file instanceof Blob)) {
+      return graphParamError("(#100) recipient, message.attachment y filedata son obligatorios");
+    }
+    const failure = channelSendFailure(token, tag);
+    if (failure) return failure;
+    const state = getWaMockState();
+    const n = nextN();
+    const messageId = `m_mock_${Date.now().toString(36)}_${n}`;
+    state.outbox.push({
+      n,
+      waMessageId: messageId,
+      phoneNumberId: path[0]!,
+      to: recipient.id,
+      type: "attachment",
+      body: {
+        recipient,
+        message,
+        messaging_type: form?.get("messaging_type") ?? null,
+        tag,
+      },
+      attachment: {
+        channel: "messenger",
+        attachmentType: message.attachment.type,
+        fileName: file instanceof File ? file.name : null,
+        mime: file.type || null,
+        bytes: file.size,
+      },
+      at: new Date().toISOString(),
+    });
+    return Response.json({ recipient_id: recipient.id, message_id: messageId });
   }
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -257,18 +344,43 @@ export async function POST(req: Request, ctx: Params) {
     // `-down` = la plataforma caída (5xx); `-nohumanagent` = la app sin la
     // función Human Agent aprobada, que Meta rechaza con un error de permiso.
     if (recipient?.id) {
-      if (token.endsWith("-down")) {
-        return Response.json(
-          { error: { message: "Service temporarily unavailable", type: "OAuthException", code: 2, fbtrace_id: "mock" } },
-          { status: 503 }
-        );
+      const failure = channelSendFailure(token, body.tag);
+      if (failure) return failure;
+
+      // 018 — Adjunto por URL (Instagram): Meta DESCARGA la URL desde sus
+      // servidores, sin sesión ni cookies. El mock hace lo mismo, así el
+      // self-test prueba que la URL firmada sirve sola; si no responde 200,
+      // el envío falla como fallaría en Meta.
+      const attachment = (body.message as { attachment?: { type?: string; payload?: { url?: string } } } | undefined)
+        ?.attachment;
+      let attachmentLog: OutboxEntry["attachment"];
+      if (attachment) {
+        const url = attachment.payload?.url;
+        if (!attachment.type || typeof url !== "string") {
+          return graphParamError("(#100) attachment.type y attachment.payload.url son obligatorios");
+        }
+        let fetched: Response | null = null;
+        try {
+          fetched = await fetch(url, { redirect: "manual", cache: "no-store" });
+        } catch {
+          fetched = null;
+        }
+        if (!fetched || fetched.status !== 200) {
+          return graphParamError(
+            `(#100) url no accesible (${fetched ? `HTTP ${fetched.status}` : "sin respuesta"})`
+          );
+        }
+        const bytes = new Uint8Array(await fetched.arrayBuffer());
+        attachmentLog = {
+          channel: "instagram",
+          attachmentType: attachment.type,
+          url,
+          fetchedStatus: fetched.status,
+          fetchedBytes: bytes.byteLength,
+          contentType: fetched.headers.get("content-type"),
+        };
       }
-      if (token.endsWith("-nohumanagent") && body.tag === "HUMAN_AGENT") {
-        return Response.json(
-          { error: { message: "(#10) This message is sent outside of allowed window.", type: "OAuthException", code: 10, error_subcode: 2018278, fbtrace_id: "mock" } },
-          { status: 400 }
-        );
-      }
+
       const n = nextN();
       const messageId = `m_mock_${Date.now().toString(36)}_${n}`;
       state.outbox.push({
@@ -276,8 +388,9 @@ export async function POST(req: Request, ctx: Params) {
         waMessageId: messageId,
         phoneNumberId: path[0]!,
         to: recipient.id,
-        type: "text",
+        type: attachmentLog ? "attachment" : "text",
         body,
+        ...(attachmentLog ? { attachment: attachmentLog } : {}),
         at: new Date().toISOString(),
       });
       return Response.json({ recipient_id: recipient.id, message_id: messageId });

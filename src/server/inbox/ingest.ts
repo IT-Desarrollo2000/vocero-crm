@@ -45,9 +45,15 @@ const BINARY_MEDIA_TYPES = new Set([
   "sticker",
 ] as const);
 
-type MediaInput = {
+export type MediaInput = {
   kind: (typeof schema.mediaAsset.$inferSelect)["kind"];
   waMediaId: string | null;
+  /**
+   * 018: URL del CDN de Meta de un adjunto de Messenger/Instagram (no hay
+   * media id: se descarga directo, sin token, con lista de hosts). Jamás sale
+   * en un DTO: lleva parámetros firmados del CDN.
+   */
+  sourceUrl?: string | null;
   mimeType: string | null;
   fileName: string | null;
   caption: string | null;
@@ -111,7 +117,9 @@ export function mediaInputFrom(msg: WebhookMessage): MediaInput | null {
 async function attachMediaAsset(
   organizationId: string,
   messageId: string,
-  media: MediaInput
+  media: MediaInput,
+  /** 018: `out` para el echo de un saliente hecho desde el teléfono. */
+  direction: "in" | "out" = "in"
 ): Promise<typeof schema.mediaAsset.$inferSelect | null> {
   try {
     const db = getDb();
@@ -122,11 +130,13 @@ async function attachMediaAsset(
         organizationId,
         kind: media.kind,
         waMediaId: media.waMediaId,
+        sourceUrl: media.sourceUrl ?? null,
         mimeType: media.mimeType,
         fileName: media.fileName,
         caption: media.caption,
         payload: media.payload ?? null,
         fetchStatus: media.fetchStatus,
+        direction,
       })
       .returning();
     const asset = inserted[0];
@@ -333,7 +343,7 @@ async function ingestManualEcho(
 
   const mediaInput = mediaInputFrom(echo);
   const asset = mediaInput
-    ? await attachMediaAsset(organizationId, message.id, mediaInput)
+    ? await attachMediaAsset(organizationId, message.id, mediaInput, "out")
     : null;
 
   // Solo lastMessageAt: un mensaje del negocio NUNCA abre la ventana de 24 h.
@@ -375,6 +385,35 @@ async function ingestManualEcho(
   });
 }
 
+/** Resultado de ingerir un entrante (para disparar el agente una sola vez). */
+export type IngestResult = {
+  conversationId: string;
+  /** false = duplicado (mismo id de plataforma): no tuvo efectos. */
+  inserted: boolean;
+};
+
+/**
+ * 018 — Ingiere los mensajes en que se partió UN mensaje de la plataforma
+ * (texto + varios adjuntos de Messenger/Instagram) y dispara UN solo turno
+ * del agente al final, si alguno era nuevo.
+ */
+export async function ingestInboundBatch(
+  items: Parameters<typeof ingestInboundMessage>[0][],
+  deps: {
+    ingest?: typeof ingestInboundMessage;
+    runAgent?: (conversationId: string) => Promise<void>;
+  } = {}
+): Promise<void> {
+  const ingest = deps.ingest ?? ingestInboundMessage;
+  const runAgent = deps.runAgent ?? maybeRunAgentTurn;
+  const fresh = new Set<string>();
+  for (const item of items) {
+    const r = await ingest({ ...item, skipAgentTurn: true });
+    if (r.inserted) fresh.add(r.conversationId);
+  }
+  for (const conversationId of fresh) await runAgent(conversationId);
+}
+
 export async function ingestInboundMessage(input: {
   organizationId: string;
   identity: ResolvedIdentity;
@@ -387,7 +426,14 @@ export async function ingestInboundMessage(input: {
   threadRef?: string | null;
   /** 016: origen del anuncio, si el mensaje vino de uno. */
   referral?: WebhookReferral | null;
-}): Promise<void> {
+  /**
+   * 018: no disparar el turno del agente. Un mensaje de Messenger/Instagram
+   * con varios adjuntos se ingiere como varios mensajes: quien llama dispara
+   * UN solo turno al terminar el último (`maybeRunAgentTurn`), con todos ya en
+   * la BD. Sin esto, con un debounce corto salían dos respuestas.
+   */
+  skipAgentTurn?: boolean;
+}): Promise<IngestResult> {
   const db = getDb();
   const { organizationId } = input;
 
@@ -434,7 +480,7 @@ export async function ingestInboundMessage(input: {
     .onConflictDoNothing({ target: [schema.message.waMessageId] })
     .returning();
   const message = inserted[0];
-  if (!message) return; // duplicado
+  if (!message) return { conversationId: conversation.id, inserted: false }; // duplicado
 
   const asset = input.media
     ? await attachMediaAsset(organizationId, message.id, input.media)
@@ -464,7 +510,8 @@ export async function ingestInboundMessage(input: {
     data: { conversation: { id: conversation.id } },
   });
 
-  await maybeRunAgentTurn(conversation.id);
+  if (!input.skipAgentTurn) await maybeRunAgentTurn(conversation.id);
+  return { conversationId: conversation.id, inserted: true };
 }
 
 function toDate(timestamp: string): Date {
@@ -497,6 +544,8 @@ export function serializeMessage(
           fileSize: media.fileSize,
           caption: media.caption,
           fetchStatus: media.fetchStatus,
+          blockedReason:
+            media.fetchStatus === "blocked" ? media.fetchError : null,
           payload: media.payload,
         }
       : null,

@@ -1,7 +1,10 @@
 import { apiError, withAuth } from "@/lib/api";
 import { gateSend, getConversation } from "@/server/inbox/queries";
 import { SendError, sendMediaMessage } from "@/server/inbox/send";
-import { MediaValidationError } from "@/server/whatsapp/media";
+import { MAX_FILE_BYTES, MediaValidationError } from "@/server/media/file-policy";
+
+/** Holgura del multipart (límites, cabeceras de parte, caption). */
+const MULTIPART_OVERHEAD = 64 * 1024;
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +25,25 @@ const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
  * 008 — Envía un adjunto de archivo por la conversación (multipart):
  * `file` (binario, requerido) + `caption` (opcional). La validación de tipo y
  * tamaño ocurre ANTES de tocar Graph (413/415 con el límite en el mensaje).
+ *
+ * 018: el tipo lo decide la firma del contenido (`file-policy.ts`), no
+ * `file.type`; el navegador solo aporta nombre y MIME como pista. Un cuerpo
+ * que declara más del tope global se corta antes de leerlo.
  */
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   // 09: no visible para quien pide → 404.
   const conv = await getConversation(session.organizationId, id, session);
   if (!conv) return apiError(404, "not_found", "Conversación no encontrada");
+
+  const declaredLength = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_FILE_BYTES + MULTIPART_OVERHEAD) {
+    return apiError(
+      413,
+      "too_large",
+      `El archivo excede el tope de ${MAX_FILE_BYTES / (1024 * 1024)} MB`
+    );
+  }
 
   const form = await req.formData().catch(() => null);
   if (!form) {
