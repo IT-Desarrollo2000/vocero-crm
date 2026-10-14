@@ -935,6 +935,40 @@ async function main() {
     msgs3.some((m) => m.text === "segundo mensaje manual" && m.origin === "manual")
   );
 
+  // El equipo escribe PRIMERO desde la app (echo): el contacto nace con su
+  // número; cuando el cliente responde, toma su nombre de perfil, y un nombre
+  // editado por el equipo ya no se pisa.
+  const NSUF = String(Date.now()).slice(-5);
+  const NUM = `52146270${NSUF}`;
+  const byText = async (t) =>
+    ((await api("/api/conversations")).json?.conversations ?? []).find((c) =>
+      String(c.preview ?? "").includes(t)
+    );
+  await api("/api/dev/wa-mock/echo", {
+    method: "POST",
+    body: JSON.stringify({ phoneNumberId: PN, to: NUM, text: `le escribo yo primero ${NSUF}`, waMessageId: `wamid.e2e.nombre.${NSUF}.1` }),
+  });
+  await sleep(900);
+  let cvNom = await byText(`le escribo yo primero ${NSUF}`);
+  ok("contacto nacido de un echo → su número como nombre", /^\d+$/.test(cvNom?.contact.name ?? ""), cvNom?.contact.name);
+  await api("/api/dev/wa-mock/inbound", {
+    method: "POST",
+    body: JSON.stringify({ phoneNumberId: PN, from: NUM, name: "Lucía Pérez", text: `hola soy yo ${NSUF}`, waMessageId: `wamid.e2e.nombre.${NSUF}.2` }),
+  });
+  await sleep(1500);
+  cvNom = await byText(`hola soy yo ${NSUF}`);
+  ok("cuando el cliente escribe, toma su nombre de perfil", cvNom?.contact.name === "Lucía Pérez", cvNom?.contact.name);
+  if (cvNom) {
+    await api(`/api/contacts/${cvNom.contact.id}`, { method: "PATCH", body: JSON.stringify({ name: "Lucía (VIP)" }) });
+  }
+  await api("/api/dev/wa-mock/inbound", {
+    method: "POST",
+    body: JSON.stringify({ phoneNumberId: PN, from: NUM, name: "Lu", text: `otra vez yo ${NSUF}`, waMessageId: `wamid.e2e.nombre.${NSUF}.3` }),
+  });
+  await sleep(1500);
+  cvNom = await byText(`otra vez yo ${NSUF}`);
+  ok("un nombre editado por el equipo no se pisa con el del perfil", cvNom?.contact.name === "Lucía (VIP)", cvNom?.contact.name);
+
   // Echo hacia un número SIN conversación previa → la crea.
   await api("/api/dev/wa-mock/echo", {
     method: "POST",

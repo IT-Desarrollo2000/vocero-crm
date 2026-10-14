@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeMx } from "@/lib/meta/client";
-import { BSUID_PREFIX, resolveIdentity } from "@/server/inbox/identity";
+import { BSUID_PREFIX, isFallbackName, resolveIdentity } from "@/server/inbox/identity";
 import type { WebhookMessage, WebhookValue } from "@/server/inbox/webhook";
 
 /** Feature 003: identidad resiliente de contacto (BSUID). */
@@ -83,5 +83,26 @@ describe("resolveIdentity: sin wa_id (mundo BSUID)", () => {
     // Sin perfil: profileName null — el fallback de display se decide al crear
     // el contacto (nunca el BSUID crudo).
     expect(r!.profileName).toBeNull();
+  });
+});
+
+describe("isFallbackName: el nombre de respaldo se reemplaza por el del perfil", () => {
+  const base = { phone: "529931307042", waIdentity: "529931307042" };
+
+  it("el número tal cual, con formato o con la troncal 521 → respaldo", () => {
+    expect(isFallbackName({ ...base, name: "529931307042" })).toBe(true);
+    expect(isFallbackName({ ...base, name: "+52 993 130 7042" })).toBe(true);
+    expect(isFallbackName({ ...base, name: "5219931307042" })).toBe(true);
+  });
+
+  it("el genérico o vacío → respaldo", () => {
+    expect(isFallbackName({ ...base, name: "Contacto de WhatsApp" })).toBe(true);
+    expect(isFallbackName({ ...base, name: "  " })).toBe(true);
+  });
+
+  it("un nombre escrito por alguien (aunque lleve números) → se respeta", () => {
+    expect(isFallbackName({ ...base, name: "Lucía Pérez" })).toBe(false);
+    expect(isFallbackName({ ...base, name: "Cliente 529931307042" })).toBe(false);
+    expect(isFallbackName({ ...base, name: "5511223344" })).toBe(false);
   });
 });

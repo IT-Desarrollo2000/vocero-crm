@@ -182,6 +182,12 @@ export async function getOrCreateContactByIdentity(
     if (resolved.waUserId && !existing.waUserId)
       patch.waUserId = resolved.waUserId;
     if (resolved.phone && !existing.phone) patch.phone = resolved.phone;
+    // Un contacto nacido de un echo (el equipo escribió primero desde la app
+    // del teléfono) se queda con su número como nombre: el echo no trae el
+    // perfil. Cuando el cliente escribe, su nombre de perfil reemplaza ese
+    // respaldo — nunca un nombre que alguien editó.
+    const profileName = resolved.profileName?.trim();
+    if (profileName && isFallbackName(existing)) patch.name = profileName;
     if (existing.archivedAt) patch.archivedAt = null;
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = new Date();
@@ -234,4 +240,24 @@ export async function getOrCreateContactByIdentity(
 function displayFallback(resolved: ResolvedIdentity): string {
   if (resolved.phone) return resolved.phone;
   return "Contacto de WhatsApp";
+}
+
+/**
+ * ¿El nombre del contacto es el de respaldo (su número, su identidad o el
+ * genérico) y no uno puesto por una persona? Exportada para el test unitario.
+ */
+export function isFallbackName(contact: {
+  name: string;
+  phone: string | null;
+  waIdentity: string;
+}): boolean {
+  const name = contact.name.trim();
+  if (name === "" || name === "Contacto de WhatsApp") return true;
+  const digits = name.replace(/\D/g, "");
+  if (!digits || digits.length !== name.replace(/[\s+()-]/g, "").length) {
+    return false; // trae letras: lo escribió alguien
+  }
+  return [contact.phone, contact.waIdentity].some(
+    (v) => v != null && normalizeMx(v.replace(/\D/g, "")) === normalizeMx(digits)
+  );
 }
