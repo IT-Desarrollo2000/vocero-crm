@@ -29,7 +29,8 @@ function mk(
     windowOpen: false,
     windowRemainingMs: 0,
     replyMode: "free",
-    outboundMedia: true,
+    outboundFiles: null,
+    outboundStructured: true,
     templates: true,
     preview: null,
     // 09: sin asignar por defecto.

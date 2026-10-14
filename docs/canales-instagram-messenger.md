@@ -14,7 +14,9 @@ variable ([ADR-001](adr-001-canales-opcionales.md)).
 | Agente de IA | ✅ dentro de las 24 h | ✅ dentro de las 24 h |
 | Responder entre 24 h y 7 días | Solo un humano, con etiqueta `HUMAN_AGENT` | Igual |
 | Después de 7 días | No se puede: el cliente tiene que volver a escribir | Igual |
-| Plantillas, adjuntos, ubicación, contactos | ❌ (solo WhatsApp) | ❌ |
+| Recibir fotos, PDF y otros archivos | ✅ (ver [Adjuntos](#adjuntos)) | ✅ |
+| Enviar archivos | ✅ imágenes JPG/PNG y PDF | ✅ imágenes, PDF, Office, TXT/CSV, audio y video |
+| Plantillas, ubicación, contactos | ❌ (solo WhatsApp) | ❌ |
 | Iniciar la conversación | ❌ la persona escribe primero | ❌ |
 
 Cada canal crea sus propios contactos: una misma persona que escribe por
@@ -23,6 +25,38 @@ WhatsApp y por Messenger aparece como dos contactos.
 El agente de IA **nunca** responde fuera de las 24 h: la etiqueta de agente
 humano es, por política de Meta, solo para personas. Pasado ese plazo la
 conversación pasa a un humano.
+
+### Adjuntos
+
+Qué se puede mandar desde el compositor y qué se ve al recibir, por canal
+(matriz en `src/lib/outbound-files.ts`; la política que decide el tipo real
+de cada archivo, por su contenido y no por la extensión, está en
+`src/server/media/file-policy.ts`):
+
+| Canal | Enviar | Recibir |
+|---|---|---|
+| WhatsApp | Imagen JPG/PNG (5 MB) · PDF, Word, Excel, PowerPoint, TXT, CSV (100 MB) · audio y video (16 MB) · ubicación y contacto | Todo lo anterior + WEBP/GIF y notas de voz |
+| Messenger | Imagen JPG/PNG · PDF, Word, Excel, PowerPoint, TXT, CSV · audio y video (25 MB cada uno) | Imagen, video, audio y archivo |
+| Instagram (Meta directo) | Imagen JPG/PNG (8 MB) · **solo PDF** como archivo (25 MB) | Imagen, video, audio y archivo |
+| Instagram (Zernio) | ❌ | ❌ — un adjunto entra como "[Adjunto no soportado]" |
+
+- **Siempre bloqueado**, en cualquier canal y en ambas direcciones:
+  ejecutables, comprimidos (zip, rar, 7z), Office con macros y el formato
+  antiguo `.doc/.xls/.ppt`, HTML, SVG y XML. Un archivo recibido que cae aquí
+  se ve en el hilo como "Archivo bloqueado por seguridad" y no se puede abrir
+  desde el CRM.
+- Historias, menciones, reels, publicaciones compartidas y stickers sin
+  enlace entran como "[Adjunto no soportado: …]", nunca como un mensaje vacío.
+- **Instagram descarga el archivo desde Vocero**: no hay forma documentada
+  de subirlo. Vocero le da a Meta una URL firmada temporal
+  (`/api/media/out/<token>`, 10 minutos, sin sesión). Por eso
+  **`APP_BASE_URL` tiene que ser alcanzable desde Internet** (HTTPS público);
+  en `localhost` o detrás de una VPN el envío de archivos por Instagram falla
+  y el mensaje queda como no entregado.
+- Los archivos (de todos los canales) se guardan en `MEDIA_DIR` como **caché
+  de 30 días** (`MEDIA_RETENTION_DAYS`): después se borran solos y el hilo
+  muestra "Archivo eliminado — los archivos se guardan 30 días".
+- El agente de IA no envía archivos.
 
 ## 1. Encender los canales
 
@@ -125,7 +159,9 @@ CHANNELS=whatsapp,instagram,messenger
 `pnpm test:e2e` conecta los dos canales, simula DMs firmados
 (`/api/dev/wa-mock/channel-inbound`) y recorre respuesta, ventana de 24 h,
 etiqueta de agente humano, cierre a los 7 días y fallos del proveedor. El
-guion está en [tests/e2e/us-canales.md](../tests/e2e/us-canales.md).
+guion está en [tests/e2e/us-canales.md](../tests/e2e/us-canales.md); los
+adjuntos (envío, recepción, bloqueos, URL firmada y caché de 30 días), en
+[tests/e2e/us-adjuntos.md](../tests/e2e/us-adjuntos.md).
 
 ## Problemas comunes
 
@@ -137,4 +173,6 @@ guion está en [tests/e2e/us-canales.md](../tests/e2e/us-canales.md).
 | No llega nada de Messenger | La Página no está suscrita a la app: reconecta con un token que tenga `pages_manage_metadata`. |
 | "…necesita la función Human Agent…" | Meta aún no aprueba *Human Agent* para la app. Dentro de las 24 h se responde normal. |
 | Instagram pide reconectar cada ~60 días | El token de Instagram caduca: genera otro y pégalo de nuevo. |
+| Un archivo por Instagram queda "no entregado" ("url no accesible") | Meta no pudo descargar la URL firmada: `APP_BASE_URL` no es público, o pasó más de 10 minutos. |
+| "Instagram solo acepta imágenes (JPG/PNG) y PDF" | Es un límite de Instagram: manda el Word/Excel como PDF. |
 | Error de permisos al enviar por Instagram | El host debe ser `graph.instagram.com`, no `graph.facebook.com` (Vocero ya lo hace; revisa `IG_GRAPH_BASE_URL`). |

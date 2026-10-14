@@ -26,6 +26,13 @@ const schema = z.object({
   timestamp: z.number().optional(),
   /** Simula el eco de un mensaje que mandó la propia cuenta. */
   echo: z.boolean().optional(),
+  /**
+   * 018: `message.attachments` tal cual los manda Meta
+   * (`[{ type: "image", payload: { url } }]`). Atajo: una `payload.url`
+   * que empiece por "/" se resuelve contra APP_BASE_URL — así el guion puede
+   * apuntar al CDN del mock (`/api/dev/wa-mock/cdn/<id>`) sin saber el host.
+   */
+  attachments: z.array(z.record(z.unknown())).optional(),
   /** Eventos crudos adicionales en el mismo `messaging[]` (delivery, read…). */
   extraEvents: z.array(z.record(z.unknown())).optional(),
 });
@@ -40,6 +47,14 @@ export async function POST(req: Request) {
   const env = getEnv();
 
   const timestamp = d.timestamp ?? Date.now();
+  const base = env.APP_BASE_URL.replace(/\/+$/, "");
+  const attachments = d.attachments?.map((a) => {
+    const payload = a.payload as Record<string, unknown> | undefined;
+    if (payload && typeof payload.url === "string" && payload.url.startsWith("/")) {
+      return { ...a, payload: { ...payload, url: `${base}${payload.url}` } };
+    }
+    return a;
+  });
   const payload = {
     object: d.channel === "instagram" ? "instagram" : "page",
     entry: [
@@ -56,6 +71,7 @@ export async function POST(req: Request) {
             message: {
               mid: d.mid,
               ...(d.text !== undefined ? { text: d.text } : {}),
+              ...(attachments ? { attachments } : {}),
               ...(d.echo ? { is_echo: true } : {}),
             },
           },

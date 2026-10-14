@@ -120,6 +120,58 @@ async function sendViaMeta(input: {
 }
 
 /**
+ * 018 (FR-811) — Envía un archivo por Instagram (SOLO Meta directo; Zernio no
+ * lleva adjuntos). La plataforma no acepta subidas: descarga el archivo de
+ * `url`, que es la URL firmada y temporal del CRM (`signMediaUrl`). Imagen →
+ * `image`; documento (solo PDF, lo garantiza la matriz del canal) → `file`.
+ * Instagram no tiene pie en los adjuntos: el núcleo manda el caption aparte.
+ */
+export async function sendInstagramAttachment(input: {
+  credentials: InstagramCredentials;
+  recipient: string;
+  kind: "image" | "audio" | "video" | "document";
+  url: string;
+  humanAgentTag?: boolean;
+}): Promise<InstagramSendResult> {
+  const { credentials } = input;
+  if (credentials.source !== "meta") {
+    throw new MetaApiError("Instagram vía Zernio no envía archivos", { status: 400 });
+  }
+  const body: Record<string, unknown> = {
+    recipient: { id: input.recipient },
+    message: {
+      attachment: {
+        type: input.kind === "document" ? "file" : input.kind,
+        payload: { url: input.url },
+      },
+    },
+  };
+  if (input.humanAgentTag) {
+    body.messaging_type = "MESSAGE_TAG";
+    body.tag = "HUMAN_AGENT";
+  }
+
+  const res = await fetchJson(
+    `${IG_GRAPH_BASE}/${IG_GRAPH_VERSION}/${credentials.igUserId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credentials.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+  const id = (res as { message_id?: string } | null)?.message_id;
+  if (!id) {
+    throw new MetaApiError("Instagram no devolvió ID del mensaje con adjunto", {
+      status: 200,
+    });
+  }
+  return { platformMessageId: String(id) };
+}
+
+/**
  * Nombre de quien escribe por Instagram (Meta directo). El webhook no lo trae;
  * graph.instagram.com lo da con instagram_business_manage_messages.
  */

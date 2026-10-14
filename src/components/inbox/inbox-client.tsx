@@ -629,7 +629,13 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
                 </button>
               )}
             </header>
-            <MessageThread messages={thread} />
+            <MessageThread
+              messages={thread}
+              onPendingMedia={() => {
+                if (selectedIdRef.current)
+                  void refetchMessages(selectedIdRef.current);
+              }}
+            />
             <Composer
               conversation={selected}
               onNotVisible={() => closeLost(selected.id, false)}

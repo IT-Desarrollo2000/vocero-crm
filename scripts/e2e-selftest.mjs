@@ -61,6 +61,134 @@ function bot(path, opts = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PN = "PN-E2E-1";
 
+/* ---------- 018: archivos REALES (el tipo se decide por la firma) ---------- */
+
+/** JPEG 1×1 válido. */
+const JPEG_1X1 = Buffer.from(
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==",
+  "base64"
+);
+
+/** PNG 1×1 válido (también sirve de favicon). */
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+/** Cabecera PNG real + relleno hasta `size` bytes (para el tope de tamaño). */
+function bigPng(size) {
+  const buf = Buffer.alloc(size);
+  PNG_1X1.copy(buf, 0, 0, Math.min(PNG_1X1.length, size));
+  return buf;
+}
+
+/** PDF de una página en blanco con su tabla xref (`%PDF-1.4…`). */
+function minimalPdf() {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = [];
+  objects.forEach((obj, i) => {
+    offsets.push(body.length);
+    body += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) body += `${String(off).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
+const PDF_BYTES = minimalPdf();
+
+/** Ejecutable de Windows (`MZ…`). */
+const EXE_BYTES = Buffer.concat([
+  Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]),
+  Buffer.from("This program cannot be run in DOS mode.", "latin1"),
+]);
+
+/** Office binario antiguo (OLE: `D0 CF 11 E0 A1 B1 1A E1`). */
+const OLE_DOC_BYTES = Buffer.concat([
+  Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+  Buffer.alloc(504),
+]);
+
+/**
+ * ZIP mínimo REAL (entradas "stored") con directorio central — portado de
+ * tests/unit/helpers/zip.ts. La política solo lee los nombres del directorio
+ * central, así que el contenido de cada entrada es irrelevante.
+ */
+function makeZip(names) {
+  const local = [];
+  const central = [];
+  const le16 = (n) => [n & 0xff, (n >> 8) & 0xff];
+  const le32 = (n) => [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff];
+  for (const name of names) {
+    const nb = [...Buffer.from(name, "utf8")];
+    const data = [0x78];
+    const offset = local.length;
+    local.push(
+      0x50, 0x4b, 0x03, 0x04, ...le16(20), ...le16(0), ...le16(0), ...le16(0), ...le16(0),
+      ...le32(0), ...le32(data.length), ...le32(data.length), ...le16(nb.length), ...le16(0),
+      ...nb, ...data
+    );
+    central.push(
+      0x50, 0x4b, 0x01, 0x02, ...le16(20), ...le16(20), ...le16(0), ...le16(0), ...le16(0),
+      ...le16(0), ...le32(0), ...le32(data.length), ...le32(data.length), ...le16(nb.length),
+      ...le16(0), ...le16(0), ...le16(0), ...le16(0), ...le32(0), ...le32(offset), ...nb
+    );
+  }
+  const eocd = [
+    0x50, 0x4b, 0x05, 0x06, ...le16(0), ...le16(0), ...le16(names.length),
+    ...le16(names.length), ...le32(central.length), ...le32(local.length), ...le16(0),
+  ];
+  return Buffer.from([...local, ...central, ...eocd]);
+}
+const DOCX_LIMPIO = makeZip(["[Content_Types].xml", "_rels/.rels", "word/document.xml"]);
+const DOCX_MACROS = makeZip([
+  "[Content_Types].xml",
+  "_rels/.rels",
+  "word/document.xml",
+  "word/vbaProject.bin",
+]);
+const ZIP_GENERICO = makeZip(["leeme.txt", "fotos/uno.jpg"]);
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** Sube un archivo por el compositor (multipart). → { status, json } */
+async function sendFile(convId, bytes, fileName, type, caption) {
+  const form = new FormData();
+  form.set("file", new Blob([bytes], { type }), fileName);
+  if (caption) form.set("caption", caption);
+  const res = await fetch(`${BASE}/api/conversations/${convId}/messages/media`, {
+    method: "POST",
+    headers: { cookie, origin: BASE },
+    body: form,
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+}
+
+/** GET de un binario con la sesión del operador. */
+const getMedia = (assetId) =>
+  fetch(`${BASE}/api/media/${assetId}`, { headers: { cookie, origin: BASE } });
+
+/**
+ * Espera (polling) a que aparezca un mensaje que cumpla `pred` y, si trae
+ * adjunto, a que su descarga en segundo plano termine (`fetchStatus` final).
+ */
+async function waitMessage(convId, pred, timeoutMs = 20000) {
+  const until = Date.now() + timeoutMs;
+  let found = null;
+  while (Date.now() < until) {
+    const msgs = (await api(`/api/conversations/${convId}/messages`)).json?.messages ?? [];
+    found = msgs.find(pred) ?? null;
+    if (found && found.media?.fetchStatus !== "pending") return found;
+    await sleep(500);
+  }
+  return found;
+}
+
 async function main() {
   if (!BOT_KEY || BOT_KEY.length < 16) {
     console.error(
@@ -845,10 +973,12 @@ async function main() {
   );
 
   // Camino infeliz: archivo que excede el límite (imagen > 5 MB) → 413 previo.
+  // 018: el tipo se decide por la firma, así que el PNG lleva su cabecera
+  // real (6 MB de ceros ya no "es" un PNG: sería 415).
   const bigForm = new FormData();
   bigForm.set(
     "file",
-    new Blob([Buffer.alloc(6 * 1024 * 1024)], { type: "image/png" }),
+    new Blob([bigPng(6 * 1024 * 1024)], { type: "image/png" }),
     "grande.png"
   );
   const bigRes = await fetch(`${BASE}/api/conversations/${conv008.id}/messages/media`, {
@@ -981,6 +1111,8 @@ async function main() {
   await canalesChecks();
   await labChecks();
   await asignacionChecks();
+  // 018: AL FINAL — su último paso (la purga de 30 días) expira TODO adjunto.
+  await adjuntosChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -1845,37 +1977,47 @@ async function atribucionChecks() {
  * degradan con un error claro en vez de un 500.
  * ============================================================ */
 
-async function canalesChecks() {
-  const on = new Set(
+/**
+ * Cuentas de Instagram y Messenger del self-test. A nivel de módulo porque
+ * las conecta `canalesChecks` y las reutiliza `adjuntosChecks` (018).
+ */
+const CANAL_SUF = String(Date.now()).slice(-6);
+const CANALES = [
+  {
+    channel: "instagram",
+    label: "Instagram",
+    settings: "/api/settings/instagram",
+    webhook: "ig",
+    page: "/settings/instagram",
+    accountId: `1784${CANAL_SUF}`,
+    connect: (accountId, token) => ({ source: "meta", igUserId: accountId, token }),
+  },
+  {
+    channel: "messenger",
+    label: "Messenger",
+    settings: "/api/settings/messenger",
+    webhook: "fb",
+    page: "/settings/messenger",
+    accountId: `1099${CANAL_SUF}`,
+    connect: (accountId, token) => ({ pageId: accountId, token }),
+  },
+];
+
+/** Canales opcionales encendidos según la bandera `CHANNELS`. */
+function canalesEncendidos() {
+  return new Set(
     (process.env.CHANNELS ?? "")
       .split(",")
       .map((c) => c.trim().toLowerCase())
       .filter(Boolean)
   );
-  const SUF = String(Date.now()).slice(-6);
+}
+
+async function canalesChecks() {
+  const on = canalesEncendidos();
+  const SUF = CANAL_SUF;
   const VT = process.env.META_WEBHOOK_VERIFY_TOKEN;
   const DAY = 24 * 60 * 60 * 1000;
-
-  const CANALES = [
-    {
-      channel: "instagram",
-      label: "Instagram",
-      settings: "/api/settings/instagram",
-      webhook: "ig",
-      page: "/settings/instagram",
-      accountId: `1784${SUF}`,
-      connect: (accountId, token) => ({ source: "meta", igUserId: accountId, token }),
-    },
-    {
-      channel: "messenger",
-      label: "Messenger",
-      settings: "/api/settings/messenger",
-      webhook: "fb",
-      page: "/settings/messenger",
-      accountId: `1099${SUF}`,
-      connect: (accountId, token) => ({ pageId: accountId, token }),
-    },
-  ];
 
   for (const c of CANALES) {
     console.log(`\n== ${c.label}: la bandera del canal ==`);
@@ -2003,7 +2145,14 @@ async function canalesChecks() {
     const entrantes = msgs.filter((m) => m.direction === "in");
     ok(`re-entrega y eco no duplican: un solo entrante`, entrantes.length === 1, JSON.stringify(entrantes.map((m) => m.text)));
     ok(`dentro de 24 h se responde libre`, cv?.replyMode === "free", cv?.replyMode);
-    ok(`el canal no ofrece plantillas ni adjuntos`, cv?.templates === false && cv?.outboundMedia === false);
+    // 018: sí manda archivos (matriz del canal), pero no ubicación/contactos.
+    ok(
+      `el canal no ofrece plantillas ni ubicación/contactos, sí archivos`,
+      cv?.templates === false &&
+        cv?.outboundStructured === false &&
+        typeof cv?.outboundFiles?.accept === "string",
+      JSON.stringify({ t: cv?.templates, s: cv?.outboundStructured, f: cv?.outboundFiles?.accept })
+    );
 
     // Un segundo mensaje del mismo remitente cae en la MISMA conversación.
     await inbound({ senderId: sender, text: "¿y precios?", mid: `mid.e2e.${c.channel}.${SUF}.2` });
@@ -2042,14 +2191,12 @@ async function canalesChecks() {
       ubic.res.status === 422 && ubic.json?.error?.code === "unsupported_channel",
       `status=${ubic.res.status} ${JSON.stringify(ubic.json)}`
     );
-    const form = new FormData();
-    form.set("file", new Blob([Buffer.from("hola")], { type: "image/jpeg" }), "x.jpg");
-    const mediaRes = await fetch(`${BASE}/api/conversations/${cv?.id}/messages/media`, {
-      method: "POST",
-      headers: { cookie, origin: BASE },
-      body: form,
-    });
-    ok(`adjunto en ${c.label} → 422 claro (no 500)`, mediaRes.status === 422, `status=${mediaRes.status}`);
+    // 018: el canal ya acepta imágenes (el detalle por tipo está en
+    // adjuntosChecks); lo que dice ser JPEG y no lo es → 415, no 500.
+    const imgRes = await sendFile(cv?.id, JPEG_1X1, "foto.jpg", "image/jpeg");
+    ok(`imagen JPEG real en ${c.label} → aceptada`, imgRes.status === 201, `status=${imgRes.status} ${JSON.stringify(imgRes.json)}`);
+    const fake = await sendFile(cv?.id, Buffer.from("hola"), "x.jpg", "image/jpeg");
+    ok(`"JPEG" que no lo es en ${c.label} → 415 claro (no 500)`, fake.status === 415, `status=${fake.status}`);
     const tplRes = await api(`/api/contacts/${cv?.contact.id}/start-conversation`, {
       method: "POST",
       body: JSON.stringify({ templateId: "tpl-cualquiera" }),
@@ -2306,4 +2453,510 @@ async function asignacionChecks() {
   );
   const malo = await api("/api/conversations?assigned=otro");
   ok("?assigned inválido → 422", malo.res.status === 422, `status=${malo.res.status}`);
+}
+
+/* ============================================================
+ * 018 — Adjuntos seguros (tests/e2e/us-adjuntos.md)
+ *
+ * El tipo de un archivo lo decide la FIRMA de sus bytes, no la extensión: por
+ * eso cada caso manda bytes reales (PDF, JPEG, ZIP de Office, MZ, OLE). Cubre
+ * envío y recepción en los tres canales, lo que se bloquea, cómo se sirve
+ * (cabeceras), la URL firmada de Instagram y la caché de 30 días. Con
+ * CHANNELS apagado solo corre WhatsApp. Va AL FINAL del self-test: la purga
+ * adelanta el reloj 31 días y expira todos los adjuntos de la BD.
+ * ============================================================ */
+async function adjuntosChecks() {
+  const SUF = String(Date.now()).slice(-6);
+  const on = canalesEncendidos();
+  const outbox = async () => (await api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+  const msgsOf = async (convId) =>
+    (await api(`/api/conversations/${convId}/messages`)).json?.messages ?? [];
+  const isNosniff = (r) => r.headers.get("x-content-type-options") === "nosniff";
+  const isSandboxed = (r) => /sandbox/.test(r.headers.get("content-security-policy") ?? "");
+  const disposition = (r) => r.headers.get("content-disposition") ?? "";
+  /** Un asset disponible antes de la purga (para AC-8). */
+  let assetVivo = null;
+
+  /* ---------- WhatsApp: enviar (AC-1, AC-2, AC-3) ---------- */
+  console.log("\n== 018: WhatsApp — enviar archivos ==");
+  const LEAD_ADJ = "5214627018001";
+  await api("/api/dev/wa-mock/inbound", {
+    method: "POST",
+    body: JSON.stringify({
+      phoneNumberId: PN,
+      from: LEAD_ADJ,
+      name: "Adjuntos E2E",
+      text: `te mando unos archivos ${SUF}`,
+      waMessageId: `wamid.e2e.018.${SUF}.hola`,
+    }),
+  });
+  let conv = null;
+  for (let i = 0; i < 20 && !conv; i++) {
+    await sleep(500);
+    conv = ((await api("/api/conversations")).json?.conversations ?? []).find(
+      (c) => c.contact.name === "Adjuntos E2E"
+    );
+  }
+  ok("(setup) conversación de WhatsApp para adjuntos", !!conv);
+  if (!conv) return;
+  ok(
+    "WhatsApp: el compositor ofrece archivos (accept con PDF y Word) y ubicación/contactos",
+    conv.outboundStructured === true &&
+      /\.pdf/.test(conv.outboundFiles?.accept ?? "") &&
+      /\.docx/.test(conv.outboundFiles?.accept ?? ""),
+    JSON.stringify({ s: conv.outboundStructured, f: conv.outboundFiles?.accept })
+  );
+
+  await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
+  const pdfOut = await sendFile(conv.id, PDF_BYTES, "cotizacion.pdf", "application/pdf", `cotización ${SUF}`);
+  ok("WhatsApp: PDF real → enviado", pdfOut.status === 201, `status=${pdfOut.status} ${JSON.stringify(pdfOut.json)}`);
+  const jpgOut = await sendFile(conv.id, JPEG_1X1, "auto.jpg", "image/jpeg", `foto auto ${SUF}`);
+  ok("WhatsApp: JPEG real → enviado", jpgOut.status === 201, `status=${jpgOut.status} ${JSON.stringify(jpgOut.json)}`);
+  const docxOut = await sendFile(conv.id, DOCX_LIMPIO, "propuesta.docx", DOCX_MIME);
+  ok("WhatsApp: .docx limpio → enviado", docxOut.status === 201, `status=${docxOut.status} ${JSON.stringify(docxOut.json)}`);
+  let ob = await outbox();
+  ok(
+    "Graph recibió el PDF como document (con su nombre) y el JPEG como image",
+    ob.some((o) => o.type === "document" && JSON.stringify(o.body).includes("cotizacion.pdf")) &&
+      ob.some((o) => o.type === "image"),
+    JSON.stringify(ob.map((o) => o.type))
+  );
+
+  const antes = (await outbox()).length;
+  const rechazos = [
+    ["un .exe (MZ)", EXE_BYTES, "programa.exe", "application/octet-stream", /ejecutable/],
+    ["un .exe disfrazado de PDF", EXE_BYTES, "cotizacion.pdf", "application/pdf", /ejecutable/],
+    ["un .zip genérico", ZIP_GENERICO, "fotos.zip", "application/zip", /comprimidos/],
+    ["un .docx con vbaProject.bin", DOCX_MACROS, "macro.docx", DOCX_MIME, /macros/],
+    ["un .doc antiguo (OLE)", OLE_DOC_BYTES, "viejo.doc", "application/msword", /\.docx/],
+  ];
+  for (const [label, bytes, name, type, reason] of rechazos) {
+    const r = await sendFile(conv.id, bytes, name, type);
+    ok(
+      `WhatsApp: ${label} → 415 con razón clara`,
+      r.status === 415 && reason.test(r.json?.error?.message ?? ""),
+      `status=${r.status} ${JSON.stringify(r.json)}`
+    );
+  }
+  const grande = await sendFile(conv.id, bigPng(6 * 1024 * 1024), "grande.png", "image/png");
+  ok(
+    "WhatsApp: PNG real de 6 MB → 413 con el límite",
+    grande.status === 413 && /5 MB/.test(grande.json?.error?.message ?? ""),
+    `status=${grande.status} ${JSON.stringify(grande.json)}`
+  );
+  ok("ningún rechazo llegó a Graph", (await outbox()).length === antes);
+
+  /* ---------- Servir lo enviado (AC-6) ---------- */
+  console.log("\n== 018: cómo se sirven los archivos ==");
+  let hilo = await msgsOf(conv.id);
+  const pdfMsg = hilo.find((m) => m.media?.caption === `cotización ${SUF}`);
+  const jpgMsg = hilo.find((m) => m.media?.caption === `foto auto ${SUF}`);
+  ok(
+    "el PDF enviado queda en el hilo como documento disponible",
+    pdfMsg?.media?.kind === "document" &&
+      pdfMsg.media.fetchStatus === "available" &&
+      pdfMsg.media.mimeType === "application/pdf",
+    JSON.stringify(pdfMsg?.media)
+  );
+  const pdfGet = await getMedia(pdfMsg?.media?.assetId);
+  ok(
+    "GET del PDF: 200 application/pdf como DESCARGA (attachment con nombre)",
+    pdfGet.status === 200 &&
+      (pdfGet.headers.get("content-type") ?? "").startsWith("application/pdf") &&
+      /^attachment;/.test(disposition(pdfGet)) &&
+      /cotizacion\.pdf/.test(disposition(pdfGet)),
+    `${pdfGet.status} ${pdfGet.headers.get("content-type")} ${disposition(pdfGet)}`
+  );
+  ok("GET del PDF: nosniff + CSP sandbox", isNosniff(pdfGet) && isSandboxed(pdfGet));
+  const jpgGet = await getMedia(jpgMsg?.media?.assetId);
+  ok(
+    "GET de la imagen: 200 image/jpeg inline",
+    jpgGet.status === 200 &&
+      (jpgGet.headers.get("content-type") ?? "").startsWith("image/jpeg") &&
+      /^inline/.test(disposition(jpgGet)) &&
+      isNosniff(jpgGet) &&
+      isSandboxed(jpgGet),
+    `${jpgGet.status} ${jpgGet.headers.get("content-type")} ${disposition(jpgGet)}`
+  );
+  assetVivo = pdfMsg?.media?.assetId ?? null;
+
+  /* ---------- WhatsApp: recibir (AC-4) ---------- */
+  console.log("\n== 018: WhatsApp — recibir archivos ==");
+  const inboundWa = (body) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({ phoneNumberId: PN, from: LEAD_ADJ, ...body }),
+    });
+  await inboundWa({
+    type: "document",
+    mediaId: `media-e2e-html-pdf-${SUF}`,
+    filename: "factura.pdf",
+    caption: `factura ${SUF}`,
+    waMessageId: `wamid.e2e.018.${SUF}.html`,
+  });
+  await inboundWa({
+    type: "document",
+    mediaId: `media-e2e-cot-pdf-${SUF}`,
+    filename: "orden.pdf",
+    caption: `orden ${SUF}`,
+    waMessageId: `wamid.e2e.018.${SUF}.pdf`,
+  });
+  const htmlMsg = await waitMessage(conv.id, (m) => m.media?.caption === `factura ${SUF}`);
+  ok(
+    "HTML que dice ser PDF → blocked, con razón y sin guardar el binario",
+    htmlMsg?.media?.fetchStatus === "blocked" && /HTML/.test(htmlMsg.media.blockedReason ?? ""),
+    JSON.stringify(htmlMsg?.media)
+  );
+  const htmlGet = await getMedia(htmlMsg?.media?.assetId);
+  const htmlBody = await htmlGet.text();
+  ok(
+    "GET del bloqueado → 415 blocked y JAMÁS el HTML",
+    htmlGet.status === 415 && /blocked/.test(htmlBody) && !/<script/i.test(htmlBody),
+    `${htmlGet.status} ${htmlBody.slice(0, 120)}`
+  );
+  const pdfIn = await waitMessage(conv.id, (m) => m.media?.caption === `orden ${SUF}`);
+  ok(
+    "PDF entrante real → disponible con MIME detectado",
+    pdfIn?.media?.fetchStatus === "available" && pdfIn.media.mimeType === "application/pdf",
+    JSON.stringify(pdfIn?.media)
+  );
+  const pdfInGet = await getMedia(pdfIn?.media?.assetId);
+  ok(
+    "GET del PDF entrante → attachment + nosniff + sandbox",
+    pdfInGet.status === 200 &&
+      /^attachment;/.test(disposition(pdfInGet)) &&
+      isNosniff(pdfInGet) &&
+      isSandboxed(pdfInGet),
+    `${pdfInGet.status} ${disposition(pdfInGet)}`
+  );
+
+  /* ---------- URL firmada pública (AC-7) ---------- */
+  console.log("\n== 018: URL firmada /api/media/out ==");
+  // Además compila la ruta en frío ANTES de que el mock de Instagram la pida.
+  const basura = await fetch(`${BASE}/api/media/out/esto-no-es-un-token`);
+  ok("token basura → 404", basura.status === 404, `status=${basura.status}`);
+  const basura2 = await fetch(`${BASE}/api/media/out/${"A".repeat(20)}.${"B".repeat(43)}`);
+  ok("token con forma válida pero firma falsa → 404", basura2.status === 404, `status=${basura2.status}`);
+
+  /* ---------- Messenger e Instagram ---------- */
+  for (const c of CANALES) {
+    if (!on.has(c.channel)) {
+      console.log(`\n== 018: ${c.label} — canal apagado, se omiten sus adjuntos ==`);
+      continue;
+    }
+    console.log(`\n== 018: ${c.label} — recibir archivos (AC-5) ==`);
+    const pre = c.channel === "instagram" ? "ig" : "psid";
+    const sender = `${pre}${SUF}adj`;
+    const tag = `${c.channel} ${SUF}`;
+    const inbound = (body) =>
+      api("/api/dev/wa-mock/channel-inbound", {
+        method: "POST",
+        body: JSON.stringify({ channel: c.channel, accountId: c.accountId, senderId: sender, ...body }),
+      });
+    const hola = await inbound({ text: `adjuntos ${tag}`, mid: `mid.e2e.018.${tag}.0` });
+    ok(`(setup) DM de ${c.label} entregado`, hola.res.ok, JSON.stringify(hola.json));
+    let cv = null;
+    for (let i = 0; i < 20 && !cv; i++) {
+      await sleep(500);
+      cv = ((await api("/api/conversations")).json?.conversations ?? []).find(
+        (x) => x.channel === c.channel && x.preview?.includes(`adjuntos ${tag}`)
+      );
+    }
+    ok(`(setup) conversación de ${c.label} para adjuntos`, !!cv);
+    if (!cv) continue;
+    const cdn = (id) => `/api/dev/wa-mock/cdn/${id}`;
+    const cases = [
+      ["foto", "image", `foto-${c.channel}-${SUF}`],
+      ["cotizacion", "file", `cot-pdf-${c.channel}-${SUF}`],
+      ["programa", "file", `manual-exe-${c.channel}-${SUF}`],
+      ["vencida", "image", `foto-expired-${c.channel}-${SUF}`],
+    ];
+    let n = 1;
+    for (const [caption, type, id] of cases) {
+      await inbound({
+        text: `${caption} ${tag}`,
+        mid: `mid.e2e.018.${tag}.${n++}`,
+        attachments: [{ type, payload: { url: cdn(id) } }],
+      });
+    }
+    await inbound({
+      mid: `mid.e2e.018.${tag}.story`,
+      attachments: [{ type: "story_mention", payload: { url: "https://lookaside.fbsbx.com/story/1" } }],
+    });
+
+    const foto = await waitMessage(cv.id, (m) => m.media?.caption === `foto ${tag}`);
+    ok(
+      `${c.label}: foto entrante → imagen disponible`,
+      foto?.direction === "in" && foto.media?.kind === "image" && foto.media.fetchStatus === "available",
+      JSON.stringify(foto?.media)
+    );
+    const fotoGet = await getMedia(foto?.media?.assetId);
+    ok(
+      `${c.label}: la foto se ve inline (200 image/jpeg)`,
+      fotoGet.status === 200 &&
+        (fotoGet.headers.get("content-type") ?? "").startsWith("image/jpeg") &&
+        /^inline/.test(disposition(fotoGet)),
+      `${fotoGet.status} ${fotoGet.headers.get("content-type")} ${disposition(fotoGet)}`
+    );
+    const cot = await waitMessage(cv.id, (m) => m.media?.caption === `cotizacion ${tag}`);
+    ok(
+      `${c.label}: PDF entrante → documento disponible`,
+      cot?.media?.kind === "document" &&
+        cot.media.fetchStatus === "available" &&
+        cot.media.mimeType === "application/pdf",
+      JSON.stringify(cot?.media)
+    );
+    const cotGet = await getMedia(cot?.media?.assetId);
+    ok(
+      `${c.label}: el PDF se descarga (200 attachment, nosniff, sandbox)`,
+      cotGet.status === 200 &&
+        /^attachment;/.test(disposition(cotGet)) &&
+        isNosniff(cotGet) &&
+        isSandboxed(cotGet),
+      `${cotGet.status} ${disposition(cotGet)}`
+    );
+    const exe = await waitMessage(cv.id, (m) => m.media?.caption === `programa ${tag}`);
+    ok(
+      `${c.label}: ejecutable entrante → blocked`,
+      exe?.media?.fetchStatus === "blocked" && !!exe.media.blockedReason,
+      JSON.stringify(exe?.media)
+    );
+    const exeGet = await getMedia(exe?.media?.assetId);
+    ok(`${c.label}: GET del ejecutable → 415`, exeGet.status === 415, `status=${exeGet.status}`);
+    const vencida = await waitMessage(cv.id, (m) => m.media?.caption === `vencida ${tag}`);
+    ok(
+      `${c.label}: URL del CDN caducada → failed sin perder el mensaje`,
+      vencida?.media?.fetchStatus === "failed",
+      JSON.stringify(vencida?.media)
+    );
+    const vencidaGet = await getMedia(vencida?.media?.assetId);
+    ok(`${c.label}: GET del fallido → 410`, vencidaGet.status === 410, `status=${vencidaGet.status}`);
+    const story = await waitMessage(cv.id, (m) => /\[Adjunto no soportado/.test(m.text ?? ""));
+    ok(
+      `${c.label}: story_mention → "[Adjunto no soportado…]" (no un mensaje vacío)`,
+      story?.direction === "in",
+      JSON.stringify(story?.text)
+    );
+
+    console.log(`\n== 018: ${c.label} — enviar archivos (AC-1, AC-2) ==`);
+    await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
+    const capImg = `mira esta foto ${tag}`;
+    const img = await sendFile(cv.id, JPEG_1X1, "auto.jpg", "image/jpeg", capImg);
+    ok(`${c.label}: imagen → enviada`, img.status === 201, `status=${img.status} ${JSON.stringify(img.json)}`);
+    const pdf = await sendFile(cv.id, PDF_BYTES, "cotizacion.pdf", "application/pdf");
+    ok(`${c.label}: PDF → enviado`, pdf.status === 201, `status=${pdf.status} ${JSON.stringify(pdf.json)}`);
+    ob = await outbox();
+    const adj = ob.filter((o) => o.type === "attachment" && o.to === sender);
+    const obImg = adj.find((o) => o.attachment?.attachmentType === "image");
+    const obPdf = adj.find((o) => o.attachment?.attachmentType === "file");
+    if (c.channel === "messenger") {
+      ok(
+        "Messenger: la imagen sale por multipart (filedata con bytes)",
+        obImg?.attachment?.channel === "messenger" && obImg.attachment.bytes === JPEG_1X1.length,
+        JSON.stringify(obImg?.attachment)
+      );
+      ok(
+        "Messenger: el PDF sale como file con su nombre y bytes",
+        obPdf?.attachment?.channel === "messenger" &&
+          obPdf.attachment.bytes === PDF_BYTES.length &&
+          obPdf.attachment.fileName === "cotizacion.pdf",
+        JSON.stringify(obPdf?.attachment)
+      );
+      const docx = await sendFile(cv.id, DOCX_LIMPIO, "propuesta.docx", DOCX_MIME);
+      ok(
+        "Messenger: .docx limpio → enviado",
+        docx.status === 201,
+        `status=${docx.status} ${JSON.stringify(docx.json)}`
+      );
+    } else {
+      ok(
+        "Instagram: Meta (el mock) DESCARGÓ la imagen de la URL firmada sin sesión",
+        obImg?.attachment?.channel === "instagram" &&
+          obImg.attachment.fetchedStatus === 200 &&
+          obImg.attachment.fetchedBytes === JPEG_1X1.length &&
+          /^image\/jpeg/.test(obImg.attachment.contentType ?? ""),
+        JSON.stringify(obImg?.attachment)
+      );
+      ok(
+        "Instagram: y el PDF también (200 + bytes)",
+        obPdf?.attachment?.channel === "instagram" &&
+          obPdf.attachment.fetchedStatus === 200 &&
+          obPdf.attachment.fetchedBytes === PDF_BYTES.length,
+        JSON.stringify(obPdf?.attachment)
+      );
+      const docx = await sendFile(cv.id, DOCX_LIMPIO, "propuesta.docx", DOCX_MIME);
+      ok(
+        "Instagram: .docx limpio → 415 \"Instagram solo acepta…\"",
+        docx.status === 415 && /Instagram solo acepta/.test(docx.json?.error?.message ?? ""),
+        `status=${docx.status} ${JSON.stringify(docx.json)}`
+      );
+
+      // AC-7: la URL firmada que usó Meta. Sin sesión, vale; adulterada, 404.
+      const url = obImg?.attachment?.url ?? "";
+      ok(
+        "la URL firmada apunta a /api/media/out/<token>",
+        /\/api\/media\/out\/[\w-]+\.[\w-]+$/.test(url),
+        url
+      );
+      if (url) {
+        const sinSesion = await fetch(url);
+        ok(
+          "URL firmada vigente sin sesión → 200 con nosniff + sandbox",
+          sinSesion.status === 200 && isNosniff(sinSesion) && isSandboxed(sinSesion),
+          `status=${sinSesion.status}`
+        );
+        const [p, s] = url.split("/").at(-1).split(".");
+        const flip = (str, i) => `${str.slice(0, i)}${str[i] === "A" ? "B" : "A"}${str.slice(i + 1)}`;
+        const base = url.slice(0, url.lastIndexOf("/") + 1);
+        for (const [label, tok] of [
+          ["un carácter de la firma", `${p}.${flip(s, 5)}`],
+          ["el último carácter de la firma", `${p}.${flip(s, s.length - 1)}`],
+          ["un carácter del payload", `${flip(p, 3)}.${s}`],
+        ]) {
+          const r = await fetch(`${base}${tok}`);
+          ok(`URL firmada adulterada (${label}) → 404`, r.status === 404, `status=${r.status}`);
+        }
+      }
+    }
+    ob = await outbox();
+    ok(
+      `${c.label}: el pie del adjunto sale como un texto aparte`,
+      ob.some((o) => o.type === "text" && o.to === sender && o.body?.message?.text === capImg),
+      JSON.stringify(ob.map((o) => [o.type, o.body?.message?.text ?? null]))
+    );
+    const malo = await sendFile(cv.id, EXE_BYTES, "programa.exe", "application/octet-stream");
+    ok(`${c.label}: .exe → 415`, malo.status === 415, `status=${malo.status}`);
+    const hiloCv = await msgsOf(cv.id);
+    // En estos canales el pie viaja como texto aparte, y así queda en el hilo.
+    const salidaImg = hiloCv.filter((m) => m.direction === "out" && m.media?.kind === "image").at(-1);
+    ok(
+      `${c.label}: la imagen enviada queda 'sent' con su asset disponible`,
+      salidaImg?.status === "sent" && salidaImg.media?.fetchStatus === "available",
+      JSON.stringify({ s: salidaImg?.status, m: salidaImg?.media })
+    );
+    ok(
+      `${c.label}: y el pie queda en el hilo como su propio mensaje`,
+      hiloCv.some((m) => m.direction === "out" && m.type === "text" && m.text === capImg)
+    );
+  }
+
+  /* ---------- Un mensaje con varios adjuntos = UNA respuesta de la IA ---------- */
+  // Un DM con imagen + PDF + story_mention se ingiere como 3 mensajes; el
+  // agente debe responder UNA vez, con todos ya en la BD (no una por ítem).
+  const conAgente = CANALES.filter((c) => on.has(c.channel));
+  if (conAgente.length) {
+    const prof = await api("/api/agent/profile", {
+      method: "PUT",
+      body: JSON.stringify({ name: "Sofi", enabled: true }),
+    });
+    ok("(setup) agente in-process encendido", prof.res.ok, JSON.stringify(prof.json));
+    for (const c of conAgente) {
+      console.log(`\n== 018: ${c.label} — varios adjuntos, un solo turno del agente ==`);
+      const sender = `${c.channel === "instagram" ? "ig" : "psid"}${SUF}ia`;
+      const inbound = (body) =>
+        api("/api/dev/wa-mock/channel-inbound", {
+          method: "POST",
+          body: JSON.stringify({ channel: c.channel, accountId: c.accountId, senderId: sender, ...body }),
+        });
+      await inbound({ text: `hola agente ${c.channel} ${SUF}`, mid: `mid.e2e.018.ia.${c.channel}.${SUF}.0` });
+      let cvIa = null;
+      for (let i = 0; i < 30 && !cvIa; i++) {
+        await sleep(500);
+        for (const x of ((await api("/api/conversations")).json?.conversations ?? []).filter(
+          (x) => x.channel === c.channel
+        )) {
+          if ((await msgsOf(x.id)).some((m) => m.text === `hola agente ${c.channel} ${SUF}`)) {
+            cvIa = x;
+            break;
+          }
+        }
+      }
+      ok(`(setup) conversación de ${c.label} con el agente`, !!cvIa);
+      if (!cvIa) continue;
+      const aiCount = async () => (await msgsOf(cvIa.id)).filter((m) => m.aiGenerated).length;
+      for (let i = 0; i < 40 && (await aiCount()) < 1; i++) await sleep(500);
+      const antesIa = await aiCount();
+      ok(`${c.label}: el agente respondió el saludo`, antesIa === 1, `ia=${antesIa}`);
+      await inbound({
+        text: `te mando todo ${SUF}`,
+        mid: `mid.e2e.018.ia.${c.channel}.${SUF}.1`,
+        attachments: [
+          { type: "image", payload: { url: `/api/dev/wa-mock/cdn/foto-ia-${c.channel}-${SUF}` } },
+          { type: "file", payload: { url: `/api/dev/wa-mock/cdn/cot-pdf-ia-${c.channel}-${SUF}` } },
+          { type: "story_mention", payload: { url: "https://lookaside.fbsbx.com/story/2" } },
+        ],
+      });
+      for (let i = 0; i < 40 && (await aiCount()) < antesIa + 1; i++) await sleep(500);
+      // Margen para que un segundo turno (el bug) tuviera tiempo de salir.
+      await sleep(5000);
+      const hiloIa = await msgsOf(cvIa.id);
+      const entrantes = hiloIa.filter((m) => m.direction === "in").length;
+      const nuevasIa = (await aiCount()) - antesIa;
+      ok(`${c.label}: el DM con 3 adjuntos entró como 3 mensajes`, entrantes === 4, `in=${entrantes}`);
+      ok(`${c.label}: y la IA respondió UNA sola vez`, nuevasIa === 1, `respuestas nuevas=${nuevasIa}`);
+    }
+    await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: false }) });
+  }
+
+  /* ---------- Caché de 30 días (AC-8) — SIEMPRE al final ---------- */
+  console.log("\n== 018: la caché de 30 días ==");
+  const fav = await fetch(`${BASE}/api/settings/branding/favicon`, {
+    method: "PUT",
+    headers: { cookie, origin: BASE, "content-type": "image/png" },
+    body: PNG_1X1,
+  });
+  ok("(setup) favicon de marca subido", fav.ok, `status=${fav.status}`);
+  const antesPurga = await getMedia(assetVivo);
+  ok("antes de la purga el PDF se sirve", antesPurga.status === 200, `status=${antesPurga.status}`);
+  const hoy = await api("/api/dev/media/purge", { method: "POST", body: JSON.stringify({}) });
+  ok(
+    "purga con el reloj de hoy: no expira nada reciente",
+    hoy.res.ok && hoy.json?.expired === 0,
+    JSON.stringify(hoy.json)
+  );
+  const purga = await api("/api/dev/media/purge", {
+    method: "POST",
+    body: JSON.stringify({ advanceDays: 31 }),
+  });
+  ok(
+    "purga con el reloj adelantado 31 días → expira los adjuntos",
+    purga.res.ok && purga.json?.expired > 0,
+    JSON.stringify(purga.json)
+  );
+  const tras = await getMedia(assetVivo);
+  const trasJson = await tras.json().catch(() => null);
+  ok(
+    "GET del PDF purgado → 410 expired",
+    tras.status === 410 && trasJson?.error?.code === "expired",
+    `${tras.status} ${JSON.stringify(trasJson)}`
+  );
+  hilo = await msgsOf(conv.id);
+  const pdfTras = hilo.find((m) => m.media?.assetId === assetVivo);
+  ok(
+    "el hilo conserva el mensaje, ahora con fetchStatus=expired",
+    pdfTras?.media?.fetchStatus === "expired",
+    JSON.stringify(pdfTras?.media)
+  );
+  const bloqueadoTras = hilo.find((m) => m.media?.caption === `factura ${SUF}`);
+  ok(
+    "un bloqueado SIGUE bloqueado (no tiene archivo: purgarlo solo borraría el aviso)",
+    bloqueadoTras?.media?.fetchStatus === "blocked",
+    JSON.stringify(bloqueadoTras?.media)
+  );
+  const otra = await api("/api/dev/media/purge", {
+    method: "POST",
+    body: JSON.stringify({ advanceDays: 31 }),
+  });
+  ok(
+    "la purga es idempotente (segunda vuelta: 0)",
+    otra.res.ok && otra.json?.expired === 0,
+    JSON.stringify(otra.json)
+  );
+  const favTras = await fetch(`${BASE}/api/branding/favicon`);
+  const favBytes = Buffer.from(await favTras.arrayBuffer());
+  ok(
+    "el favicon de marca NO se purga",
+    favTras.status === 200 && favBytes.equals(PNG_1X1),
+    `${favTras.status} ${favTras.headers.get("content-type")} ${favBytes.length}B`
+  );
 }

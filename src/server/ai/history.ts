@@ -29,6 +29,8 @@ export type HistoryMedia = {
   caption: string | null;
   fileName: string | null;
   payload: unknown;
+  /** 018: `blocked`/`expired` cambian el marcador; ausente = como antes. */
+  fetchStatus?: string | null;
 };
 
 export type HistoryRow = {
@@ -61,6 +63,7 @@ export async function loadHistoryRows(
       mediaCaption: schema.mediaAsset.caption,
       mediaFileName: schema.mediaAsset.fileName,
       mediaPayload: schema.mediaAsset.payload,
+      mediaFetchStatus: schema.mediaAsset.fetchStatus,
     })
     .from(schema.message)
     .leftJoin(
@@ -88,6 +91,7 @@ export async function loadHistoryRows(
           caption: r.mediaCaption,
           fileName: r.mediaFileName,
           payload: r.mediaPayload,
+          fetchStatus: r.mediaFetchStatus,
         }
       : null,
   }));
@@ -142,8 +146,24 @@ function contactsMarker(payload: unknown): string {
   return name ? `[contacto compartido: «${name}»]` : "[contacto compartido]";
 }
 
-/** Marcador de un mensaje ENTRANTE sin texto (RF-03-08). */
+/**
+ * Marcador de un mensaje ENTRANTE sin texto (RF-03-08).
+ *
+ * 018: un archivo bloqueado por la política no dice qué era (el tipo que
+ * declaró el remitente es justo lo que no se cree); uno que la caché de 30
+ * días ya borró conserva su marcador con ` (expirado)`, para que el agente
+ * no prometa abrir algo que ya no existe.
+ */
 export function inboundMarker(row: HistoryRow): string {
+  const m = row.media;
+  if (m?.fetchStatus === "blocked") {
+    return withCaption("[archivo bloqueado por seguridad]", m.caption);
+  }
+  const marker = mediaMarker(row);
+  return m?.fetchStatus === "expired" ? `${marker} (expirado)` : marker;
+}
+
+function mediaMarker(row: HistoryRow): string {
   const m = row.media;
   if (!m) {
     const type = sanitizeContextValue(row.type ?? "desconocido", 40) || "desconocido";

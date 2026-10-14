@@ -18,7 +18,13 @@ import { scoped } from "@/lib/db/tenant";
 import { isOwner } from "@/lib/roles";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
-import { capabilitiesFor, replyModeFor } from "@/server/channels/capabilities";
+import {
+  capabilitiesFor,
+  outboundFilesFor,
+  replyModeFor,
+  type InstagramSource,
+} from "@/server/channels/capabilities";
+import { getInstagramSourceByOrg } from "@/server/instagram/credentials";
 import { conversationVisibleTo, type Viewer } from "@/server/inbox/visibility";
 import { contactSearchSql } from "@/server/search";
 import { closingBounds, closingWindowGroups } from "@/lib/closing-window";
@@ -309,6 +315,11 @@ export async function listConversations(
     organizationId,
     rows.map((r) => r.conversation.id)
   );
+  // 018: UNA consulta por petición (y solo si hay filas de Instagram) para
+  // saber si esa conexión admite archivos; nunca una por fila.
+  const igSource = rows.some((r) => r.conversation.channel === "instagram")
+    ? await getInstagramSourceByOrg(organizationId)
+    : null;
   const conversations = rows.map((r) =>
     serializeConversation(
       r.conversation,
@@ -316,7 +327,8 @@ export async function listConversations(
       previews.get(r.conversation.id) ?? null,
       r.stageName,
       assigneeOf(r.conversation, r.assigneeName),
-      r.stageId
+      r.stageId,
+      igSource
     )
   );
   return { conversations, nextCursor };
@@ -417,6 +429,17 @@ export async function countConversations(
  * cerebro externo, mocks) lo omiten. 09-A lo cablea en messages/media/template
  * (y lo vigila `assignment-guard.test.ts`).
  */
+/**
+ * 018 — Fuente de Instagram para serializar UNA conversación: solo consulta
+ * si la conversación es de Instagram.
+ */
+export async function instagramSourceFor(
+  organizationId: string,
+  channel: (typeof schema.conversation.$inferSelect)["channel"]
+): Promise<InstagramSource | null> {
+  return channel === "instagram" ? getInstagramSourceByOrg(organizationId) : null;
+}
+
 export async function getConversation(
   organizationId: string,
   conversationId: string,
@@ -487,7 +510,9 @@ export function serializeConversation(
   stageName: string | null = null,
   assignee: Assignee = null,
   /** 06: etapa del lead (JOIN con `lead`); null si no hay lead. */
-  stageId: string | null = null
+  stageId: string | null = null,
+  /** 018: fuente de Instagram de la org (Zernio → sin archivos). */
+  instagramSource: InstagramSource | null = null
 ): ConversationDto {
   return {
     id: c.id,
@@ -504,7 +529,8 @@ export function serializeConversation(
     windowOpen: isWindowOpen(c.lastInboundAt),
     windowRemainingMs: windowRemainingMs(c.lastInboundAt),
     replyMode: replyModeFor(c.channel, c.lastInboundAt),
-    outboundMedia: capabilitiesFor(c.channel).outboundMedia,
+    outboundFiles: outboundFilesFor(c.channel, instagramSource),
+    outboundStructured: capabilitiesFor(c.channel).outboundStructured,
     templates: capabilitiesFor(c.channel).templates,
     preview,
     assignedTo: assignee,

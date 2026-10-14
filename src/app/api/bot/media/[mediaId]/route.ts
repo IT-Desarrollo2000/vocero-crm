@@ -2,6 +2,7 @@ import { apiError } from "@/lib/api";
 import { requireBotKey, resolveInstanceOrg } from "@/server/bot/auth";
 import { getCredentialsByOrg } from "@/server/whatsapp/credentials";
 import { downloadGraphMedia, MediaFetchError } from "@/server/whatsapp/media";
+import { inspectForServing, safeFileHeaders } from "@/server/media/serve";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +43,16 @@ export async function GET(
       mediaId,
       MAX_MEDIA_BYTES
     );
+    // 018: misma política que la Bandeja — tipo detectado, cabeceras seguras
+    // y nada bloqueado sale del CRM, tampoco hacia el bot.
+    const checked = inspectForServing(data, { mime: mimeType });
+    if (!checked.ok) return checked.response;
     return new Response(new Uint8Array(data), {
-      headers: {
-        "content-type": mimeType ?? "application/octet-stream",
-        "cache-control": "no-store",
-      },
+      headers: safeFileHeaders({
+        inspection: checked.inspection,
+        length: data.byteLength,
+        cacheControl: "no-store",
+      }),
     });
   } catch (err) {
     if (err instanceof MediaFetchError) {

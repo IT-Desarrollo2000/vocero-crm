@@ -1,4 +1,10 @@
 import { CHANNEL_LABEL, type Channel, type ReplyMode } from "@/lib/channels";
+import {
+  INSTAGRAM_OUTBOUND_FILES,
+  MESSENGER_OUTBOUND_FILES,
+  WHATSAPP_OUTBOUND_FILES,
+  type OutboundFiles,
+} from "@/lib/outbound-files";
 
 /**
  * 014 — Capacidades declaradas por canal.
@@ -38,8 +44,13 @@ export type ChannelCapabilities = {
   maxTextBytes: number | null;
   /** 017: límite en CARACTERES (Messenger cuenta así); null = sin límite. */
   maxTextChars: number | null;
-  /** ¿Se pueden mandar adjuntos por este canal hoy? */
-  outboundMedia: boolean;
+  /**
+   * 018: qué archivos acepta el canal de salida (tipos detectados, topes,
+   * `accept` y frase de ayuda); null = ninguno. Matriz FR-804.
+   */
+  outboundFiles: OutboundFiles | null;
+  /** 018: ¿ubicación y contactos salientes? Solo WhatsApp. */
+  outboundStructured: boolean;
   /** 017: ¿existen plantillas aprobadas en este canal? Solo WhatsApp. */
   templates: boolean;
   /**
@@ -60,7 +71,8 @@ export const CHANNEL_CAPABILITIES: Record<Channel, ChannelCapabilities> = {
     humanAgentWindowMs: null,
     maxTextBytes: null,
     maxTextChars: null,
-    outboundMedia: true,
+    outboundFiles: WHATSAPP_OUTBOUND_FILES,
+    outboundStructured: true,
     templates: true,
     deliveryReceipts: true,
   },
@@ -73,7 +85,10 @@ export const CHANNEL_CAPABILITIES: Record<Channel, ChannelCapabilities> = {
     // de lo que aparenta al contar caracteres.
     maxTextBytes: 1000,
     maxTextChars: null,
-    outboundMedia: false,
+    // Instagram con login de Instagram (Meta). Con Zernio no hay adjuntos:
+    // ese caso lo resuelve `outboundFilesFor` con la fuente de la cuenta.
+    outboundFiles: INSTAGRAM_OUTBOUND_FILES,
+    outboundStructured: false,
     templates: false,
     deliveryReceipts: false,
   },
@@ -86,7 +101,8 @@ export const CHANNEL_CAPABILITIES: Record<Channel, ChannelCapabilities> = {
     // (un emoji es uno), que es lo que la plataforma mide.
     maxTextBytes: null,
     maxTextChars: 2000,
-    outboundMedia: false,
+    outboundFiles: MESSENGER_OUTBOUND_FILES,
+    outboundStructured: false,
     templates: false,
     // Messenger sí manda entregas y lecturas, pero por "marca de agua" de
     // tiempo, no por id de mensaje: fuera del alcance del 017.
@@ -96,6 +112,25 @@ export const CHANNEL_CAPABILITIES: Record<Channel, ChannelCapabilities> = {
 
 export function capabilitiesFor(channel: Channel): ChannelCapabilities {
   return CHANNEL_CAPABILITIES[channel] ?? CHANNEL_CAPABILITIES.whatsapp;
+}
+
+/** 018: de dónde vienen los mensajes de Instagram en esta organización. */
+export type InstagramSource = "zernio" | "meta";
+
+/**
+ * 018 — Matriz de archivos salientes de una conversación. Es la del canal,
+ * salvo Instagram vía Zernio, que no lleva adjuntos (fuera de alcance): la
+ * capacidad depende de la CONEXIÓN, no solo del canal. La usan el DTO de la
+ * Bandeja (para el clip del compositor) y el envío (para el 415): una sola
+ * regla. Sin conexión de Instagram (`null`) se deja la del canal; el envío
+ * fallará igual por `not_connected`.
+ */
+export function outboundFilesFor(
+  channel: Channel,
+  instagramSource: InstagramSource | null = null
+): OutboundFiles | null {
+  if (channel === "instagram" && instagramSource === "zernio") return null;
+  return capabilitiesFor(channel).outboundFiles;
 }
 
 /**

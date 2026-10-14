@@ -44,19 +44,49 @@ export async function graphRequest<T>(
     body?: unknown;
   }
 ): Promise<T> {
+  return graphFetch<T>(path, {
+    method: opts.method ?? "GET",
+    token: opts.token,
+    headers:
+      opts.body !== undefined ? { "Content-Type": "application/json" } : {},
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+}
+
+/**
+ * 018 — POST multipart/form-data a Graph (subida de media de WhatsApp,
+ * adjuntos de Messenger con `filedata`). Misma base, versión y errores que
+ * `graphRequest`; el `Content-Type` con su boundary lo pone `fetch`.
+ */
+export async function graphRequestForm<T>(
+  path: string,
+  opts: { token: string; form: FormData }
+): Promise<T> {
+  return graphFetch<T>(path, {
+    method: "POST",
+    token: opts.token,
+    headers: {},
+    body: opts.form,
+  });
+}
+
+async function graphFetch<T>(
+  path: string,
+  opts: {
+    method: "GET" | "POST" | "DELETE";
+    token: string;
+    headers: Record<string, string>;
+    body: string | FormData | undefined;
+  }
+): Promise<T> {
   const env = getEnv();
   const url = `${env.META_GRAPH_BASE_URL}/${env.META_GRAPH_API_VERSION}/${path}`;
   let res: Response;
   try {
     res = await fetch(url, {
-      method: opts.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${opts.token}`,
-        ...(opts.body !== undefined
-          ? { "Content-Type": "application/json" }
-          : {}),
-      },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      method: opts.method,
+      headers: { Authorization: `Bearer ${opts.token}`, ...opts.headers },
+      body: opts.body,
     });
   } catch (cause) {
     throw new MetaApiError("No se pudo contactar la API de Meta", {

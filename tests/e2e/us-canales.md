@@ -41,7 +41,9 @@ Con el canal fuera de `CHANNELS`:
 3. La re-entrega del mismo `mid`, un eco (`is_echo`) y un evento de lectura no
    agregan mensajes: hay un solo entrante.
 4. Un segundo mensaje del mismo remitente cae en la misma conversación.
-5. El DTO dice `replyMode: "free"`, `templates: false`, `outboundMedia: false`.
+5. El DTO dice `replyMode: "free"`, `templates: false`,
+   `outboundStructured: false` y trae `outboundFiles` (la matriz del canal;
+   cambiado por 018 — antes `outboundMedia: false`).
 
 ## US4 — Responder
 
@@ -51,7 +53,9 @@ Con el canal fuera de `CHANNELS`:
 2. El mensaje queda `sent`: estos canales no mandan acuses por id.
 3. Un texto que excede el límite (1000 bytes en Instagram, 2000 caracteres en
    Messenger) → 422 con el motivo.
-4. Ubicación y adjunto → **422 `unsupported_channel`**, nunca 500.
+4. Ubicación → **422 `unsupported_channel`**, nunca 500. Un adjunto JPEG
+   real se ACEPTA (018); uno que dice ser JPEG y no lo es → 415. El detalle
+   por tipo está en [us-adjuntos.md](us-adjuntos.md).
 5. Iniciar con plantilla a un contacto de este canal → 422.
 
 ## US5 — Fuera de las 24 h

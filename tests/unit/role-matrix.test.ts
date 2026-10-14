@@ -92,6 +92,8 @@ const PUBLIC_WHITELIST = new Set([
   "POST /api/auth/[...all]",
   "GET /api/health",
   "POST /api/meta/data-deletion",
+  // 018: URL firmada (HMAC, 10 min) para que Instagram descargue un saliente.
+  "GET /api/media/out/[token]",
   "GET /api/webhooks/wa/[webhookToken]",
   "POST /api/webhooks/wa/[webhookToken]",
   "GET /api/webhooks/ig/[webhookToken]",

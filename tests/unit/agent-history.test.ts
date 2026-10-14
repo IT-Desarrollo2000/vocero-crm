@@ -68,6 +68,53 @@ describe("marcadores de mensajes entrantes sin texto", () => {
     expect(m).not.toMatch(/<\/?think\s*>/i);
     expect(m).not.toContain("\n");
   });
+
+  it("018 — bloqueado: no dice qué decía ser; conserva el pie del cliente", () => {
+    expect(
+      inboundMarker({
+        direction: "in",
+        text: null,
+        type: "document",
+        media: media("document", { fileName: "factura.pdf", fetchStatus: "blocked" }),
+      })
+    ).toBe("[archivo bloqueado por seguridad]");
+    expect(
+      inboundMarker({
+        direction: "in",
+        text: null,
+        type: "image",
+        media: media("image", { caption: "mira", fetchStatus: "blocked" }),
+      })
+    ).toBe("[archivo bloqueado por seguridad] «mira»");
+  });
+
+  it.each([
+    ["image", { caption: "el rojo" }, "[imagen] «el rojo» (expirado)"],
+    ["document", { fileName: "cotizacion.pdf" }, "[documento: «cotizacion.pdf»] (expirado)"],
+    ["audio", {}, "[audio — no puedes escucharlo] (expirado)"],
+  ])("018 — expirado: %s conserva su marcador + (expirado)", (kind, extra, expected) => {
+    expect(
+      inboundMarker({
+        direction: "in",
+        text: null,
+        type: kind,
+        media: media(kind, { ...extra, fetchStatus: "expired" }),
+      })
+    ).toBe(expected);
+  });
+
+  it("018 — pending/failed/available no cambian el marcador", () => {
+    for (const fetchStatus of ["pending", "failed", "available", null]) {
+      expect(
+        inboundMarker({
+          direction: "in",
+          text: null,
+          type: "image",
+          media: media("image", { fetchStatus }),
+        })
+      ).toBe("[imagen]");
+    }
+  });
 });
 
 describe("autoría de los salientes", () => {

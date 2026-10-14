@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { resolveChannelProfileName } from "@/server/channels/profile";
 import { IG_PREFIX } from "@/server/inbox/identity";
 import { fetchInstagramProfileName } from "@/server/instagram/send";
-import { ingestInboundMessage } from "@/server/inbox/ingest";
+import { ingestInboundBatch, ingestInboundMessage } from "@/server/inbox/ingest";
+import { metaInboundItems } from "@/server/channels/meta-attachments";
 import {
   getInstagramCredentialsByAccountRef,
   getInstagramCredentialsByIgUserId,
@@ -41,9 +42,35 @@ type ZernioEvent = {
     direction?: string;
     text?: string | null;
     sender?: { id?: string; name?: string | null; username?: string | null };
+    /** 018: forma no documentada; solo importa si viene y no está vacía. */
+    attachments?: unknown;
+    media?: unknown;
   };
   account?: { id?: string; platform?: string };
 };
+
+/** 018 (FR-809): Zernio no trae adjuntos al CRM (fuera de alcance). */
+export const ZERNIO_UNSUPPORTED_MARKER = "[Adjunto no soportado]";
+
+function isNonEmpty(v: unknown): boolean {
+  if (v === null || v === undefined || v === "") return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return true;
+}
+
+/**
+ * Texto con el que entra un evento de Zernio. Un DM con adjunto (foto,
+ * historia…) llegaría vacío: se marca para que el hilo y el agente sepan que
+ * hubo algo. Con texto, el marcador va al final. Sin texto ni adjuntos, el
+ * comportamiento de siempre (null).
+ */
+export function zernioInboundText(message: ZernioEvent["message"]): string | null {
+  const text = message?.text ?? null;
+  const hasAttachment = isNonEmpty(message?.attachments) || isNonEmpty(message?.media);
+  if (!hasAttachment) return text;
+  return text ? `${text} ${ZERNIO_UNSUPPORTED_MARKER}` : ZERNIO_UNSUPPORTED_MARKER;
+}
 
 /**
  * Evento de Zernio. Devuelve el secreto esperado para poder validar la firma
@@ -102,7 +129,7 @@ export async function processZernioEvent(payload: unknown): Promise<void> {
     return;
   }
 
-  const text = evt.message?.text ?? null;
+  const text = zernioInboundText(evt.message);
   const platformMessageId = evt.message?.id;
   if (!platformMessageId) {
     console.warn(`[ig] evento ${evt.id ?? "?"} sin id de mensaje: descartado`);
@@ -145,6 +172,8 @@ type MetaIgPayload = {
         mid?: string;
         text?: string;
         is_echo?: boolean;
+        /** 018: `{type, payload:{url?}}` — ver `metaInboundItems`. */
+        attachments?: unknown;
       };
     }>;
   }>;
@@ -185,8 +214,10 @@ export async function processMetaInstagramPayload(
 
       const igsid = m.sender?.id;
       const mid = m.message?.mid;
-      if (!igsid || !mid) continue;
-      if (typeof m.message?.text !== "string") continue; // solo texto (014)
+      if (!igsid || !mid || !m.message) continue;
+      // 018: texto y/o adjuntos; nada que ingerir → se ignora como antes.
+      const items = metaInboundItems(m.message);
+      if (items.length === 0) continue;
 
       const identity = `${IG_PREFIX}${igsid}`;
       // Meta no manda nombre ni usuario en el webhook: se piden solo si aún
@@ -197,23 +228,30 @@ export async function processMetaInstagramPayload(
         identity,
         fetchName: () => fetchInstagramProfileName({ credentials: creds, igsid }),
       });
-      await ingestInboundMessage({
-        organizationId: creds.organizationId,
-        identity: {
-          identity,
-          channel: "instagram",
-          phone: null,
-          waUserId: null,
-          profileName,
-        },
-        waMessageId: `ig_${mid}`,
-        type: "text",
-        text: m.message.text,
-        timestamp: String(
-          m.timestamp ? Math.floor(m.timestamp / 1000) : Math.floor(Date.now() / 1000)
-        ),
-        threadRef: null,
-      });
+      const timestamp = String(
+        m.timestamp ? Math.floor(m.timestamp / 1000) : Math.floor(Date.now() / 1000)
+      );
+      // 018: un mensaje con varios adjuntos son varios mensajes en la BD y
+      // UN solo turno del agente, disparado tras el último.
+      await ingestInboundBatch(
+        items.map((item) => ({
+          organizationId: creds.organizationId,
+          identity: {
+            identity,
+            channel: "instagram",
+            phone: null,
+            waUserId: null,
+            profileName,
+          },
+          // `#<i>` para el 2.º adjunto en adelante (mismo mid en Meta).
+          waMessageId: `ig_${mid}${item.idSuffix}`,
+          type: item.type,
+          text: item.text,
+          timestamp,
+          media: item.media,
+          threadRef: null,
+        }))
+      );
     }
   }
 }

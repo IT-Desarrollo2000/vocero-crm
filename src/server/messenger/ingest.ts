@@ -1,7 +1,11 @@
 import { graphRequest } from "@/lib/meta/client";
 import { resolveChannelProfileName } from "@/server/channels/profile";
 import { FB_PREFIX } from "@/server/inbox/identity";
-import { ingestInboundMessage } from "@/server/inbox/ingest";
+import { ingestInboundBatch } from "@/server/inbox/ingest";
+import {
+  metaInboundItems,
+  type MetaInboundItem,
+} from "@/server/channels/meta-attachments";
 import { getMessengerCredentialsByPageId } from "@/server/messenger/credentials";
 
 /**
@@ -20,6 +24,8 @@ type MessagingEvent = {
     mid?: string;
     text?: string;
     is_echo?: boolean;
+    /** 018: `{type, payload:{url?}}` — ver `metaInboundItems`. */
+    attachments?: unknown;
   };
   // Eventos que llegan por el mismo arreglo y que el 017 no atiende.
   delivery?: unknown;
@@ -41,13 +47,17 @@ type MessengerPayload = {
 };
 
 /**
- * Un evento que es un mensaje de texto entrante del cliente, o null si es
- * cualquier otra cosa (eco, entrega, lectura, postback, adjunto…). Exportada
- * para poder probar el filtro sin base de datos.
+ * Un evento que es un mensaje entrante del cliente (texto y/o adjuntos), o
+ * null si es cualquier otra cosa (eco, entrega, lectura, postback…) o no
+ * trae nada que ingerir. 018: los adjuntos ya no se descartan — cada uno es
+ * un mensaje (`metaInboundItems`). Exportada para probar el filtro sin BD.
  */
-export function toInboundText(
-  m: MessagingEvent
-): { psid: string; mid: string; text: string; timestamp: number | null } | null {
+export function toInboundMessage(m: MessagingEvent): {
+  psid: string;
+  mid: string;
+  items: MetaInboundItem[];
+  timestamp: number | null;
+} | null {
   if (!m.message) return null; // delivery, read, postback, reaction
   // Los ecos son mensajes que la Página mandó (desde Meta Business Suite o
   // desde este mismo CRM): no son del cliente.
@@ -55,11 +65,12 @@ export function toInboundText(
   const psid = m.sender?.id;
   const mid = m.message.mid;
   if (!psid || !mid) return null;
-  if (typeof m.message.text !== "string") return null; // solo texto (017)
+  const items = metaInboundItems(m.message);
+  if (items.length === 0) return null;
   return {
     psid,
     mid,
-    text: m.message.text,
+    items,
     timestamp: typeof m.timestamp === "number" ? m.timestamp : null,
   };
 }
@@ -75,7 +86,7 @@ export async function processMessengerPayload(payload: unknown): Promise<void> {
     // Solo se mira la Página cuando hay algo que ingerir: una Página ajena
     // con puros acuses no debe llenar el log de avisos.
     const inbound = (entry.messaging ?? [])
-      .map(toInboundText)
+      .map(toInboundMessage)
       .filter((m): m is NonNullable<typeof m> => m !== null);
     if (inbound.length === 0) continue;
 
@@ -104,27 +115,31 @@ export async function processMessengerPayload(payload: unknown): Promise<void> {
           return [p.first_name, p.last_name].filter(Boolean).join(" ") || null;
         },
       });
-      await ingestInboundMessage({
-        organizationId: creds.organizationId,
-        identity: {
-          identity,
-          channel: "messenger",
-          phone: null,
-          waUserId: null,
-          profileName,
-        },
-        // Prefijado para que no colisione con un id de otro canal en el
-        // índice único de mensajes.
-        waMessageId: `fb_${m.mid}`,
-        type: "text",
-        text: m.text,
-        timestamp: String(
-          m.timestamp
-            ? Math.floor(m.timestamp / 1000)
-            : Math.floor(Date.now() / 1000)
-        ),
-        threadRef: null,
-      });
+      const timestamp = String(
+        m.timestamp ? Math.floor(m.timestamp / 1000) : Math.floor(Date.now() / 1000)
+      );
+      // 018: un mensaje con varios adjuntos son varios mensajes en la BD y
+      // UN solo turno del agente, disparado tras el último.
+      await ingestInboundBatch(
+        m.items.map((item) => ({
+          organizationId: creds.organizationId,
+          identity: {
+            identity,
+            channel: "messenger",
+            phone: null,
+            waUserId: null,
+            profileName,
+          },
+          // Prefijado para que no colisione con un id de otro canal en el
+          // índice único de mensajes; `#<i>` para el 2.º adjunto en adelante.
+          waMessageId: `fb_${m.mid}${item.idSuffix}`,
+          type: item.type,
+          text: item.text,
+          timestamp,
+          media: item.media,
+          threadRef: null,
+        }))
+      );
     }
   }
 }

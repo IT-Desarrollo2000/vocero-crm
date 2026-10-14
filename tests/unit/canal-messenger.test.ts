@@ -7,7 +7,7 @@ import {
   textFits,
   windowClosedMessage,
 } from "@/server/channels/capabilities";
-import { toInboundText } from "@/server/messenger/ingest";
+import { toInboundMessage } from "@/server/messenger/ingest";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -29,12 +29,42 @@ describe("017 — Messenger en el catálogo", () => {
     expect(textFits("messenger", "😀".repeat(2001))).toBe(false);
   });
 
-  it("solo WhatsApp tiene plantillas y adjuntos salientes", () => {
+  it("solo WhatsApp tiene plantillas, ubicación y contactos salientes", () => {
     expect(capabilitiesFor("whatsapp").templates).toBe(true);
-    expect(capabilitiesFor("whatsapp").outboundMedia).toBe(true);
+    expect(capabilitiesFor("whatsapp").outboundStructured).toBe(true);
     for (const ch of ["instagram", "messenger"] as const) {
       expect(capabilitiesFor(ch).templates).toBe(false);
-      expect(capabilitiesFor(ch).outboundMedia).toBe(false);
+      expect(capabilitiesFor(ch).outboundStructured).toBe(false);
+    }
+  });
+
+  it("018 — matriz de archivos salientes por canal (FR-804)", () => {
+    const mimes = (ch: "whatsapp" | "instagram" | "messenger") =>
+      (capabilitiesFor(ch).outboundFiles?.rules ?? []).flatMap((r) => r.mimes);
+    const max = (ch: "whatsapp" | "instagram" | "messenger", kind: string) =>
+      capabilitiesFor(ch).outboundFiles?.rules.find((r) => r.kind === kind)?.maxBytes;
+    const MB = 1024 * 1024;
+
+    expect(max("whatsapp", "image")).toBe(5 * MB);
+    expect(max("whatsapp", "document")).toBe(100 * MB);
+    expect(max("whatsapp", "audio")).toBe(16 * MB);
+    expect(capabilitiesFor("whatsapp").outboundFiles?.sendMimeAs?.["text/csv"]).toBe(
+      "text/plain"
+    );
+
+    expect(max("messenger", "image")).toBe(25 * MB);
+    expect(max("messenger", "video")).toBe(25 * MB);
+    expect(mimes("messenger")).toContain("text/csv");
+
+    // Instagram: imágenes 8 MB y SOLO PDF; sin audio/video.
+    expect(max("instagram", "image")).toBe(8 * MB);
+    expect(mimes("instagram")).toEqual(["image/jpeg", "image/png", "application/pdf"]);
+    expect(capabilitiesFor("instagram").outboundFiles?.accept).toBe(".jpg,.jpeg,.png,.pdf");
+
+    // Ningún canal envía webp/gif (solo recepción).
+    for (const ch of ["whatsapp", "instagram", "messenger"] as const) {
+      expect(mimes(ch)).not.toContain("image/webp");
+      expect(mimes(ch)).not.toContain("image/gif");
     }
   });
 });
@@ -68,7 +98,7 @@ describe("017 — replyModeFor: cómo se puede responder hoy", () => {
   });
 });
 
-describe("017 — toInboundText: qué eventos del webhook son mensajes", () => {
+describe("017 — toInboundMessage: qué eventos del webhook son mensajes", () => {
   const base = {
     sender: { id: "psid_1" },
     recipient: { id: "page_1" },
@@ -77,21 +107,52 @@ describe("017 — toInboundText: qué eventos del webhook son mensajes", () => {
 
   it("un texto del cliente se ingiere", () => {
     expect(
-      toInboundText({ ...base, message: { mid: "m1", text: "hola" } })
-    ).toEqual({ psid: "psid_1", mid: "m1", text: "hola", timestamp: 1_700_000_000_000 });
+      toInboundMessage({ ...base, message: { mid: "m1", text: "hola" } })
+    ).toEqual({
+      psid: "psid_1",
+      mid: "m1",
+      items: [{ idSuffix: "", type: "text", text: "hola", media: null }],
+      timestamp: 1_700_000_000_000,
+    });
   });
 
   it("ecos, lecturas, entregas y postbacks se ignoran", () => {
     expect(
-      toInboundText({ ...base, message: { mid: "m2", text: "eco", is_echo: true } })
+      toInboundMessage({ ...base, message: { mid: "m2", text: "eco", is_echo: true } })
     ).toBeNull();
-    expect(toInboundText({ ...base, read: { watermark: 1 } })).toBeNull();
-    expect(toInboundText({ ...base, delivery: { mids: ["m1"] } })).toBeNull();
-    expect(toInboundText({ ...base, postback: { payload: "X" } })).toBeNull();
+    expect(toInboundMessage({ ...base, read: { watermark: 1 } })).toBeNull();
+    expect(toInboundMessage({ ...base, delivery: { mids: ["m1"] } })).toBeNull();
+    expect(toInboundMessage({ ...base, postback: { payload: "X" } })).toBeNull();
   });
 
-  it("un adjunto sin texto, o sin mid, no se ingiere (fuera de alcance)", () => {
-    expect(toInboundText({ ...base, message: { mid: "m3" } })).toBeNull();
-    expect(toInboundText({ ...base, message: { text: "sin mid" } })).toBeNull();
+  it("018 — un adjunto sin texto SÍ se ingiere (antes se perdía)", () => {
+    const r = toInboundMessage({
+      ...base,
+      message: {
+        mid: "m3",
+        attachments: [
+          { type: "image", payload: { url: "https://scontent.xx.fbcdn.net/v/foto.jpg?oh=1" } },
+        ],
+      },
+    });
+    expect(r?.items).toHaveLength(1);
+    expect(r?.items[0]).toMatchObject({
+      idSuffix: "",
+      type: "image",
+      text: null,
+      media: {
+        kind: "image",
+        sourceUrl: "https://scontent.xx.fbcdn.net/v/foto.jpg?oh=1",
+        mimeType: null,
+        fetchStatus: "pending",
+        waMediaId: null,
+      },
+    });
+  });
+
+  it("sin mid, o sin texto ni adjuntos, no se ingiere", () => {
+    expect(toInboundMessage({ ...base, message: { mid: "m3" } })).toBeNull();
+    expect(toInboundMessage({ ...base, message: { mid: "m3", attachments: [] } })).toBeNull();
+    expect(toInboundMessage({ ...base, message: { text: "sin mid" } })).toBeNull();
   });
 });
