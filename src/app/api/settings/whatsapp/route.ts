@@ -5,7 +5,11 @@ import {
   saveCredentials,
   tokenLast4,
 } from "@/server/whatsapp/credentials";
-import { subscribeAppToWaba, testConnection } from "@/server/whatsapp/connect";
+import {
+  checkWabaAccess,
+  subscribeAppToWaba,
+  testConnection,
+} from "@/server/whatsapp/connect";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +45,20 @@ export const PUT = withAuth(async (session, req: Request) => {
     return apiError(status, check.code, check.message);
   }
 
+  // Dos señales de que el token lee el número pero no puede enviar: su
+  // usuario no está asignado a la WABA y Meta rechaza suscribir la app. Con
+  // ambas se rechaza sin guardar; con una sola (p. ej. modo agencia, donde la
+  // suscripción la hace el backend de la agencia) se guarda con aviso.
+  const access = await checkWabaAccess(body.data.wabaId, body.data.token);
+  const sub = await subscribeAppToWaba(body.data.wabaId, body.data.token);
+  const notAssigned =
+    access.ok === false
+      ? `El usuario del token («${access.userName}») no tiene asignada esta cuenta de WhatsApp: puede leer el número pero Meta rechazará los envíos. En Business Manager → Usuarios del sistema → ${access.userName} → Asignar activos → Cuentas de WhatsApp, dale control total, o usa el token de un usuario del sistema que ya la tenga.`
+      : null;
+  if (notAssigned && !sub.ok) {
+    return apiError(422, "waba_not_assigned", notAssigned);
+  }
+
   await saveCredentials({
     organizationId: session.organizationId,
     wabaId: body.data.wabaId,
@@ -50,11 +68,17 @@ export const PUT = withAuth(async (session, req: Request) => {
     verifiedName: check.verifiedName,
   });
 
-  // Best-effort: necesaria en modo directo; el modo agencia usa su override.
-  await subscribeAppToWaba(body.data.wabaId, body.data.token);
+  const warnings = [
+    notAssigned,
+    sub.ok
+      ? null
+      : `La conexión quedó guardada, pero no se pudo suscribir la app a la cuenta de WhatsApp (${sub.detail}): Meta no entregará los mensajes al CRM hasta que se suscriba. Si usas modo agencia, la suscripción la hace el backend de tu agencia.`,
+  ].filter((w): w is string => w !== null);
 
   return Response.json({
     ok: true,
     displayPhoneNumber: check.displayPhoneNumber,
+    subscribed: sub.ok,
+    ...(warnings.length > 0 ? { warning: warnings.join(" ") } : {}),
   });
 }, { role: "owner" });

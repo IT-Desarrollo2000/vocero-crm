@@ -182,6 +182,23 @@ export async function GET(req: Request, ctx: Params) {
       : Response.json({ id: path[0], name: "Cliente Instagram", username: "cliente_ig" });
   }
 
+  // Acceso del token a la WABA (checkWabaAccess): dueño de la WABA y usuarios
+  // asignados. Un token con "noasignado" imita al usuario del sistema que lee
+  // el número pero no está asignado a la cuenta (no puede enviar).
+  const fields = new URL(req.url).searchParams.get("fields") ?? "";
+  if (path.length === 1 && fields.includes("owner_business_info")) {
+    return Response.json({ id: path[0], owner_business_info: { id: "biz-e2e" } });
+  }
+  if (path.length === 2 && path[1] === "assigned_users") {
+    const owner = ownerIdFromToken(token);
+    return Response.json({
+      data:
+        owner && !token.includes("noasignado")
+          ? [{ id: `9${owner}`, tasks: ["MANAGE"] }]
+          : [{ id: "999", tasks: ["MANAGE"] }],
+    });
+  }
+
   // GET {phoneNumberId}?fields=... → validación del wizard
   if (path.length === 1) {
     return Response.json({
@@ -506,6 +523,13 @@ export async function POST(req: Request, ctx: Params) {
 
   // POST {wabaId}/subscribed_apps → suscripción (con o sin override)
   if (path.length === 2 && path[1] === "subscribed_apps") {
+    // Meta rechaza suscribir con un token sin acceso a la WABA.
+    if (token.includes("noasignado") || token.includes("nosuscribe")) {
+      return Response.json(
+        { error: { message: "(#200) Permissions error", type: "OAuthException", code: 200 } },
+        { status: 403 }
+      );
+    }
     return Response.json({ success: true });
   }
 

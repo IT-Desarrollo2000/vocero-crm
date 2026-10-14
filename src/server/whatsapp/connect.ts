@@ -61,23 +61,65 @@ export async function testConnection(
 }
 
 /**
- * Suscribe la app a la WABA tras guardar (necesario para recibir webhooks en
- * modo directo). Best-effort: en modo agencia el override lo configura el
- * backend de la agencia y esta llamada puede no aplicar.
+ * Suscribe la app a la WABA (necesario para recibir webhooks en modo
+ * directo). No lanza: en modo agencia el override lo configura el backend de
+ * la agencia y esta llamada puede no aplicar, así que el fallo se devuelve
+ * para avisarlo en pantalla en vez de quedarse solo en el log.
  */
 export async function subscribeAppToWaba(
   wabaId: string,
   token: string
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; detail: string }> {
   try {
     await graphRequest(`${wabaId}/subscribed_apps`, {
       method: "POST",
       token,
     });
+    return { ok: true };
   } catch (err) {
-    console.warn(
-      "[connect] subscribed_apps falló (esperado en modo agencia):",
-      err instanceof Error ? err.message : err
+    const detail = err instanceof Error ? err.message : String(err);
+    console.warn("[connect] subscribed_apps falló:", detail);
+    return { ok: false, detail };
+  }
+}
+
+export type WabaAccess =
+  | { ok: true }
+  | { ok: false; userName: string }
+  | { ok: "unknown" };
+
+/**
+ * ¿El usuario dueño del token está ASIGNADO a la WABA? Un token puede leer el
+ * número (p. ej. con business_management) y aun así no poder enviar: Meta
+ * responde "Authorization Error" en cada envío. Solo dice `false` cuando lo
+ * comprueba; si algo no se puede consultar (modo agencia, paginación, un
+ * permiso que falta) devuelve "unknown" y no estorba.
+ */
+export async function checkWabaAccess(
+  wabaId: string,
+  token: string
+): Promise<WabaAccess> {
+  try {
+    const me = await graphRequest<{ id?: string; name?: string }>(
+      "me?fields=id,name",
+      { token }
     );
+    if (!me.id) return { ok: "unknown" };
+    const waba = await graphRequest<{ owner_business_info?: { id?: string } }>(
+      `${wabaId}?fields=owner_business_info`,
+      { token }
+    );
+    const businessId = waba.owner_business_info?.id;
+    if (!businessId) return { ok: "unknown" };
+    const users = await graphRequest<{
+      data?: { id: string; tasks?: string[] }[];
+      paging?: { next?: string };
+    }>(`${wabaId}/assigned_users?business=${businessId}&limit=100`, { token });
+    if (!users.data) return { ok: "unknown" };
+    if (users.data.some((u) => u.id === me.id)) return { ok: true };
+    if (users.paging?.next) return { ok: "unknown" };
+    return { ok: false, userName: me.name ?? me.id };
+  } catch {
+    return { ok: "unknown" };
   }
 }

@@ -113,6 +113,7 @@ function ConnectForm({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const canTest = wabaId.trim() && phoneNumberId.trim() && token.trim();
 
@@ -146,6 +147,7 @@ function ConnectForm({
   async function save() {
     setSaving(true);
     setSaveError(null);
+    setWarning(null);
     const res = await fetch("/api/settings/whatsapp", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -159,6 +161,10 @@ function ConnectForm({
       setSaveError(data?.error?.message ?? "No se pudo guardar la conexión");
       return;
     }
+    const saved = (await res.json().catch(() => null)) as {
+      warning?: string;
+    } | null;
+    if (saved?.warning) setWarning(saved.warning);
     setToken("");
     setTestResult(null);
     onSaved();
@@ -246,6 +252,15 @@ function ConnectForm({
           </p>
         )}
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+        {warning && (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-xs text-warning-text"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {warning}
+          </p>
+        )}
 
         <div className="flex gap-2">
           <Button

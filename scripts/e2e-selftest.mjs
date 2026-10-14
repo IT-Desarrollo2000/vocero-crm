@@ -226,6 +226,37 @@ async function main() {
     conn.res.ok,
     JSON.stringify(conn.json)
   );
+
+  console.log("\n== WhatsApp: acceso del token a la WABA ==");
+  const putWa = (token) =>
+    api("/api/settings/whatsapp", {
+      method: "PUT",
+      body: JSON.stringify({ wabaId: "WABA-E2E", phoneNumberId: PN, token }),
+    });
+  const sinAcceso = await putWa("tok-e2e-noasignado-id777");
+  ok(
+    "token cuyo usuario no está asignado a la WABA → 422 y no se guarda",
+    sinAcceso.res.status === 422 && sinAcceso.json?.error?.code === "waba_not_assigned",
+    JSON.stringify(sinAcceso.json)
+  );
+  const tras422 = (await api("/api/settings/whatsapp")).json?.connection;
+  ok("la conexión anterior sigue intacta", tras422?.tokenLast4 === "-e2e", tras422?.tokenLast4);
+  const sinSuscribir = await putWa("tok-e2e-nosuscribe");
+  ok(
+    "suscripción rechazada → se guarda con aviso visible",
+    sinSuscribir.res.ok &&
+      sinSuscribir.json?.subscribed === false &&
+      /no se pudo suscribir/.test(sinSuscribir.json?.warning ?? ""),
+    JSON.stringify(sinSuscribir.json)
+  );
+  const conAcceso = await putWa("tok-e2e-asignado-id555");
+  ok(
+    "usuario asignado y suscripción ok → sin aviso",
+    conAcceso.res.ok && conAcceso.json?.subscribed === true && !conAcceso.json?.warning,
+    JSON.stringify(conAcceso.json)
+  );
+  const restaura = await putWa("tok-e2e");
+  ok("se restaura el token del self-test", restaura.res.ok, JSON.stringify(restaura.json));
   await api("/api/dev/wa-mock/outbox", { method: "DELETE" });
 
   console.log("\n== us-bsuid: inbound sin wa_id ==");
