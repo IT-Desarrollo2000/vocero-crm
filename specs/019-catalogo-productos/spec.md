@@ -219,3 +219,50 @@ recuerda dónde se guardó).
 - Que el agente IA consulte o envíe el catálogo.
 - Video, inventario/stock, categorías anidadas, importación masiva,
   miniaturas generadas en el servidor.
+
+## Ampliación (15-oct): imágenes convertidas en el navegador
+
+Decisión del dueño (15-oct-2026): WhatsApp e Instagram solo envían imágenes
+JPG/PNG (en WhatsApp el WebP es solo sticker), y las fotos de teléfono suelen
+venir en HEIC o pesar más de 5 MB. El **navegador** convierte y reduce antes
+de subir. El servidor **no** cambia su lista blanca (JPG/PNG por firma,
+`file-policy.ts`) y **no** se añaden dependencias nativas (nada de `sharp`).
+
+- **FR-950** Módulo de cliente `src/lib/image-normalize.ts` (sin imports de
+  servidor). `planImageNormalization` (pura): JPG/PNG ≤ tope → se queda;
+  JPG/PNG > tope → re-codificar (`size`); WebP/GIF/HEIC/HEIF/BMP/AVIF (por
+  MIME o, si el MIME viene vacío u `octet-stream`, por extensión) → JPEG
+  (`format`) con el nombre en `.jpg`; cualquier otra cosa (PDF, Office,
+  audio…) → se queda.
+- **FR-951** `normalizeImageFile` decodifica (`createImageBitmap` con
+  orientación EXIF; si falla, `<img>`), pinta sobre fondo **blanco** y
+  codifica `image/jpeg`: lado mayor ≤ 2560 px a calidad 0.85 → 0.75 → 0.65
+  y luego escala ×0.8 hasta quedar ≤ 98 % del tope (máx. 10 intentos). Un
+  GIF conserva solo el primer fotograma (aviso). Si el navegador no puede
+  decodificarlo (p. ej. HEIC en Chrome/Edge) o no logra bajarlo del tope,
+  devuelve el **original** con un aviso legible ("Tu navegador no puede
+  convertir este formato; súbela como JPG o PNG") y el servidor responde su
+  415/413 como siempre. Nunca lanza.
+- **FR-952** Catálogo: cada imagen se normaliza antes de su POST con tope
+  **5 MB** (el de WhatsApp, el más bajo de los tres canales), para que toda
+  foto del catálogo sirva en WhatsApp, Messenger e Instagram. El `accept`
+  del input suma `.webp,.gif,.heic,.heif` (y sus MIME); la fila de la subida
+  dice "convertida a JPG (…)" / "reducida a … MB" y el aviso si lo hay.
+- **FR-953** Clip del compositor (adjunto suelto de 018): si el canal tiene
+  regla `image` en `outboundFiles`, el `accept` suma WebP/GIF/HEIC/HEIF y la
+  imagen elegida se normaliza con el tope de imagen **de ese canal** antes de
+  la vista previa (Enviar deshabilitado mientras se prepara); un aviso breve
+  dice si se convirtió/redujo. Sin regla `image`, el clip no cambia.
+
+### Criterios de aceptación (E2E, `e2e-catalogo` f2 y `e2e-adjuntos-ui`)
+
+- AC-13 Propietario sube `foto.webp` (generada en el navegador) → el
+  catálogo guarda `kind=image`, `image/jpeg`, `foto.jpg`; un PNG de ruido de
+  3000×3000 (> 5 MB) queda JPEG ≤ 5 MB con lado mayor ≤ 2560 px; ambos salen
+  por WhatsApp en un lote con `status: sent`.
+- AC-14 Clip en una conversación de WhatsApp: `foto.webp` → aviso
+  "convertida a JPG"; el wa-mock recibe `type=image` subida a `/media` como
+  `image/jpeg` y el hilo muestra la imagen.
+- AC-15 Un `.heic` ilegible → la UI muestra el aviso del navegador, el
+  servidor responde 415 y la UI no se cuelga (fila en error en el catálogo;
+  error visible y Enviar disponible en el compositor).

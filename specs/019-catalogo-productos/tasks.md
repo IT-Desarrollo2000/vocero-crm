@@ -20,6 +20,9 @@ Estado durable del loop. `[x]` = hecho y verificado.
 - [x] C3 Ajustes: estado + "Probar conexión" (solo encendido) · Azurite en compose dev + CI
 - [x] C4 E2E AC 11 (Azurite encendido/apagado) + humo con cuenta real — Azurite: local 103/103, azure-blob 115/115 (incl. caída y recuperación); cuenta real del dueño 113/113, contenedor limpio al terminar (15-oct)
 
+## Fase D — Imágenes convertidas en el navegador (15-oct)
+- [x] D1 `src/lib/image-normalize.ts` (plan puro + canvas → JPEG ≤ tope, fondo blanco, 2560 px, calidad 0.85→0.65 y escala ×0.8) + tests unitarios · catálogo (tope 5 MB, accept webp/gif/heic/heif, aviso por fila) · clip del compositor (tope del canal) · FR-950..953 / AC-13..15 — E2E BD aislada: e2e-catalogo 124/124 (f2: WebP → JPG, PNG de ruido 29.5 MB → JPEG ≤ 5 MB y lote sent, HEIC ilegible → aviso + 415), e2e-adjuntos-ui 36/36 (WebP por el clip → image/jpeg en /media, HEIC → aviso + 415)
+
 ## Cierre
 - [x] Z1 Docs: `CLAUDE.md` (mapa), memoria (`upstream-migraciones` → renumerar desde 0022)
 - [x] Z2 Revisión de Fable antes de declarar hecho — veredicto: hecho tras 1 corrección (compositor con key por conversación); e2e-catalogo 109/109 (y falla sin el arreglo)
