@@ -50,10 +50,29 @@ export function CatalogPanel({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [inserted, setInserted] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  const hasCatalog = catalog !== null;
 
+  // Esc cierra aunque el foco haya caído fuera del diálogo (p. ej. al
+  // desmontarse el botón del producto elegido).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    searchRef.current?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCloseRef.current();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Foco al paso visible: la búsqueda en la lista; "Volver" en el producto.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (productId) backRef.current?.focus();
+      else searchRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [productId, hasCatalog]);
 
   const products = useMemo(
     () => filterCatalogProducts(catalog?.products ?? [], query, categoryId),
@@ -102,16 +121,11 @@ export function CatalogPanel({
         aria-label="Catálogo"
         className="flex h-full w-full flex-col bg-card shadow-xl md:h-auto md:max-h-[80vh] md:max-w-lg md:rounded-lg md:border"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            onClose();
-          }
-        }}
       >
         <div className="flex items-center gap-2 border-b px-4 py-3">
           {product && (
             <button
+              ref={backRef}
               onClick={() => setProductId(null)}
               aria-label="Volver a los productos"
               className="rounded p-1 text-text-3 hover:bg-secondary hover:text-text-1"
