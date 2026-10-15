@@ -26,6 +26,9 @@ const AGENDA_TAB: SettingsTab = { href: "/settings/calendar", label: "Agenda" };
 /** 016 — Igual con "Anuncios" y la bandera ATRIBUCION. */
 const ADS_TAB: SettingsTab = { href: "/settings/ads", label: "Anuncios" };
 
+/** 019 — "Almacenamiento" solo con el conector del catálogo encendido (ADR-003). */
+const STORAGE_TAB: SettingsTab = { href: "/settings/storage", label: "Almacenamiento" };
+
 /** La única pestaña común a ambos roles. */
 export const ACCOUNT_TAB: SettingsTab = { href: "/settings/account", label: "Mi cuenta" };
 
@@ -35,12 +38,14 @@ export function settingsTabsFor({
   atribucion = false,
   instagram = false,
   messenger = false,
+  almacenamiento = false,
 }: {
   role: Role;
   agenda?: boolean;
   atribucion?: boolean;
   instagram?: boolean;
   messenger?: boolean;
+  almacenamiento?: boolean;
 }): SettingsTab[] {
   // El Vendedor no ve ningún ajuste del negocio: solo su cuenta.
   if (!isOwner(role)) return [ACCOUNT_TAB];
@@ -52,6 +57,7 @@ export function settingsTabsFor({
     ...BUSINESS_TABS,
     ...(agenda ? [AGENDA_TAB] : []),
     ...(atribucion ? [ADS_TAB] : []),
+    ...(almacenamiento ? [STORAGE_TAB] : []),
     ACCOUNT_TAB,
   ];
 }

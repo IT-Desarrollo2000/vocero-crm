@@ -156,6 +156,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PUT /api/settings/zoom": "owner",
   "DELETE /api/settings/zoom": "owner",
   "POST /api/settings/zoom/test": "owner",
+  // 019 — conector de almacenamiento del catálogo (404 si está apagado).
+  "GET /api/settings/catalog-storage": "owner",
+  "POST /api/settings/catalog-storage/test": "owner",
   "GET /api/settings/team": "owner",
   "POST /api/settings/team": "owner",
   "PATCH /api/settings/team/[memberId]": "owner",
