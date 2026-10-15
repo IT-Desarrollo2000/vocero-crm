@@ -57,7 +57,12 @@ export function QuickReplyPicker({
               </span>
               <span className="truncate font-medium">{r.title}</span>
             </p>
-            <p className="truncate text-[11.5px] text-text-3">{r.body}</p>
+            <p className="truncate text-[11.5px] text-text-3">
+              {/* 019: las ligadas a producto avisan cuántos archivos agregan. */}
+              {r.product && r.product.files.length > 0
+                ? `${r.product.files.length} ${r.product.files.length === 1 ? "archivo" : "archivos"} de ${r.product.name}${r.body ? ` · ${r.body}` : ""}`
+                : r.body}
+            </p>
           </li>
         );
       })}

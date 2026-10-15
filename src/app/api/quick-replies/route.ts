@@ -17,9 +17,13 @@ export const dynamic = "force-dynamic";
  * (dev-tasks/09-equipo-asignacion-y-respuestas-rapidas.md, "Contrato 09-0").
  *
  * GET (cualquier rol) → 200 `{ quickReplies: QuickReplyDto[] }` ordenadas por
- *   `position` asc, luego `createdAt` asc.
+ *   `position` asc, luego `createdAt` asc. 019: cada una con `productId`,
+ *   `attach` y `product: { id, name, code, active, files } | null` (archivos
+ *   ya filtrados por `attach`, cargados en lote).
  * POST (Propietario) `QuickReplyCreateBody` → 201 `{ quickReply: QuickReplyDto }`
- *   · 422 `invalid_body` · 422 `unknown_variable` (nombra la variable)
+ *   · 422 `invalid_body` (incluye `productId`/`attach` ambos o ninguno y
+ *   `body` vacío sin producto) · 422 `unknown_variable` (nombra la variable;
+ *   `{{producto}}` sin producto lo es) · 422 `invalid_product`
  *   · 409 `duplicate_shortcut`.
  */
 export const GET = withAuth(async (session) => {
@@ -32,7 +36,8 @@ export const POST = withAuth(
     const body = await parseBody(req, quickReplyCreateSchema);
     if (!body.ok) return body.response;
 
-    const unknown = findUnknownVars(body.data.body);
+    // 019: `{{producto}}` solo vale si la respuesta está ligada a un producto.
+    const unknown = findUnknownVars(body.data.body, { product: !!body.data.productId });
     if (unknown.length > 0) {
       return apiError(422, "unknown_variable", unknownVariableMessage(unknown));
     }

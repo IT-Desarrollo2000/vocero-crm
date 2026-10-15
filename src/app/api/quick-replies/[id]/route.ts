@@ -1,9 +1,5 @@
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import {
-  findUnknownVars,
-  quickReplyPatchSchema,
-  unknownVariableMessage,
-} from "@/lib/quick-replies";
+import { quickReplyPatchSchema } from "@/lib/quick-replies";
 import {
   deleteQuickReply,
   QuickReplyError,
@@ -21,6 +17,9 @@ type Params = { params: Promise<{ id: string }> };
  * PATCH `QuickReplyPatchBody` (parcial; reordenar = cambiar `position`) →
  *   200 `{ quickReply: QuickReplyDto }` · 404 `not_found` · 422 `invalid_body`
  *   · 422 `unknown_variable` · 409 `duplicate_shortcut`.
+ *   019: `productId` (null = desliga, `attach` → null) y `attach`; las
+ *   reglas se validan sobre el estado resultante → 422 `invalid_body`
+ *   · 422 `unknown_variable` · 422 `invalid_product`.
  * DELETE → 200 `{ ok: true }` · 404 `not_found`.
  */
 export const PATCH = withAuth(
@@ -29,13 +28,8 @@ export const PATCH = withAuth(
     const body = await parseBody(req, quickReplyPatchSchema);
     if (!body.ok) return body.response;
 
-    if (body.data.body !== undefined) {
-      const unknown = findUnknownVars(body.data.body);
-      if (unknown.length > 0) {
-        return apiError(422, "unknown_variable", unknownVariableMessage(unknown));
-      }
-    }
-
+    // 019: variables y liga a producto se validan en el store sobre el estado
+    // fusionado (un PATCH solo de `productId` cambia si `{{producto}}` vale).
     try {
       const quickReply = await updateQuickReply(session.organizationId, id, body.data);
       return Response.json({ quickReply });

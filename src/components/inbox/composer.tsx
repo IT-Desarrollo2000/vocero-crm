@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Clock3,
   FileText,
+  Package,
   MapPin,
   Paperclip,
   Send,
@@ -27,6 +28,23 @@ import {
   slashQuery,
 } from "@/lib/quick-replies";
 import { insertQuickReply, quickReplyContext } from "./quick-reply-render";
+import {
+  CATALOG_LIMITS,
+  fileCompatibility,
+  type CatalogBatchResult,
+  type CatalogFileDto,
+} from "@/lib/catalog";
+import {
+  catalogBatchBody,
+  quickReplyFiles,
+  splitStaged,
+  stageFiles,
+  stagedAfterSend,
+  summarizeBatch,
+  visibleQuickReplies,
+} from "./catalog-staging";
+import { useCatalog } from "./use-catalog";
+import { CatalogPanel } from "./catalog-panel";
 
 /** Máximo de opciones visibles en el selector `/`. */
 const QUICK_REPLY_PICKER_MAX = 8;
@@ -80,13 +98,20 @@ export function Composer({
   const [placeName, setPlaceName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  // 019 — Archivos del catálogo escenificados como chips (FR-930..933).
+  const [staged, setStaged] = useState<CatalogFileDto[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const catalogState = useCatalog();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 09 — Respuestas rápidas: `/atajo` al inicio o tras un espacio abre el
   // selector; Esc lo cierra hasta que se escriba otra `/`.
   const viewer = useViewer();
-  const { quickReplies, reload: reloadQuickReplies } = useQuickReplies();
+  const { quickReplies: allQuickReplies, reload: reloadQuickReplies } = useQuickReplies();
+  // 019: sin las ligadas a un producto inactivo ni las que no aportan nada.
+  const quickReplies = visibleQuickReplies(allQuickReplies);
   const [caret, setCaret] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -102,10 +127,56 @@ export function Composer({
 
   /** Texto de la respuesta con las variables ya resueltas para ESTE contacto. */
   function renderFor(reply: QuickReplyDto): string {
-    return renderQuickReply(
-      reply.body,
-      quickReplyContext(conversation.contact.name, viewer)
-    );
+    return renderQuickReply(reply.body, {
+      ...quickReplyContext(conversation.contact.name, viewer),
+      producto: reply.product?.name ?? null,
+    });
+  }
+
+  /**
+   * 019 — Escenifica archivos del catálogo como chips: acumula sin duplicar
+   * y respeta el tope de enviables. No convive con el adjunto suelto de 018
+   * (son dos envíos distintos): con un archivo suelto elegido, avisa y no
+   * agrega.
+   */
+  function stage(files: CatalogFileDto[]) {
+    if (files.length === 0) return;
+    if (file) {
+      setError("Quita el adjunto para agregar archivos del catálogo");
+      return;
+    }
+    setSummary(null);
+    const r = stageFiles(staged, files, conversation.outboundFiles);
+    setStaged(r.staged);
+    if (r.overLimit > 0) {
+      setError(
+        `Máximo ${CATALOG_LIMITS.maxBatchFiles} archivos por envío: ${r.overLimit} no se agregaron`
+      );
+    }
+  }
+
+  /** "Insertar detalles": en la posición del cursor (o al final), en su renglón. */
+  function insertDetails(snippet: string) {
+    const at = Math.min(caret, text.length);
+    const before = text.slice(0, at);
+    const after = text.slice(at);
+    const lead = before && !before.endsWith("\n") ? "\n" : "";
+    const trail = after && !after.startsWith("\n") ? "\n" : "";
+    const next = insertQuickReply(text, at, at, lead + snippet + trail);
+    setText(next.text);
+    setCaret(next.caret - trail.length);
+    setTimeout(autogrow, 0);
+  }
+
+  function closeCatalog() {
+    setCatalogOpen(false);
+    setTimeout(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(caret, caret);
+      autogrow();
+    }, 0);
   }
 
   /** Reemplaza el `/atajo` por la respuesta; queda editable, nada se envía. */
@@ -115,6 +186,7 @@ export function Composer({
     setText(next.text);
     setCaret(next.caret);
     setDismissedAt(null);
+    stage(quickReplyFiles(reply));
     setTimeout(() => {
       const el = taRef.current;
       if (!el) return;
@@ -139,6 +211,14 @@ export function Composer({
     // en Ajustes mientras esta Bandeja estaba abierta.
     if (after && !before) void reloadQuickReplies();
   }
+
+  // 019: los chips son de ESTA conversación; al cambiar de hilo se descartan
+  // (mandar fotos al cliente equivocado es peor que volver a elegirlas).
+  useEffect(() => {
+    setStaged([]);
+    setSummary(null);
+    setCatalogOpen(false);
+  }, [conversation.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +251,10 @@ export function Composer({
   function pickFile(f: File | null) {
     // 018: validación LIGERA por extensión contra el `accept` del canal; el
     // servidor (firma del contenido) sigue siendo la autoridad.
+    if (f && staged.length > 0) {
+      setError("Quita los archivos del catálogo para adjuntar otro archivo");
+      return;
+    }
     const files = conversation.outboundFiles;
     if (f && files && !extensionAllowed(f.name, files.accept)) {
       setError(files.hint);
@@ -200,8 +284,74 @@ export function Composer({
     return data?.error?.message ?? data?.message ?? `Error ${res.status}`;
   }
 
+  /**
+   * 019 — Envío con chips del catálogo: un solo POST con el texto y los ids
+   * compatibles en orden (FR-933). Espera al servidor (como el adjunto): el
+   * botón queda deshabilitado mientras viaja.
+   */
+  async function submitCatalog() {
+    if (sending) return;
+    const value = text.trim();
+    const { blocked } = splitStaged(staged, conversation.outboundFiles);
+    const body = catalogBatchBody(value, staged, conversation.outboundFiles);
+    if (!body) {
+      setError(
+        value
+          ? "Ninguno de los archivos es compatible con este canal: quítalos para enviar solo el texto"
+          : "Ninguno de los archivos es compatible con este canal: quítalos o escribe un texto"
+      );
+      return;
+    }
+    setSending(true);
+    setSummary(null);
+    const res = await fetch(`/api/conversations/${conversation.id}/messages/catalog`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    const data = res
+      ? ((await res.json().catch(() => null)) as
+          | (CatalogBatchResult & { error?: { code?: string; message?: string } })
+          | null)
+      : null;
+    setSending(false);
+    if (!res) {
+      setError("Sin conexión con el servidor");
+      return;
+    }
+    if (!res.ok || !data || !Array.isArray(data.results)) {
+      // El 404 de "conversación no visible" y el de "ningún archivo existe"
+      // comparten código: se distinguen por el mensaje del route.
+      if (
+        res.status === 404 &&
+        onNotVisible &&
+        data?.error?.message === "Conversación no encontrada"
+      ) {
+        onNotVisible();
+        setError("Esta conversación ahora la atiende otro vendedor.");
+        return;
+      }
+      setError(data?.error?.message ?? `Error ${res.status}`);
+      return;
+    }
+    setSummary(summarizeBatch(data, staged, blocked.length));
+    setStaged(stagedAfterSend(staged, data));
+    // El texto se limpia si salió (o no había); si el lote se cortó antes,
+    // se conserva para reintentar.
+    if (!body.text || data.text) {
+      setText("");
+      if (taRef.current) taRef.current.style.height = "auto";
+    }
+    onSent();
+  }
+
   async function submit() {
     setError(null);
+
+    if (staged.length > 0) {
+      await submitCatalog();
+      return;
+    }
 
     if (file) {
       // El adjunto sí espera: sube el archivo y no tiene sentido encolar otro
@@ -338,7 +488,10 @@ export function Composer({
     );
   }
 
-  const canSubmit = file !== null || text.trim().length > 0;
+  const canSubmit = file !== null || staged.length > 0 || text.trim().length > 0;
+  // 019: el botón Catálogo, como las respuestas rápidas, solo con texto libre.
+  const canUseCatalog =
+    conversation.replyMode === "free" || conversation.replyMode === "human_agent";
 
   return (
     <div className="border-t bg-background px-[18px] pb-3.5 pt-3">
@@ -357,10 +510,11 @@ export function Composer({
                   const value = renderFor(r);
                   setText(value);
                   setCaret(value.length);
+                  stage(quickReplyFiles(r));
                   taRef.current?.focus();
                   setTimeout(autogrow, 0);
                 }}
-                title={r.body}
+                title={r.body || r.title}
               >
                 {r.title}
               </button>
@@ -416,6 +570,59 @@ export function Composer({
           >
             <X className="h-4 w-4" strokeWidth={1.7} />
           </button>
+        </div>
+      )}
+
+      {staged.length > 0 && (
+        <div className="mb-2.5 rounded-md border bg-secondary/50 p-2">
+          <ul className="flex flex-wrap gap-1.5" aria-label="Archivos del catálogo por enviar">
+            {staged.map((f) => {
+              const c = fileCompatibility(f, conversation.outboundFiles);
+              return (
+                <li
+                  key={f.id}
+                  data-testid="staged-file"
+                  data-file-id={f.id}
+                  data-compatible={c.ok ? "true" : "false"}
+                  title={c.ok ? f.fileName : c.reason}
+                  className={cn(
+                    "flex max-w-[220px] items-center gap-1.5 rounded-md border bg-background py-1 pl-1 pr-0.5",
+                    !c.ok && "opacity-50 grayscale"
+                  )}
+                >
+                  {f.kind === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={f.url}
+                      alt=""
+                      loading="lazy"
+                      className="h-9 w-9 shrink-0 rounded object-cover"
+                    />
+                  ) : (
+                    <FileText className="h-6 w-6 shrink-0 text-brand" strokeWidth={1.5} />
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs">{f.fileName}</span>
+                    {!c.ok && (
+                      <span className="block truncate text-[10.5px] text-text-3">
+                        No compatible · no se envía
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    onClick={() => setStaged((prev) => prev.filter((x) => x.id !== f.id))}
+                    aria-label={`Quitar ${f.fileName}`}
+                    className="shrink-0 rounded p-0.5 text-text-3 hover:bg-secondary hover:text-text-1"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={1.7} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-text-3">
+            El texto sale primero y después los archivos, en este orden.
+          </p>
         </div>
       )}
 
@@ -522,7 +729,12 @@ export function Composer({
               <button
                 onClick={() => fileRef.current?.click()}
                 aria-label="Adjuntar archivo"
-                title={conversation.outboundFiles.hint}
+                disabled={staged.length > 0}
+                title={
+                  staged.length > 0
+                    ? "Quita los archivos del catálogo para adjuntar otro archivo"
+                    : conversation.outboundFiles.hint
+                }
                 className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
               >
                 <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
@@ -555,6 +767,24 @@ export function Composer({
               </>
             )}
           </div>
+        )}
+        {canUseCatalog && (
+          <button
+            onClick={() => {
+              setCatalogOpen(true);
+              void catalogState.load();
+            }}
+            disabled={file !== null}
+            aria-label="Catálogo"
+            title={
+              file
+                ? "Quita el adjunto para agregar archivos del catálogo"
+                : "Catálogo de productos"
+            }
+            className="shrink-0 rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1 disabled:opacity-40"
+          >
+            <Package className="h-[18px] w-[18px]" strokeWidth={1.7} />
+          </button>
         )}
         <textarea
           ref={taRef}
@@ -616,13 +846,36 @@ export function Composer({
         </button>
       </div>
       <div className="mt-1.5 flex items-center justify-between">
-        {error ? <p className="text-xs text-destructive">{error}</p> : <span />}
+        <div className="min-w-0">
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {summary && (
+            <p role="status" className="text-xs text-text-2">
+              {summary}
+            </p>
+          )}
+        </div>
         <p className="text-[11px] text-text-3">
           {conversation.replyMode === "human_agent"
             ? "Fuera de las 24 h · tu respuesta sale como agente humano (hasta 7 días)"
             : `Ventana abierta · quedan ${formatRemaining(conversation.windowRemainingMs)}`}
         </p>
       </div>
+      {catalogOpen && (
+        <CatalogPanel
+          catalog={catalogState.catalog}
+          loading={catalogState.loading}
+          error={catalogState.error}
+          onRetry={() => void catalogState.load(true)}
+          outboundFiles={conversation.outboundFiles}
+          isOwner={viewer.role === "owner"}
+          onAdd={(files) => {
+            stage(files);
+            closeCatalog();
+          }}
+          onInsertDetails={insertDetails}
+          onClose={closeCatalog}
+        />
+      )}
     </div>
   );
 }

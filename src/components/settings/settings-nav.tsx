@@ -12,17 +12,26 @@ export function SettingsNav({
   atribucion = false,
   instagram = false,
   messenger = false,
+  almacenamiento = false,
 }: {
   role: Role;
   agenda?: boolean;
   atribucion?: boolean;
   instagram?: boolean;
   messenger?: boolean;
+  almacenamiento?: boolean;
 }) {
   const pathname = usePathname();
   // Qué pestañas existen lo decide el servidor y baja por prop: este es un
   // componente de cliente y no puede leer variables de entorno.
-  const tabs = settingsTabsFor({ role, agenda, atribucion, instagram, messenger });
+  const tabs = settingsTabsFor({
+    role,
+    agenda,
+    atribucion,
+    instagram,
+    messenger,
+    almacenamiento,
+  });
   return (
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-44 sm:flex-col sm:space-y-1 sm:overflow-visible sm:border-b-0 sm:border-r sm:p-3">
       {tabs.map((t) => (

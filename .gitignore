@@ -15,7 +15,7 @@
 # --- Dependencias / build (cuando el starter ya tenga app encima) ---
 node_modules/
 .next/
-out/
+/out/
 dist/
 build/
 *.tsbuildinfo
@@ -44,3 +44,6 @@ Thumbs.db
 .dev-media/
 # Capturas y salidas de los self-tests (p. ej. scripts/e2e-responsive.mjs)
 scratch/
+
+# Worktrees de subagentes de Claude Code
+.claude/worktrees/

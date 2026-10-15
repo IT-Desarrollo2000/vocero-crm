@@ -38,6 +38,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages/media": "any*",
+  // 019: lote del catálogo; misma compuerta que un adjunto suelto.
+  "POST /api/conversations/[id]/messages/catalog": "any*",
   "POST /api/conversations/[id]/messages/template": "any*",
   "GET /api/media/[assetId]": "any*",
   // Sesión propia (no `withAuth`): `lab.run` solo al Propietario.
@@ -49,6 +51,23 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/quick-replies": "owner",
   "PATCH /api/quick-replies/[id]": "owner",
   "DELETE /api/quick-replies/[id]": "owner",
+
+  // ── Catálogo de productos (019) ────────────────────────────────────────
+  // Lectura (y descarga de fotos/fichas) para todos; escritura del Propietario.
+  "GET /api/catalog": "any",
+  "POST /api/catalog/categories": "owner",
+  "PATCH /api/catalog/categories/[id]": "owner",
+  "DELETE /api/catalog/categories/[id]": "owner",
+  "POST /api/catalog/products": "owner",
+  "PATCH /api/catalog/products/[id]": "owner",
+  "DELETE /api/catalog/products/[id]": "owner",
+  "POST /api/catalog/products/[id]/variants": "owner",
+  "POST /api/catalog/products/[id]/files": "owner",
+  "PATCH /api/catalog/variants/[id]": "owner",
+  "DELETE /api/catalog/variants/[id]": "owner",
+  "GET /api/catalog/files/[id]": "any",
+  "PATCH /api/catalog/files/[id]": "owner",
+  "DELETE /api/catalog/files/[id]": "owner",
 
   // ── Contactos ──────────────────────────────────────────────────────────
   "GET /api/contacts": "any",
@@ -137,6 +156,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PUT /api/settings/zoom": "owner",
   "DELETE /api/settings/zoom": "owner",
   "POST /api/settings/zoom/test": "owner",
+  // 019 — conector de almacenamiento del catálogo (404 si está apagado).
+  "GET /api/settings/catalog-storage": "owner",
+  "POST /api/settings/catalog-storage/test": "owner",
   "GET /api/settings/team": "owner",
   "POST /api/settings/team": "owner",
   "PATCH /api/settings/team/[memberId]": "owner",
@@ -194,6 +216,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // 10: falla conmutable de los envíos de WhatsApp del mock.
   "GET /api/dev/wa-mock/fail-sends": "dev",
   "POST /api/dev/wa-mock/fail-sends": "dev",
+  // 019 fase B: el mock deja de reconocer un id subido (prueba de re-subida).
+  "POST /api/dev/wa-mock/invalidate-media": "dev",
   "GET /api/dev/google-mock/[...path]": "dev",
   "POST /api/dev/google-mock/[...path]": "dev",
   "PATCH /api/dev/google-mock/[...path]": "dev",

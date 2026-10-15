@@ -41,6 +41,12 @@ const prefixes = {
   // 08 — Laboratorio por cliente
   labPersona: "lpe",
   labSuggestionApplication: "lsa",
+  // 019 — catálogo de productos
+  productCategory: "pcat",
+  product: "prd",
+  productVariant: "pvar",
+  productFile: "pf",
+  productFileUpload: "pfu",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

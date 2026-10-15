@@ -32,7 +32,30 @@ export type OutboxEntry = {
     fetchedStatus?: number;
     fetchedBytes?: number;
     contentType?: string | null;
+    /** 019 fase B — Messenger: enviado por `attachment_id` (ya subido). */
+    attachmentId?: string;
   };
+};
+
+/**
+ * 019 fase B — Una subida de bytes a Meta: `POST {phoneNumberId}/media`
+ * (WhatsApp) o `POST {pageId}/message_attachments` (Messenger). Va APARTE
+ * del outbox (campo `uploads` de `GET /api/dev/wa-mock/outbox`) para no
+ * alterar los guiones que cuentan mensajes; el self-test cuenta aquí cuántas
+ * veces se subió un archivo (reutilización del catálogo).
+ */
+export type UploadEntry = {
+  n: number;
+  kind: "upload";
+  channel: "whatsapp" | "messenger";
+  /** phone_number_id o page id. */
+  accountId: string;
+  /** media id (WhatsApp) o attachment_id (Messenger) devuelto. */
+  id: string;
+  fileName: string | null;
+  mime: string | null;
+  bytes: number;
+  at: string;
 };
 
 export type MockTemplate = {
@@ -78,20 +101,38 @@ type WaMockState = {
   outbox: OutboxEntry[];
   templates: MockTemplate[];
   capiEvents: CapiMockEvent[];
+  /**
+   * NO se reinicia con el reset: los ids que emite (wamids, media ids) ya
+   * pueden estar en la BD, y repetirlos choca con el UNIQUE de
+   * `message.wa_message_id` en el mismo arranque.
+   */
   counter: number;
   /** Se apaga también con `DELETE /api/dev/wa-mock/outbox` (reset total). */
   failSends: FailSendsMode;
+  /** 019 fase B — Subidas de bytes (ver `UploadEntry`). */
+  uploads: UploadEntry[];
+  /**
+   * 019 fase B — Ids subidos (media id / attachment_id) que Meta "ya no
+   * reconoce": `/messages` con ellos responde 400. Se llena con
+   * `POST /api/dev/wa-mock/invalidate-media`.
+   */
+  invalidMediaIds: Set<string>;
+  /** Todos los ids subidos en este proceso (para `invalidate-media {all}`). */
+  issuedUploadIds: string[];
 };
 
 const globalForMock = globalThis as unknown as { __waMockState?: WaMockState };
 
-function freshState(): WaMockState {
+function freshState(prev?: WaMockState): WaMockState {
   return {
     outbox: [],
     templates: [],
     capiEvents: [],
-    counter: 0,
+    counter: prev?.counter ?? 0,
     failSends: "off",
+    uploads: [],
+    invalidMediaIds: new Set(),
+    issuedUploadIds: prev?.issuedUploadIds ?? [],
   };
 }
 
@@ -99,11 +140,37 @@ export function getWaMockState(): WaMockState {
   if (!globalForMock.__waMockState) {
     globalForMock.__waMockState = freshState();
   }
-  return globalForMock.__waMockState;
+  const state = globalForMock.__waMockState;
+  // Un estado creado por una versión anterior del módulo (recarga en dev)
+  // puede no traer los campos de 019.
+  state.uploads ??= [];
+  state.invalidMediaIds ??= new Set();
+  state.issuedUploadIds ??= [];
+  return state;
 }
 
+/** Reset total salvo el contador de ids (ver `counter`). */
 export function resetWaMockState(): void {
-  globalForMock.__waMockState = freshState();
+  globalForMock.__waMockState = freshState(globalForMock.__waMockState);
+}
+
+/** 019 fase B — Registra una subida y devuelve el id que se le da al CRM. */
+export function recordUpload(
+  entry: Omit<UploadEntry, "n" | "kind" | "id" | "at">,
+  idPrefix: "media-up" | "att-up"
+): string {
+  const state = getWaMockState();
+  const n = nextN();
+  // Sello de arranque solo con dígitos: `mockDeclaredMime`/`mockMediaBytes`
+  // deciden por subcadenas del id ("pdf", "exe", "html").
+  const id = `${idPrefix}-${bootDigits}-${n}`;
+  state.uploads.push({ n, kind: "upload", id, at: new Date().toISOString(), ...entry });
+  state.issuedUploadIds.push(id);
+  return id;
+}
+
+export function isInvalidMediaId(id: unknown): boolean {
+  return typeof id === "string" && getWaMockState().invalidMediaIds.has(id);
 }
 
 export function nextN(): number {
@@ -117,6 +184,7 @@ export function nextN(): number {
  * enviar). No es un fallo del producto: la idempotencia hace su trabajo.
  */
 const boot = Math.random().toString(36).slice(2, 8);
+const bootDigits = String(Math.floor(Math.random() * 1e6)).padStart(6, "0");
 
 export function nextOutboundWamid(): string {
   return `wamid.mock.out.${boot}.${nextN()}`;

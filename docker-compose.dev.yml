@@ -20,5 +20,27 @@ services:
       timeout: 3s
       retries: 10
 
+  # 019 — Emulador de Azure Blob para probar el conector de almacenamiento
+  # del catálogo (ADR-003). Opcional: solo arranca si lo pides.
+  #   docker compose -f docker-compose.dev.yml --profile azurite up -d azurite
+  # Y en .env:
+  #   CATALOG_STORAGE=azure-blob
+  #   AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
+  #   AZURE_STORAGE_CONTAINER=vocero-catalogo
+  # El CRM no crea contenedores: créalo antes con Azure Storage Explorer o
+  #   az storage container create -n vocero-catalogo --connection-string "<la de arriba>"
+  # La clave es la pública y estándar del emulador, no un secreto. Sin
+  # --skipApiVersionCheck, igual que en CI.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.34.0
+    profiles: ["azurite"]
+    restart: unless-stopped
+    command: azurite-blob --blobHost 0.0.0.0 --location /data
+    ports:
+      - "10000:10000"
+    volumes:
+      - vocero_dev_azurite:/data
+
 volumes:
   vocero_dev_pg:
+  vocero_dev_azurite:

@@ -27,7 +27,8 @@ jobs:
     name: ${{ matrix.config.name }} · typecheck · lint · test · build
     runs-on: ubuntu-latest
 
-    # Los módulos opcionales (canales, agenda) se encienden con variables de
+    # Los módulos opcionales (canales, agenda, almacenamiento del catálogo)
+    # se encienden con variables de
     # despliegue, así que el código que viaja en main tiene que servir en las
     # dos configuraciones — y eso no se sabe corriendo solo una.
     #
@@ -41,13 +42,34 @@ jobs:
           - name: default
             channels: ""
             agenda: ""
+            catalog_storage: ""
+            azurite: ""
           - name: completo
             channels: "whatsapp,instagram,messenger"
             agenda: "on"
+            catalog_storage: "azure-blob"
+            # 019 — el conector de almacenamiento del catálogo (ADR-003) se
+            # prueba contra Azurite, el emulador oficial de Azure Storage.
+            azurite: "mcr.microsoft.com/azure-storage/azurite:3.34.0"
+
+    # 019 — Azurite solo en `completo`: con `image` vacío (`default`) GitHub
+    # no arranca el servicio. Corre con su comando por defecto, SIN
+    # --skipApiVersionCheck: así también valida la x-ms-version del adaptador.
+    # En `default` la suite de contrato de Azure se salta sola (no hay nada en
+    # el puerto) y el conector se prueba apagado.
+    services:
+      azurite:
+        image: ${{ matrix.config.azurite }}
+        ports:
+          - 10000:10000
 
     env:
       CHANNELS: ${{ matrix.config.channels }}
       AGENDA: ${{ matrix.config.agenda }}
+      CATALOG_STORAGE: ${{ matrix.config.catalog_storage }}
+      # Con esto, tests/unit/catalog-storage-azure.test.ts corre el contrato
+      # contra Azurite; sin ella sondea 127.0.0.1:10000 y se salta si no hay.
+      AZURITE_URL: ${{ matrix.config.azurite && 'http://127.0.0.1:10000' || '' }}
 
     steps:
       - uses: actions/checkout@v7

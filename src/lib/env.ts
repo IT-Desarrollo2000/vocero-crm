@@ -65,6 +65,18 @@ const envSchema = z.object({
   BOT_API_KEY: z.string().optional(),
   // 008: volumen local de adjuntos (constitución II: sin S3/R2).
   MEDIA_DIR: z.string().default("./.dev-media"),
+  // 019: dónde se guardan los archivos NUEVOS del catálogo (ADR-003).
+  // `local` (default) = MEDIA_DIR/{org}/catalog; `azure-blob` = conector
+  // opcional, solo para el catálogo. Se declaran sin validar a propósito: un
+  // valor raro cuenta como `local` y una config de Azure inválida NO rompe el
+  // arranque — el catálogo responde 503 en Azure y el resto del CRM sigue.
+  // Se leen de process.env en src/server/catalog/storage/index.ts.
+  CATALOG_STORAGE: z.string().optional(),
+  // Portal de Azure → Cuenta de almacenamiento → Claves de acceso → Cadena de
+  // conexión (la forma con AccountKey; la de SharedAccessSignature no sirve).
+  AZURE_STORAGE_CONNECTION_STRING: z.string().optional(),
+  // Contenedor PRIVADO ya creado en esa cuenta (minúsculas, números, guiones).
+  AZURE_STORAGE_CONTAINER: z.string().optional(),
   NODE_ENV: z.string().default("development"),
 });
 
