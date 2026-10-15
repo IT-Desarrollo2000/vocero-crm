@@ -18,7 +18,7 @@ Estado durable del loop. `[x]` = hecho y verificado.
 - [x] C1 ADR-003 (almacenamiento como conector; tercera bandera)
 - [x] C2 `azure-blob.ts` (SharedKey REST, cadena incl. Azurite, errores saneados) + vectores + tests de contrato · `env.ts`, `.env.example`, `.env` placeholder
 - [x] C3 Ajustes: estado + "Probar conexión" (solo encendido) · Azurite en compose dev + CI
-- [~] C4 E2E AC 11 (Azurite encendido/apagado) + humo con cuenta real — Azurite: local 103/103, azure-blob 115/115 (incl. caída y recuperación); PENDIENTE humo con la cuenta real (faltan credenciales en .env)
+- [x] C4 E2E AC 11 (Azurite encendido/apagado) + humo con cuenta real — Azurite: local 103/103, azure-blob 115/115 (incl. caída y recuperación); cuenta real del dueño 113/113, contenedor limpio al terminar (15-oct)
 
 ## Cierre
 - [x] Z1 Docs: `CLAUDE.md` (mapa), memoria (`upstream-migraciones` → renumerar desde 0022)
