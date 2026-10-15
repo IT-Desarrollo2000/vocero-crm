@@ -160,7 +160,27 @@ describe("Messenger — multipart con filedata", () => {
 
     // Persistido con el id prefijado y el asset saliente.
     expect(messageInserts()[0]).toMatchObject({ waMessageId: "fb_mid.1", type: "document", status: "sent" });
-    expect(h.inserts.find((v) => v.kind === "document")).toMatchObject({ direction: "out" });
+    expect(h.inserts.find((v) => v.kind === "document")).toMatchObject({
+      direction: "out",
+      productFileId: null,
+    });
+  });
+
+  it("019 (FR-940): la copia guarda productFileId como procedencia", async () => {
+    fetchMock.mockResolvedValue(Response.json({ recipient_id: "psid_1", message_id: "mid.9" }));
+    h.selectRows.push(conversation("messenger", "fb:psid_1"));
+
+    await sendMediaMessage({
+      conversationId: "cv_1",
+      organizationId: "org_1",
+      file: { data: PDF, mimeType: "application/pdf", fileName: "ficha.pdf" },
+      productFileId: "pf_1",
+    });
+
+    expect(h.inserts.find((v) => v.kind === "document")).toMatchObject({
+      direction: "out",
+      productFileId: "pf_1",
+    });
   });
 
   it("fuera de las 24 h sale con MESSAGE_TAG + HUMAN_AGENT", async () => {

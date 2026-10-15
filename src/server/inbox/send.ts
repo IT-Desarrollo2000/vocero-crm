@@ -462,6 +462,8 @@ export async function sendMediaMessage(input: {
   organizationId: string;
   file: { data: Buffer; mimeType: string; fileName?: string };
   caption?: string;
+  /** 019 (FR-940): el archivo viene del catálogo; procedencia de la copia. */
+  productFileId?: string;
 }): Promise<SendResult> {
   // Puro: ni disco ni red. Lanza MediaValidationError (413/415).
   const inspection = inspectOutgoing(input.file.data, {
@@ -518,6 +520,7 @@ export async function sendMediaMessage(input: {
       storagePath,
       fetchStatus: "available",
       direction: "out",
+      productFileId: input.productFileId ?? null,
     })
     .returning();
   const asset = assetRows[0]!;

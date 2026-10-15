@@ -38,6 +38,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages": "any*",
   "POST /api/conversations/[id]/messages/media": "any*",
+  // 019: lote del catálogo; misma compuerta que un adjunto suelto.
+  "POST /api/conversations/[id]/messages/catalog": "any*",
   "POST /api/conversations/[id]/messages/template": "any*",
   "GET /api/media/[assetId]": "any*",
   // Sesión propia (no `withAuth`): `lab.run` solo al Propietario.
