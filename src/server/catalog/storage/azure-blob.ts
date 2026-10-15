@@ -69,7 +69,8 @@ export function parseAzureConnectionString(raw: string | undefined): AzureConnec
   }
   const keyText = fields.get("accountkey") ?? "";
   const accountKey = BASE64.test(keyText) ? Buffer.from(keyText, "base64") : Buffer.alloc(0);
-  if (accountKey.length === 0) {
+  // Las claves de Azure (y la de Azurite) son de 512 bits: 88 caracteres base64.
+  if (accountKey.length !== 64) {
     throw misconfigured("AZURE_STORAGE_CONNECTION_STRING no trae una AccountKey válida");
   }
 

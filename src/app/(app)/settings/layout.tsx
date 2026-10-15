@@ -3,6 +3,7 @@ import { SettingsNav } from "@/components/settings/settings-nav";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { agendaEnabled } from "@/server/agenda/flag";
 import { atribucionEnabled } from "@/server/attribution/flag";
+import { azureCatalogStorageEnabled } from "@/server/catalog/storage";
 import { isChannelEnabled } from "@/server/channels/enabled";
 
 // La bandera se lee en cada petición: si esto se resolviera al construir, la
@@ -30,6 +31,7 @@ export default async function SettingsLayout({
           atribucion={atribucionEnabled()}
           instagram={isChannelEnabled("instagram")}
           messenger={isChannelEnabled("messenger")}
+          almacenamiento={azureCatalogStorageEnabled()}
         />
         <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>

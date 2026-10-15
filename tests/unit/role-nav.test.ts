@@ -92,6 +92,22 @@ describe("settingsTabsFor", () => {
       "/settings/account",
     ]);
   });
+
+  it("019 — Almacenamiento solo con el conector encendido, y nunca para el Vendedor", () => {
+    expect(
+      settingsTabsFor({ role: "owner" }).some((t) => t.href === "/settings/storage")
+    ).toBe(false);
+    const tabs = settingsTabsFor({ role: "owner", atribucion: true, almacenamiento: true });
+    expect(tabs.map((t) => t.href).slice(-3)).toEqual([
+      "/settings/ads",
+      "/settings/storage",
+      "/settings/account",
+    ]);
+    expect(tabs.map((t) => t.label).join(" ")).not.toMatch(/azure/i);
+    expect(settingsTabsFor({ role: "member", almacenamiento: true })).toEqual([
+      { href: "/settings/account", label: "Mi cuenta" },
+    ]);
+  });
 });
 
 describe("Mi cuenta — validación y errores", () => {

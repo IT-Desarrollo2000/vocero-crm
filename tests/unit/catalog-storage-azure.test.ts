@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   AZURE_API_VERSION,
   azureRequest,
@@ -26,19 +26,28 @@ const AZURITE_BASE = (process.env.AZURITE_URL || "http://127.0.0.1:10000").repla
 const azuriteConn = (key = AZURITE_KEY, base = AZURITE_BASE) =>
   `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=${key};BlobEndpoint=${base}/devstoreaccount1;`;
 
-async function azuriteAlive(): Promise<boolean> {
-  try {
-    // Cualquier respuesta HTTP (incluido el 403 sin firma) = vivo.
-    await fetch(`${AZURITE_BASE}/devstoreaccount1?comp=list`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    return true;
-  } catch {
-    return false;
+async function azuriteAlive(attempts: number): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      // Cualquier respuesta HTTP (incluido el 403 sin firma) = vivo.
+      await fetch(`${AZURITE_BASE}/devstoreaccount1?comp=list`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      return true;
+    } catch {
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1000));
+    }
   }
+  return false;
 }
 
-const AZURITE = await azuriteAlive();
+/**
+ * Con `AZURITE_URL` puesta (CI `completo`) Azurite es OBLIGATORIO: si no
+ * responde, la suite corre y falla en vez de saltarse en silencio. Sin ella,
+ * se sondea el puerto por defecto y se salta si no hay nada.
+ */
+const AZURITE_REQUIRED = Boolean(process.env.AZURITE_URL);
+const AZURITE = (await azuriteAlive(AZURITE_REQUIRED ? 10 : 1)) || AZURITE_REQUIRED;
 
 describe("parseAzureConnectionString", () => {
   it("forma estándar del portal", () => {
@@ -73,6 +82,8 @@ describe("parseAzureConnectionString", () => {
       `AccountKey=${AZURITE_KEY}`,
       "AccountName=abc123",
       "AccountName=abc123;AccountKey=no*es*base64",
+      // base64 válido pero no de 512 bits: no es una clave de Azure.
+      "AccountName=abc123;AccountKey=U0VDUkVUTw==",
       "AccountName=ABC;AccountKey=SECRETO==",
       "esto no es una cadena",
       `AccountName=abc123;AccountKey=${AZURITE_KEY};BlobEndpoint=ftp://x`,
@@ -246,8 +257,14 @@ describe("saneado de errores", () => {
       container: "catalogo",
     });
     expect(s.provider).toBe("azure-blob");
-    for (const p of [s.get(k), s.put(k, Buffer.from("x"), "text/plain"), s.delete(k), s.test()]) {
-      const err = await caught(p);
+    // Perezosas: una promesa rechazada sin await todavía es un "unhandled".
+    for (const op of [
+      () => s.get(k),
+      () => s.put(k, Buffer.from("x"), "text/plain"),
+      () => s.delete(k),
+      () => s.test(),
+    ]) {
+      const err = await caught(op());
       expect(err.code).toBe("misconfigured");
       expect(err.message).not.toContain("SECRETO");
     }
@@ -272,6 +289,17 @@ describe.skipIf(!AZURITE)("azure-blob contra Azurite", () => {
     });
     // 201 creado; 409 ya existía.
     expect([201, 409]).toContain(res.status);
+  });
+
+  afterAll(async () => {
+    // El Azurite de desarrollo vive mucho: no dejar un contenedor por corrida.
+    const conn = parseAzureConnectionString(azuriteConn());
+    await azureRequest(conn, {
+      method: "DELETE",
+      container,
+      query: { restype: "container" },
+      timeoutMs: 10_000,
+    }).catch(() => {});
   });
 
   runStorageContract("azure-blob (Azurite)", () =>
@@ -339,8 +367,13 @@ describe("azure-blob sin servicio (puerto cerrado) → unavailable", () => {
       container: "catalogo",
     });
     const k = catalogStorageKey("org_1", "pf_1");
-    for (const p of [s.test(), s.put(k, Buffer.from("x"), "text/plain"), s.get(k)]) {
-      const err = await p.then(() => null, (e: unknown) => e as StorageError);
+    for (const op of [
+      () => s.test(),
+      () => s.put(k, Buffer.from("x"), "text/plain"),
+      () => s.get(k),
+      () => s.delete(k),
+    ]) {
+      const err = await op().then(() => null, (e: unknown) => e as StorageError);
       expect(err).toBeInstanceOf(StorageError);
       expect(err?.code).toBe("unavailable");
       expect(err?.message).toMatch(/no responde/);
