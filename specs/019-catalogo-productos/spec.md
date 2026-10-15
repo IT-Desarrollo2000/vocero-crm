@@ -157,7 +157,7 @@ recuerda dónde se guardó).
   no sea de autenticación → se invalida y se re-sube **una** vez; auth →
   `reconnect_required`; 5xx → `meta_unavailable`.
 - **FR-943** **Reutilización Messenger**: subida con la Attachment Upload API
-  (`is_reusable: true`) → `attachment_id` reutilizable, misma regla de
+  (`is_reusable: true`) → `attachment_id` reutilizable (Meta lo guarda 90 días; se reutiliza < 85), misma regla de
   re-subida. **Instagram**: URL firmada del CRM de la copia; nada que cachear.
 - **FR-944** La caché de ids se consulta y escribe **después** del guard de
   sandbox: una conversación `is_test` no toca Meta **ni** `product_file_upload`.

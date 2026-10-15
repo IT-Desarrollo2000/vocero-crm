@@ -11,7 +11,8 @@ import { scoped } from "@/lib/db/tenant";
  *     30 días; se reutiliza solo si se subió hace menos de 25 (margen para
  *     no rozar la caducidad).
  *   - Messenger: `attachment_id` de la Attachment Upload API con
- *     `is_reusable: true`; no caduca.
+ *     `is_reusable: true`. Meta: "Attachment IDs expire after 90 days"
+ *     (saving-assets, oct-2026); se reutiliza solo si tiene menos de 85.
  *   - Instagram: nada que cachear (envía por URL firmada del CRM).
  *
  * El llamador (`sendMediaMessage`) solo llega aquí DESPUÉS de `prepareSend`
@@ -26,7 +27,7 @@ export type RemoteChannel = "whatsapp" | "messenger";
 /** Vida útil reutilizable por canal; null = sin caducidad. */
 export const REMOTE_ID_TTL_MS: Record<RemoteChannel, number | null> = {
   whatsapp: 25 * 24 * 60 * 60 * 1000,
-  messenger: null,
+  messenger: 85 * 24 * 60 * 60 * 1000,
 };
 
 type Key = {

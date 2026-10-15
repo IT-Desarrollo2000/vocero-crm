@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * 019 fase B (FR-942/943) — Vigencia de los ids remotos del catálogo:
- * WhatsApp < 25 días (Meta guarda 30), Messenger sin caducidad. La consulta
+ * WhatsApp < 25 días (Meta guarda 30), Messenger < 85 (Meta guarda 90). La consulta
  * siempre lleva el tenant y la llave (archivo, canal, cuenta); el guardado es
  * un upsert sobre esa llave.
  */
@@ -77,9 +77,11 @@ describe("getReusableRemoteId", () => {
     expect(await getReusableRemoteId(key("whatsapp"), NOW)).toBeNull();
   });
 
-  it("Messenger: el attachment_id no caduca", async () => {
-    h.rows = [{ remoteId: "att-1", uploadedAt: ago(400) }];
+  it("Messenger: 84 días → se reutiliza; 85 o más → null (Meta los borra a los 90)", async () => {
+    h.rows = [{ remoteId: "att-1", uploadedAt: ago(84) }];
     expect(await getReusableRemoteId(key("messenger"), NOW)).toBe("att-1");
+    h.rows = [{ remoteId: "att-1", uploadedAt: ago(85) }];
+    expect(await getReusableRemoteId(key("messenger"), NOW)).toBeNull();
   });
 
   it("sin organización → error de tenant (scoped)", async () => {
