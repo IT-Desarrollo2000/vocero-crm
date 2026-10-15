@@ -1,69 +1,69 @@
-# 019 — Plan técnico
+# 019 — Plan técnico (v2)
+
+Fases verificables por separado: **A** catálogo local (datos, categorías,
+variantes, UI, atajos, botón, envío) → **B** reutilización en Meta → **C**
+conector Azure Blob (ADR-003). Cada fase cierra con gate + E2E verde.
 
 ## Modelo de datos (migración `drizzle/0021_catalogo_productos.sql`)
 
-Generada con `pnpm db:generate` y editada a mano para ser re-ejecutable
-(`IF NOT EXISTS`, constraints en `DO $$`, sin `"public".`), como 0015/0020.
+`pnpm db:generate` + edición a mano re-ejecutable (`IF NOT EXISTS`, FKs en
+`DO $$`, sin `"public".`), estilo 0015/0020.
 
-```sql
-CREATE TABLE IF NOT EXISTS "product" (
-  "id" text PRIMARY KEY,                       -- prd_
-  "organization_id" text NOT NULL REFERENCES "organization"("id") ON DELETE CASCADE,
-  "name" text NOT NULL,
-  "code" text,                                 -- p. ej. T03
-  "price" text,
-  "description" text,
-  "active" boolean NOT NULL DEFAULT true,
-  "position" integer NOT NULL DEFAULT 0,
-  "created_at" timestamp NOT NULL DEFAULT now(),
-  "updated_at" timestamp NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "product_org_code_uq"
-  ON "product" ("organization_id", lower("code")) WHERE "code" IS NOT NULL;
-CREATE INDEX IF NOT EXISTS "product_org_pos_idx" ON "product" ("organization_id", "position");
+| Tabla | Columnas clave |
+|---|---|
+| `product_category` (`pcat_`) | org, name, position |
+| `product` (`prd_`) | org, category_id (SET NULL), name, code, price, description, attributes jsonb, active, position |
+| `product_variant` (`pvar_`) | org, product_id (CASCADE), name, code, price, attributes jsonb, active, position |
+| `product_file` (`pf_`) | org, product_id (CASCADE), variant_id (CASCADE, nulo = compartido), kind, mime_type, file_name, file_size, storage_provider, storage_key, position |
+| `product_file_upload` | org, product_file_id (CASCADE), channel, account_id, remote_id, uploaded_at · UNIQUE (product_file_id, channel, account_id) |
+| `quick_reply` + | product_id (SET NULL), attach |
+| `media_asset` + | product_file_id (SET NULL, solo procedencia) |
 
-CREATE TABLE IF NOT EXISTS "product_file" (
-  "id" text PRIMARY KEY,                       -- pf_
-  "organization_id" text NOT NULL REFERENCES "organization"("id") ON DELETE CASCADE,
-  "product_id" text NOT NULL REFERENCES "product"("id") ON DELETE CASCADE,
-  "kind" text NOT NULL,                        -- image | document
-  "mime_type" text NOT NULL,                   -- detectado por firma
-  "file_name" text NOT NULL,
-  "file_size" integer NOT NULL,
-  "storage_path" text NOT NULL,                -- {org}/catalog/{id}
-  "position" integer NOT NULL DEFAULT 0,
-  "created_at" timestamp NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS "product_file_product_idx" ON "product_file" ("organization_id", "product_id", "position");
+Unicidad de códigos entre productos y variantes: índice único parcial
+`lower(code)` en cada tabla + verificación cruzada en el store dentro de la
+transacción (409 `duplicate_code`).
 
-ALTER TABLE "quick_reply" ADD COLUMN IF NOT EXISTS "product_id" text;   -- FK ON DELETE SET NULL (DO $$)
-ALTER TABLE "quick_reply" ADD COLUMN IF NOT EXISTS "attach" text;       -- images | documents | all
-```
+## Contratos públicos (fase A0, un solo editor)
 
-Ids: `prd` y `pf` en `src/lib/db/ids.ts`.
+- `src/lib/catalog.ts`: Zod de categoría/producto/variante/atributos, DTOs
+  (`CatalogDto`), `fileKindFor`, `filesForAttach`, `defaultShortcutsFor`,
+  `fileCompatibility(file, outboundFiles)`, `productDetailsText(product,
+  variant?)`.
+- `src/server/catalog/storage/types.ts`: `CatalogStorage { provider; put(key,
+  data, mime); get(key): Buffer; delete(key); test() }` + `StorageError`
+  (`unavailable | not_found | misconfigured`).
+- `src/server/catalog/store.ts`: firmas de CRUD y `readCatalogFile(org,
+  fileId)`.
+- `src/server/catalog/send.ts`: firma de `sendCatalogBatch`.
 
-## Mapa de cambios
+## Reparto en agentes (un dueño por archivo caliente)
 
-| Capa | Archivo | Cambio |
+| Fase | Agente | Archivos |
 |---|---|---|
-| Esquema | `src/lib/db/schema.ts` | `product`, `productFile`; `quickReply.productId/attach` |
-| Lógica pura | `src/lib/catalog.ts` (nuevo) | Zod de producto, límites, `fileKindFor(inspection)`, `defaultShortcutsFor(code)`, `filesForAttach(files, attach)`, `fileCompatibility(file, outboundFiles)` (usado por el compositor) |
-| Persistencia | `src/server/catalog/store.ts` (nuevo) | CRUD de productos/archivos con `scoped()`; `CatalogError(status, code)`; disco en `src/server/catalog/files.ts` (`catalogFilePath`, `saveCatalogFile`, `readCatalogFile`, `removeCatalogFiles`) |
-| Envío | `src/server/catalog/send.ts` (nuevo) | `sendCatalogBatch({ conversationId, organizationId, text?, fileIds })` → `sendText` + `sendMediaMessage` secuencial; clasifica errores por archivo (FR-923) |
-| API | `src/app/api/catalog/route.ts` (GET any, POST owner) · `catalog/[id]/route.ts` (PATCH/DELETE owner) · `catalog/[id]/files/route.ts` (POST owner, multipart) · `catalog/files/[fileId]/route.ts` (GET any, DELETE owner) · `conversations/[id]/messages/catalog/route.ts` (POST any*, visibilidad + `gateSend`) | |
-| Permisos | `src/lib/permissions.ts` | Clasificar las rutas nuevas (`role-matrix.test.ts`) |
-| Respuestas rápidas | `src/lib/quick-replies.ts`, `src/server/quick-replies.ts` | `productId`/`attach` en Zod (refine: ambos o ninguno; body opcional con producto), var `{{producto}}`, GET resuelve producto + archivos filtrados; matching sin mayúsculas |
-| UI Catálogo | `src/app/(app)/catalog/page.tsx` + `src/components/catalog/*` | Lista de productos (tarjetas con portada), detalle/edición (owner), subida de archivos, galería, "Crear atajos"; Vendedor solo lectura. Ítem "Catálogo" en `NAV` (`app-nav.tsx`) para todos + `role-nav.test.ts` |
-| UI Ajustes | `src/components/settings/quick-replies-client.tsx` | Selector de producto + "Enviar: Fotos / Documentos / Todo"; marca "Sin producto" |
-| Compositor | `src/components/inbox/composer.tsx` (+ componente de chips) | Escenificar archivos al elegir respuesta ligada; chips removibles e incompatibles en gris; enviar lote; resumen |
-| E2E | `scripts/e2e-catalogo.mjs` + `tests/e2e/us-catalogo.md` | AC-1…AC-9 contra app real + mocks |
-| Docs | `CLAUDE.md` (mapa) | Fila "Catálogo" |
+| A0 | code-editor | `schema.ts`, migración 0021, `ids.ts`, contratos de arriba, storage `local` |
+| A1 | code-editor | `store.ts`, rutas `/api/catalog/*`, `permissions.ts` + `role-matrix.test`, `src/lib/quick-replies.ts`, `src/server/quick-replies.ts` |
+| A2 | code-editor (paralelo a A1) | `send.ts` (solo lo necesario), `src/server/catalog/send.ts`, ruta `messages/catalog` |
+| A3 | code-editor (tras A1) | página Catálogo + `src/components/catalog/*` + `app-nav.tsx` + `role-nav.test` |
+| A4 | code-editor (tras A1/A2, paralelo a A3) | `composer.tsx` (chips, botón Catálogo), `settings/quick-replies-client.tsx` |
+| A5 | sesión principal / code-editor | `scripts/e2e-catalogo.mjs`, `tests/e2e/us-catalogo.md` |
+| B | code-editor | `product_file_upload`, `whatsapp/media.ts`, `messenger/send.ts`, `send.ts`, wa-mock (`message_attachments`, id inválido, contador de subidas) |
+| C | code-editor | `storage/azure-blob.ts` (SharedKey REST, parseo de cadena incl. Azurite, vectores de prueba), `storage/index.ts`, `env.ts`, `.env.example`, Ajustes estado + "Probar conexión", Azurite en compose de dev y CI `completo`, ADR-003 |
+
+## Verificación
+
+- Gate por fase: `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
+- E2E en BD aislada :5433 + mocks (`.env.e2e`), extendiendo el arnés:
+  fases A/B con `CATALOG_STORAGE=local`; fase C repite con `azure-blob`
+  contra Azurite y con Azurite apagado (degradación).
+- Regresión: `e2e-respuestas-rapidas`, `e2e-adjuntos-ui`, `e2e-selftest`.
+- Humo con la cuenta real de Azure del dueño (cadena en `.env`, placeholder
+  `REEMPLAZA_...`): subir, ver y borrar un archivo. Envío real a Meta queda
+  como verificación humana para Messenger/IG (no hay credenciales reales).
 
 ## Riesgos
 
-- **Purga**: verificada por AC-6 (el catálogo no usa `media_asset`).
-- **Reclamo del vendedor**: `gateSend` una vez por lote, antes de `sendText`.
-- **Orden de envío**: secuencial con `await`; los mensajes quedan en orden de
-  `created_at`.
-- **Tamaño de la petición**: el lote es JSON con ids; los bytes se leen del
-  disco del servidor (sin re-subir desde el navegador).
+- Firma SharedKey a mano: vectores de prueba + Azurite (estricto). Plan B
+  local al adaptador: SDK oficial.
+- Messenger reutilizable usa otra ruta de la API (Attachment Upload): solo
+  verificable con mock.
+- `send.ts` es archivo caliente: solo A2 y B lo tocan, en serie.
