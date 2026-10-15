@@ -675,7 +675,7 @@ function FileGroupView({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          aria-label={`Subir ${f.fileName}`}
+          aria-label={`Mover arriba ${f.fileName}`}
           disabled={busy || i === 0}
           onClick={() => onReorder(list, i, -1)}
         >
@@ -685,7 +685,7 @@ function FileGroupView({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          aria-label={`Bajar ${f.fileName}`}
+          aria-label={`Mover abajo ${f.fileName}`}
           disabled={busy || i === list.length - 1}
           onClick={() => onReorder(list, i, 1)}
         >
