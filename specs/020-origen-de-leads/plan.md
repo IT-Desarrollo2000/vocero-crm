@@ -1,8 +1,8 @@
 # 020 — Origen de leads (de qué anuncio vino cada cliente)
 
 > Estado: **decisiones aprobadas por el dueño** (2026-10-15): D1 el primero,
-> D2 sí, D3 sí, D4 de acuerdo. Antes de arrancar, el dueño pidió **rediseñar
-> los filtros de la Bandeja** (se ven amontonados) — propuesta pendiente.
+> D2 sí, D3 sí, D4 de acuerdo, y rediseño de filtros = "Vistas + botón
+> Filtros" (sección 4.4). Esperando la orden de arrancar.
 
 ## 1. Objetivo
 
@@ -84,6 +84,24 @@ el dueño mida **cuántos leads y ventas trae cada anuncio**, en los tres canale
   - Por anuncio (con miniatura y titular): leads, ganados, % y **monto ganado**
     (D2), máximo 50 filas, ordenado por leads.
 
+### 4.4 Rediseño de los filtros de la Bandeja (pedido del dueño)
+Hoy: 6 pastillas excluyentes en 3 renglones + selector de etapa + canales en
+el encabezado. Nuevo diseño (elegido por el dueño):
+- **Un renglón de vistas** (excluyentes, con contador): Todas · No leídas ·
+  Mías · Atención humana.
+- **Botón "Filtros"** (con número de filtros activos) que abre un panel con
+  filtros **combinables** entre sí y con la vista: Canal (WhatsApp/Instagram/
+  Messenger), Etapa, **Origen** (Todos / De anuncio / Sin anuncio, con
+  contador), Sin asignar, Por cerrar.
+- **Filtros activos** como etiquetas removibles (x) + "Limpiar".
+- Los contadores de canal del encabezado se quedan como atajo al filtro Canal.
+- Móvil: el panel abre como hoja inferior; el estado de filtros vive en la URL
+  (para compartir/recargar).
+- Afecta: `src/server/inbox/list-query.ts` (parseo de varios filtros),
+  `queries.ts` (combinar condiciones + contadores), `conversation-list.tsx`,
+  `list-state.ts`. E2E: combinaciones (p. ej. No leídas + De anuncio + Etapa)
+  y contadores coherentes.
+
 ### 4.3 Messenger e Instagram (punto 3)
 - **Messenger:** leer `message.referral` (hilo nuevo, campo `messages`),
   `referral` suelto (hilo existente, campo `messaging_referrals`) y
@@ -103,7 +121,7 @@ el dueño mida **cuántos leads y ventas trae cada anuncio**, en los tres canale
 
 | Fase | Contenido | Estimado |
 |---|---|---|
-| A | Captura sin bandera + miniatura + migración 0022 + tarjeta (ficha y lead) + etiqueta y filtro en Bandeja + fuente deducida/editable | 1–2 días |
+| A | Captura sin bandera + miniatura + migración 0022 + tarjeta (ficha y lead) + etiqueta en Bandeja + fuente deducida/editable + **rediseño de filtros con Origen** | 2–3 días |
 | B | Reportes → Anuncios (por fuente y por anuncio, con monto) | ~1 día |
 | C | Captura en Messenger e Instagram + suscripciones | ~0.5–1 día |
 
