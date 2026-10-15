@@ -50,6 +50,23 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PATCH /api/quick-replies/[id]": "owner",
   "DELETE /api/quick-replies/[id]": "owner",
 
+  // ── Catálogo de productos (019) ────────────────────────────────────────
+  // Lectura (y descarga de fotos/fichas) para todos; escritura del Propietario.
+  "GET /api/catalog": "any",
+  "POST /api/catalog/categories": "owner",
+  "PATCH /api/catalog/categories/[id]": "owner",
+  "DELETE /api/catalog/categories/[id]": "owner",
+  "POST /api/catalog/products": "owner",
+  "PATCH /api/catalog/products/[id]": "owner",
+  "DELETE /api/catalog/products/[id]": "owner",
+  "POST /api/catalog/products/[id]/variants": "owner",
+  "POST /api/catalog/products/[id]/files": "owner",
+  "PATCH /api/catalog/variants/[id]": "owner",
+  "DELETE /api/catalog/variants/[id]": "owner",
+  "GET /api/catalog/files/[id]": "any",
+  "PATCH /api/catalog/files/[id]": "owner",
+  "DELETE /api/catalog/files/[id]": "owner",
+
   // ── Contactos ──────────────────────────────────────────────────────────
   "GET /api/contacts": "any",
   "POST /api/contacts": "any",

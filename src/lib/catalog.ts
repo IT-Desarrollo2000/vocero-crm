@@ -279,6 +279,19 @@ export const variantPatchSchema = z
   })
   .refine(hasAnyField, atLeastOne);
 
+/* ---------- Archivo ---------- */
+
+/**
+ * `PATCH /api/catalog/files/[id]` (al menos un campo). `variantId` null =
+ * pasa a compartido; una variante de OTRO producto → 422 en el store.
+ */
+export const productFilePatchSchema = z
+  .object({
+    position: positionSchema.optional(),
+    variantId: z.string().min(1).nullable().optional(),
+  })
+  .refine(hasAnyField, atLeastOne);
+
 /* ---------- Lote de envío ---------- */
 
 /**
@@ -304,6 +317,7 @@ export type ProductCreateBody = z.infer<typeof productCreateSchema>;
 export type ProductPatchBody = z.infer<typeof productPatchSchema>;
 export type VariantCreateBody = z.infer<typeof variantCreateSchema>;
 export type VariantPatchBody = z.infer<typeof variantPatchSchema>;
+export type ProductFilePatchBody = z.infer<typeof productFilePatchSchema>;
 export type CatalogBatchBody = z.infer<typeof catalogBatchSchema>;
 
 /* ------------------------------------------------------------------ *
