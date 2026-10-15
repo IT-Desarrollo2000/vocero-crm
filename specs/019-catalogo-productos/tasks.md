@@ -12,14 +12,14 @@ Estado durable del loop. `[x]` = hecho y verificado.
 
 ## Fase B — Reutilización
 - [x] B1 `product_file_upload` + reutilización WhatsApp (25 días, re-subida única) y Messenger (Attachment Upload API) + invalidación al borrar
-- [ ] B2 wa-mock: `message_attachments`, contador de subidas, id inválido simulado · E2E AC 4 + sandbox sin caché (mock + guion listos; falta correr el E2E en vivo)
+- [x] B2 wa-mock: `message_attachments`, contador de subidas, id inválido simulado · E2E AC 4 + sandbox sin caché — e2e-catalogo 99/99, selftest 353/353, adjuntos-ui 26/26 (15-oct)
 
 ## Fase C — Conector Azure Blob
-- [ ] C1 ADR-003 (almacenamiento como conector; tercera bandera)
-- [ ] C2 `azure-blob.ts` (SharedKey REST, cadena incl. Azurite, errores saneados) + vectores + tests de contrato · `env.ts`, `.env.example`, `.env` placeholder
-- [ ] C3 Ajustes: estado + "Probar conexión" (solo encendido) · Azurite en compose dev + CI
-- [ ] C4 E2E AC 11 (Azurite encendido/apagado) + humo con cuenta real
+- [x] C1 ADR-003 (almacenamiento como conector; tercera bandera)
+- [x] C2 `azure-blob.ts` (SharedKey REST, cadena incl. Azurite, errores saneados) + vectores + tests de contrato · `env.ts`, `.env.example`, `.env` placeholder
+- [x] C3 Ajustes: estado + "Probar conexión" (solo encendido) · Azurite en compose dev + CI
+- [~] C4 E2E AC 11 (Azurite encendido/apagado) + humo con cuenta real — Azurite: local 103/103, azure-blob 115/115 (incl. caída y recuperación); PENDIENTE humo con la cuenta real (faltan credenciales en .env)
 
 ## Cierre
-- [ ] Z1 Docs: `CLAUDE.md` (mapa), memoria (`upstream-migraciones` → renumerar desde 0022)
+- [x] Z1 Docs: `CLAUDE.md` (mapa), memoria (`upstream-migraciones` → renumerar desde 0022)
 - [ ] Z2 Revisión de Fable antes de declarar hecho

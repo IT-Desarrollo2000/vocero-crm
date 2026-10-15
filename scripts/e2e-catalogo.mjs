@@ -160,6 +160,61 @@ function catalogFilesOnDisk() {
   }
   return out;
 }
+/* ---------- 019 C: proveedor del catálogo (local | azure-blob) ---------- */
+const PROVIDER = process.env.CATALOG_STORAGE === "azure-blob" ? "azure-blob" : "local";
+
+/** Cadena de conexión → cuenta, clave y endpoint (formas estándar y Azurite). */
+function azureConfig() {
+  const parts = Object.fromEntries(
+    (process.env.AZURE_STORAGE_CONNECTION_STRING ?? "")
+      .split(";")
+      .filter(Boolean)
+      .map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)])
+  );
+  const endpoint =
+    parts.BlobEndpoint ??
+    `${parts.DefaultEndpointsProtocol ?? "https"}://${parts.AccountName}.blob.${parts.EndpointSuffix ?? "core.windows.net"}`;
+  return {
+    account: parts.AccountName,
+    key: Buffer.from(parts.AccountKey ?? "", "base64"),
+    endpoint: endpoint.replace(/\/+$/, ""),
+    container: process.env.AZURE_STORAGE_CONTAINER,
+  };
+}
+
+/**
+ * Petición SharedKey mínima e independiente del adaptador (para observar el
+ * contenedor desde fuera): recurso canónico = `/{cuenta}` + path de la URL.
+ */
+async function azureRequest(method, query) {
+  const { createHmac } = await import("node:crypto");
+  const cfg = azureConfig();
+  const url = new URL(`${cfg.endpoint}/${cfg.container}`);
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+  const date = new Date().toUTCString();
+  const canonQuery = Object.keys(query)
+    .sort()
+    .map((k) => `\n${k.toLowerCase()}:${query[k]}`)
+    .join("");
+  const toSign = `${method}\n\n\n\n\n\n\n\n\n\n\n\nx-ms-date:${date}\nx-ms-version:2021-08-06\n/${cfg.account}${url.pathname}${canonQuery}`;
+  const sig = createHmac("sha256", cfg.key).update(toSign, "utf8").digest("base64");
+  return fetch(url, {
+    method,
+    headers: { "x-ms-date": date, "x-ms-version": "2021-08-06", authorization: `SharedKey ${cfg.account}:${sig}` },
+  });
+}
+
+async function azureBlobIds() {
+  const res = await azureRequest("GET", { comp: "list", restype: "container" });
+  const xml = await res.text();
+  return [...xml.matchAll(/<Name>([^<]+)<\/Name>/g)].map((m) => m[1].split("/").pop());
+}
+
+/** Ids de archivo guardados en el proveedor activo. */
+async function storedIds() {
+  return PROVIDER === "azure-blob" ? azureBlobIds() : catalogFilesOnDisk();
+}
+
 function toBrowserCookies(jar) {
   const host = new URL(BASE).hostname;
   return jar.cookie
@@ -261,14 +316,20 @@ async function catalogCrud() {
   ok("resumen .txt compartido → 201 document", r.res.status === 201 && r.json?.file?.kind === "document", short(r));
   ctx.txt = r.json?.file;
 
-  const before = catalogFilesOnDisk().length;
+  const before = (await storedIds()).length;
   r = await upload(owner, pid, "virus.pdf", EXE, "application/pdf");
   ok("`.exe` renombrado a .pdf → 415", r.res.status === 415, short(r));
   const cat = (await owner.api("/api/catalog")).json;
   const prod = cat?.products?.find((p) => p.id === pid);
   ok("…y no quedó en BD", prod?.files?.length === 5, `files=${prod?.files?.length}`);
-  ok("…ni en disco", catalogFilesOnDisk().length === before, `${before} → ${catalogFilesOnDisk().length}`);
-  ok("GET /api/catalog: provider local, 2 variantes, categoría", cat?.storage?.provider === "local" && prod?.variants?.length === 2 && prod?.categoryId === ctx.category?.id, JSON.stringify(cat?.storage));
+  const afterExe = await storedIds();
+  ok(`…ni en el storage (${PROVIDER})`, afterExe.length === before, `${before} → ${afterExe.length}`);
+  ok(`GET /api/catalog: provider ${PROVIDER}, 2 variantes, categoría`, cat?.storage?.provider === PROVIDER && prod?.variants?.length === 2 && prod?.categoryId === ctx.category?.id, JSON.stringify(cat?.storage));
+  const fileIds = prod?.files?.map((f) => f.id) ?? [];
+  ok(`los 5 archivos están en el storage (${PROVIDER})`, fileIds.every((id) => afterExe.includes(id)), JSON.stringify(afterExe.slice(-6)));
+  if (PROVIDER === "azure-blob") {
+    ok("…y ninguno en el disco local", fileIds.every((id) => !catalogFilesOnDisk().includes(id)));
+  }
 
   const img = await fetch(`${BASE}${ctx.img1?.url}`, { headers: { cookie: seller.jar.cookie } });
   ok("vendedor: GET de la foto → 200 image/png + nosniff", img.status === 200 && img.headers.get("content-type")?.startsWith("image/png") && img.headers.get("x-content-type-options") === "nosniff", `${img.status}`);
@@ -601,14 +662,14 @@ async function purgeKeepsCatalog() {
 
 async function deleteProduct() {
   console.log("\n== h) Borrar el producto ==");
-  const before = catalogFilesOnDisk();
+  const before = await storedIds();
   const ids = [ctx.img1, ctx.img2, ctx.pdf400, ctx.pdf300, ctx.txt].map((f) => f?.id);
   let r = await owner.api(`/api/catalog/products/${ctx.product?.id}`, { method: "DELETE" });
   ok("DELETE producto → 200", r.res.status === 200, short(r));
   const gone = await fetch(`${BASE}${ctx.img1?.url}`, { headers: { cookie: owner.jar.cookie } });
   ok("su foto → 404", gone.status === 404, `${gone.status}`);
-  const after = catalogFilesOnDisk();
-  ok("sus bytes salieron del disco", ids.every((id) => !after.includes(id)) && after.length <= before.length - 5, `${before.length} → ${after.length}`);
+  const after = await storedIds();
+  ok(`sus bytes salieron del storage (${PROVIDER})`, ids.every((id) => !after.includes(id)) && after.length <= before.length - 5, `${before.length} → ${after.length}`);
   const list = (await owner.api("/api/quick-replies")).json?.quickReplies ?? [];
   const fotos = list.find((q) => q.id === ctx.qrFotos?.id);
   ok("el atajo quedó sin producto", fotos && fotos.productId === null && fotos.product === null, JSON.stringify(fotos));
@@ -616,8 +677,70 @@ async function deleteProduct() {
   ok("el hilo conserva sus mensajes", msgs.filter((m) => m.direction === "out").length >= 3);
 }
 
+/** FR-913 / AC-12: el estado del almacenamiento solo existe con el conector encendido. */
+async function storageSettings() {
+  console.log(`\n== i) Ajustes → Almacenamiento (${PROVIDER}) ==`);
+  const get = await owner.api("/api/settings/catalog-storage");
+  const page = await fetch(`${BASE}/settings/storage`, { headers: { cookie: owner.jar.cookie }, redirect: "manual" });
+  const settingsHtml = await (await fetch(`${BASE}/settings`, { headers: { cookie: owner.jar.cookie } })).text();
+  if (PROVIDER === "local") {
+    ok("apagado: GET /api/settings/catalog-storage → 404", get.res.status === 404, short(get));
+    ok("apagado: /settings/storage → 404", page.status === 404, `${page.status}`);
+    ok("apagado: Ajustes no menciona Azure", !/azure/i.test(settingsHtml));
+    return;
+  }
+  const cfg = azureConfig();
+  ok("encendido: GET → 200 con cuenta y contenedor", get.res.status === 200 && get.json?.provider === "azure-blob" && get.json?.accountName === cfg.account && get.json?.container === cfg.container, short(get));
+  const raw = JSON.stringify(get.json ?? {});
+  ok("…sin la clave ni la cadena", !raw.includes(cfg.key.toString("base64").slice(0, 16)) && !/AccountKey/i.test(raw));
+  ok("encendido: /settings/storage → 200", page.status === 200, `${page.status}`);
+  const test = await owner.api("/api/settings/catalog-storage/test", { method: "POST", body: "{}" });
+  ok("Probar conexión → ok", test.res.status === 200 && test.json?.ok === true, short(test));
+  const sellerGet = await seller.api("/api/settings/catalog-storage");
+  ok("vendedor → 403", sellerGet.res.status === 403, short(sellerGet));
+}
+
+/** AC-11: con Azure caído el CRM degrada sin colgarse y se recupera solo. */
+async function azureDown() {
+  const container = process.env.E2E_AZURITE_CONTAINER;
+  if (PROVIDER !== "azure-blob" || !container) return;
+  console.log("\n== j) Azure no responde ==");
+  const { execFileSync } = await import("node:child_process");
+  execFileSync("docker", ["stop", container], { stdio: "ignore" });
+  try {
+    let r = await upload(owner, ctx.product?.id, "caido.png", png(77), "image/png");
+    ok("subir → 503 storage_unavailable con mensaje claro", r.res.status === 503 && r.json?.error?.code === "storage_unavailable" && !!r.json?.error?.message, short(r));
+    r = await owner.api("/api/catalog");
+    ok("el catálogo se sigue listando (200)", r.res.status === 200 && r.json?.products?.length > 0, short(r));
+    const img = await fetch(`${BASE}${ctx.img1?.url}`, { headers: { cookie: owner.jar.cookie } });
+    ok("servir una foto → 503 (miniatura rota, no 500)", img.status === 503, `${img.status}`);
+    await markOutbox();
+    r = await owner.api(`/api/conversations/${ctx.convApi?.id}/messages/catalog`, {
+      method: "POST",
+      body: body({ text: `con azure caído ${S}`, fileIds: [ctx.img1?.id] }),
+    });
+    const item = r.json?.results?.[0];
+    ok("lote → 200: el texto sale y la foto queda failed", r.res.status === 200 && !!r.json?.text?.messageId && item?.status === "failed" && /storage/.test(item?.reason ?? ""), short(r));
+    ok("…Meta solo recibió el texto", (await outbox()).every((o) => (o.body?.type ?? o.type) === "text"));
+    r = await owner.api("/api/settings/catalog-storage/test", { method: "POST", body: "{}" });
+    ok("Probar conexión → 503", r.res.status === 503, short(r));
+  } finally {
+    execFileSync("docker", ["start", container], { stdio: "ignore" });
+  }
+  const back = await until(async () => (await owner.api("/api/settings/catalog-storage/test", { method: "POST", body: "{}" })).res.status === 200, 30000);
+  ok("Azure vuelve → Probar conexión ok sin reiniciar el CRM", back);
+  const img = await fetch(`${BASE}${ctx.img1?.url}`, { headers: { cookie: owner.jar.cookie } });
+  ok("…y la foto se sirve otra vez", img.status === 200, `${img.status}`);
+}
+
 async function main() {
+  if (PROVIDER === "azure-blob") {
+    // El CRM no crea contenedores (en Azure real lo crea el dueño en el portal).
+    const res = await azureRequest("PUT", { restype: "container" });
+    ok("(setup) contenedor de Azurite listo", res.status === 201 || res.status === 409, `${res.status}`);
+  }
   await setup();
+  await storageSettings();
   await catalogCrud();
   await sellerPermissions();
   await shortcuts();
@@ -625,6 +748,7 @@ async function main() {
   await reuse();
   await instagram();
   if (process.env.E2E_SKIP_UI !== "1") await composerUi();
+  await azureDown();
   await purgeKeepsCatalog();
   await deleteProduct();
 }
