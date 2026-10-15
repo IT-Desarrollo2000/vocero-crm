@@ -1,7 +1,8 @@
 # 020 — Origen de leads (de qué anuncio vino cada cliente)
 
-> Estado: **plan para aprobación del dueño** (2026-10-15). No se implementa
-> nada hasta que el dueño lo apruebe y responda las decisiones de la sección 2.
+> Estado: **decisiones aprobadas por el dueño** (2026-10-15): D1 el primero,
+> D2 sí, D3 sí, D4 de acuerdo. Antes de arrancar, el dueño pidió **rediseñar
+> los filtros de la Bandeja** (se ven amontonados) — propuesta pendiente.
 
 ## 1. Objetivo
 
