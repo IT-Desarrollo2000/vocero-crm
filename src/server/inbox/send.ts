@@ -19,7 +19,18 @@ import {
   getMessengerCredentialsByOrg,
   markMessengerReconnectRequired,
 } from "@/server/messenger/credentials";
-import { sendMessengerAttachment, sendMessengerText } from "@/server/messenger/send";
+import {
+  sendMessengerAttachment,
+  sendMessengerAttachmentById,
+  sendMessengerText,
+  uploadMessengerAttachment,
+} from "@/server/messenger/send";
+import {
+  forgetRemoteId,
+  getReusableRemoteId,
+  saveRemoteId,
+  type RemoteChannel,
+} from "@/server/catalog/remote-cache";
 import { signMediaUrl } from "@/server/media/signed-url";
 import {
   capabilitiesFor,
@@ -95,7 +106,24 @@ type TextTransport = {
    * (Instagram vía Zernio: ninguno → 415). Ausente = la de `capabilities.ts`.
    */
   outboundFiles?: OutboundFiles | null;
+  /**
+   * 019 fase B (FR-943) — Subida REUTILIZABLE para los archivos del catálogo
+   * (Messenger: Attachment Upload API). Ausente = el canal no reutiliza y el
+   * archivo del catálogo sale por `sendAttachment` como cualquier otro.
+   */
+  reusable?: ReusableTransport;
   markReconnectRequired(): Promise<void>;
+};
+
+/** 019 fase B — Lo que un canal aporta para reutilizar lo ya subido a Meta. */
+type ReusableTransport = {
+  channel: RemoteChannel;
+  /** Cuenta dueña del id remoto (page id en Messenger). */
+  accountId: string;
+  /** Sube los bytes y devuelve el id remoto reutilizable. */
+  upload(file: OutboundAttachment): Promise<string>;
+  /** Envía por id remoto; devuelve el id de plataforma SIN prefijo. */
+  sendById(kind: OutboundFileKind, remoteId: string, humanAgentTag: boolean): Promise<string>;
 };
 
 type SendTarget =
@@ -202,6 +230,21 @@ const TEXT_TRANSPORTS: Record<
       throw new SendError("reconnect_required", RECONNECT_MESSAGE.messenger);
     }
     const recipient = stripPrefix(contact.waIdentity, FB_PREFIX);
+    const reusable: ReusableTransport = {
+      channel: "messenger",
+      accountId: creds.pageId,
+      upload: (file) => uploadMessengerAttachment({ credentials: creds, file }),
+      sendById: async (kind, attachmentId, humanAgentTag) =>
+        (
+          await sendMessengerAttachmentById({
+            credentials: creds,
+            recipient,
+            kind,
+            attachmentId,
+            humanAgentTag,
+          })
+        ).platformMessageId,
+    };
     return {
       send: async (text, humanAgentTag) =>
         (
@@ -222,6 +265,8 @@ const TEXT_TRANSPORTS: Record<
             humanAgentTag,
           })
         ).platformMessageId,
+      // 019 fase B: los archivos del catálogo se suben una vez y se reutilizan.
+      reusable,
       markReconnectRequired: () => markMessengerReconnectRequired(organizationId),
     };
   },
@@ -456,6 +501,11 @@ export async function sendText(input: {
  * (415 con la razón) → matriz del canal: tipo (415 con la frase del canal) y
  * tamaño (413). Lo guardado es el MIME DETECTADO, nunca el del navegador.
  * El sandbox del Laboratorio (`prepareSend`) sigue antes de cualquier red.
+ *
+ * 019 fase B — Con `productFileId` (archivo del catálogo), WhatsApp y
+ * Messenger reutilizan el id remoto ya subido (`sendWithReuse`); Instagram
+ * sigue por URL firmada. La copia en `media_asset` se crea igual en todos los
+ * casos: el hilo se ve idéntico se reutilice o no.
  */
 export async function sendMediaMessage(input: {
   conversationId: string;
@@ -532,43 +582,74 @@ export async function sendMediaMessage(input: {
       const { credentials, recipient } = target;
       // csv sale como text/plain (WhatsApp no acepta text/csv); el nombre
       // `.csv` se conserva y es lo que ve el cliente.
-      const waMediaId = await uploadGraphMedia(credentials, {
+      const upload = () =>
+        uploadGraphMedia(credentials, {
+          data: input.file.data,
+          mimeType: sendMime,
+          fileName: input.file.fileName,
+        });
+      const sendById = async (waMediaId: string) => {
+        // El hilo registra el id con el que salió, subido o reutilizado.
+        await db
+          .update(schema.mediaAsset)
+          .set({ waMediaId, updatedAt: new Date() })
+          .where(eq(schema.mediaAsset.id, assetId));
+
+        const mediaPayload: Record<string, unknown> = { id: waMediaId };
+        if (input.caption && kind !== "audio") mediaPayload.caption = input.caption;
+        if (kind === "document" && input.file.fileName) {
+          mediaPayload.filename = input.file.fileName;
+        }
+        return callGraphSend(credentials, {
+          messaging_product: "whatsapp",
+          to: recipient,
+          type: kind,
+          [kind]: mediaPayload,
+        });
+      };
+      waMessageId = input.productFileId
+        ? await sendWithReuse(
+            {
+              organizationId: input.organizationId,
+              productFileId: input.productFileId,
+              channel: "whatsapp",
+              accountId: credentials.phoneNumberId,
+            },
+            upload,
+            sendById
+          )
+        : await sendById(await upload());
+    } else {
+      const file: OutboundAttachment = {
+        organizationId: input.organizationId,
+        assetId,
+        kind,
         data: input.file.data,
         mimeType: sendMime,
-        fileName: input.file.fileName,
-      });
-      await db
-        .update(schema.mediaAsset)
-        .set({ waMediaId, updatedAt: new Date() })
-        .where(eq(schema.mediaAsset.id, assetId));
-
-      const mediaPayload: Record<string, unknown> = { id: waMediaId };
-      if (input.caption && kind !== "audio") mediaPayload.caption = input.caption;
-      if (kind === "document" && input.file.fileName) {
-        mediaPayload.filename = input.file.fileName;
-      }
-      waMessageId = await callGraphSend(credentials, {
-        messaging_product: "whatsapp",
-        to: recipient,
-        type: kind,
-        [kind]: mediaPayload,
-      });
-    } else {
-      const sendAttachment = target.transport.sendAttachment!;
-      waMessageId = await callChannelTransport(target, () =>
-        sendAttachment(
+        fileName: input.file.fileName ?? null,
+        caption: input.caption,
+      };
+      const reusable = input.productFileId ? target.transport.reusable : undefined;
+      if (input.productFileId && reusable) {
+        waMessageId = await sendWithReuse(
           {
             organizationId: input.organizationId,
-            assetId,
-            kind,
-            data: input.file.data,
-            mimeType: sendMime,
-            fileName: input.file.fileName ?? null,
-            caption: input.caption,
+            productFileId: input.productFileId,
+            channel: reusable.channel,
+            accountId: reusable.accountId,
           },
-          target.humanAgentTag
-        )
-      );
+          () => callChannelRaw(target, () => reusable.upload(file)),
+          (remoteId) =>
+            callChannelTransport(target, () =>
+              reusable.sendById(kind, remoteId, target.humanAgentTag)
+            )
+        );
+      } else {
+        const sendAttachment = target.transport.sendAttachment!;
+        waMessageId = await callChannelTransport(target, () =>
+          sendAttachment(file, target.humanAgentTag)
+        );
+      }
     }
 
     messageId = await persistOutbound({
@@ -738,6 +819,56 @@ export async function sendStructured(
   return { messageId };
 }
 
+type RemoteKey = Parameters<typeof getReusableRemoteId>[0];
+
+/**
+ * 019 fase B (FR-942/943) — Envío de un archivo del catálogo reutilizando lo
+ * que Meta ya tiene subido para (archivo, canal, cuenta).
+ *
+ *   - Hay id vigente → `send(id)` sin subir nada. Si Meta lo rechaza con un
+ *     4xx que no es de autenticación (`meta_error`), el id se olvida y se
+ *     re-sube UNA vez. Auth (`reconnect_required`), Meta caída
+ *     (`meta_unavailable`) y ventana (`window_closed`) se propagan tal cual:
+ *     re-subir no los arregla.
+ *   - Sin id (o tras olvidarlo) → `upload()` → se guarda → `send(id)`.
+ *
+ * `upload` y `send` ya traducen sus errores (callGraphSend / transporte del
+ * canal); esto solo decide cuándo reintentar. Solo se llega aquí DESPUÉS de
+ * `prepareSend` (FR-944): `is_test` jamás consulta ni escribe la caché. Un
+ * fallo de la caché (BD) degrada a subir como siempre: nunca bloquea el envío.
+ */
+async function sendWithReuse(
+  key: RemoteKey,
+  upload: () => Promise<string>,
+  send: (remoteId: string) => Promise<string>
+): Promise<string> {
+  const cached = await cacheStep("leer", () => getReusableRemoteId(key), null);
+  if (cached) {
+    try {
+      return await send(cached);
+    } catch (err) {
+      if (!(err instanceof SendError && err.code === "meta_error")) throw err;
+      console.warn(
+        `[catalog] ${key.channel} rechazó el id reutilizado del archivo ${key.productFileId}; se re-sube:`,
+        err.message
+      );
+      await cacheStep("olvidar", () => forgetRemoteId(key), undefined);
+    }
+  }
+  const remoteId = await upload();
+  await cacheStep("guardar", () => saveRemoteId({ ...key, remoteId }), undefined);
+  return send(remoteId);
+}
+
+async function cacheStep<T>(what: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[catalog] no se pudo ${what} el id remoto (se sigue sin caché):`, err);
+    return fallback;
+  }
+}
+
 /** Llama a Graph /messages y traduce errores de Meta a SendError. */
 export async function callGraphSend(
   credentials: Credentials,
@@ -795,12 +926,24 @@ async function callChannelTransport(
   target: Extract<SendTarget, { kind: "text_only" }>,
   call: () => Promise<string>
 ): Promise<string> {
+  const platformId = await callChannelRaw(target, call);
+  return `${OUTBOUND_ID_PREFIX[target.channel]}${platformId}`;
+}
+
+/**
+ * Igual que `callChannelTransport` pero devuelve lo que devuelva la llamada,
+ * sin prefijo (019 fase B: la subida reutilizable devuelve un id remoto, no
+ * un id de mensaje).
+ */
+async function callChannelRaw(
+  target: Extract<SendTarget, { kind: "text_only" }>,
+  call: () => Promise<string>
+): Promise<string> {
   const { channel, transport, humanAgentTag } = target;
   const label = CHANNEL_LABEL[channel];
 
   try {
-    const platformId = await call();
-    return `${OUTBOUND_ID_PREFIX[channel]}${platformId}`;
+    return await call();
   } catch (err) {
     if (err instanceof MetaApiError) {
       if (err.isAuthError) {

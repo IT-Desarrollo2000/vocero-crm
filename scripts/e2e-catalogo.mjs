@@ -9,7 +9,10 @@
  *      GET /api/quick-replies trae los archivos filtrados
  *   d) envío por API (WhatsApp): texto + 2 fotos en orden, `media_asset_id`
  *      con procedencia; ventana cerrada → 409 sin salir nada; ningún archivo
- *      válido → 404; `is_test` → nada sale
+ *      válido → 404; `is_test` → nada sale ni toca `product_file_upload`
+ *   d2) reutilización (AC-4): reenviar → 0 subidas a /media; id invalidado
+ *      en el mock → exactamente 1 re-subida; Messenger (si CHANNELS lo
+ *      incluye): 1ª vez 1 subida a message_attachments, 2ª vez 0
  *   e) Instagram: el `.txt` → skipped sin tocar Meta, el PDF sale (AC-5)
  *   f) UI (Playwright como vendedor): `/FOT` + Enter escenifica chips, quitar
  *      uno, enviar → outbox; botón Catálogo con variante + "Insertar
@@ -115,18 +118,30 @@ function upload(c, productId, name, data, mime, variantId) {
   return c.api(`/api/catalog/products/${productId}/files`, { method: "POST", body: fd });
 }
 /**
- * Outbox desde la última marca. No se borra el del mock: `DELETE` reinicia
- * su contador de wamids y el siguiente envío choca con el UNIQUE de BD.
+ * Outbox desde la última marca. No se borra el del mock: `DELETE` también
+ * vacía `uploads` y los ids invalidados que d2) usa (el contador de wamids
+ * ya no se reinicia desde 019 fase B).
  */
 let outboxBase = 0;
+let uploadsBase = 0;
+async function rawMock() {
+  return (await owner.api("/api/dev/wa-mock/outbox")).json ?? {};
+}
 async function rawOutbox() {
-  return (await owner.api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+  return (await rawMock()).outbox ?? [];
 }
 async function markOutbox() {
-  outboxBase = (await rawOutbox()).length;
+  const m = await rawMock();
+  outboxBase = (m.outbox ?? []).length;
+  uploadsBase = (m.uploads ?? []).length;
 }
 async function outbox() {
   return (await rawOutbox()).slice(outboxBase);
+}
+/** Subidas de bytes a Meta (`/media`, `message_attachments`) desde la marca. */
+async function uploads(channel) {
+  const list = ((await rawMock()).uploads ?? []).slice(uploadsBase);
+  return channel ? list.filter((u) => u.channel === channel) : list;
 }
 async function findByName(c, name) {
   const list = (await c.api("/api/conversations")).json?.conversations ?? [];
@@ -324,6 +339,8 @@ async function apiSend() {
   const kinds = ob.map((o) => o.body?.type ?? o.type);
   ok("outbox: texto y luego 2 image, en orden", JSON.stringify(kinds.slice(-3)) === JSON.stringify(["text", "image", "image"]), JSON.stringify(kinds));
   ok("las fotos se subieron como media (media-up-)", ob.filter((o) => JSON.stringify(o).includes("media-up-")).length >= 2, JSON.stringify(ob).slice(0, 300));
+  ok("1ª vez: exactamente 2 subidas a /media", (await uploads("whatsapp")).length === 2, JSON.stringify(await uploads()));
+  ctx.firstMediaIds = ob.filter((o) => o.type === "image").map((o) => o.body?.image?.id);
   const msgs = await messagesOf(owner, conv?.id);
   const outImgs = msgs.filter((m) => m.direction === "out" && m.type === "image");
   ok("hilo: 2 imágenes salientes con adjunto", outImgs.length === 2 && outImgs.every((m) => m.media?.id || m.mediaAssetId || m.media), JSON.stringify(outImgs.map((m) => Object.keys(m))));
@@ -353,15 +370,107 @@ async function apiSend() {
     try {
       await sql`UPDATE conversation SET is_test = true WHERE id = ${lab?.id}`;
       const n1 = (await outbox()).length;
+      // FR-944: la caché de ids remotos tampoco se toca (ni lectura que
+      // refresque ni escritura): mismas filas y misma fecha antes y después.
+      const cacheOf = async () =>
+        (await sql`SELECT count(*)::int AS n, max(uploaded_at) AS at FROM product_file_upload WHERE product_file_id = ${ctx.img1?.id}`)[0];
+      const c0 = await cacheOf();
+      const u0 = (await uploads()).length;
       r = await send(owner, lab?.id, { text: "prueba", fileIds: [ctx.img1?.id] });
       ok("conversación is_test → rechazada (403 sandbox o 404)", r.res.status === 403 || r.res.status === 404, short(r));
       ok("…y el outbox no cambió", (await outbox()).length === n1);
+      const c1 = await cacheOf();
+      ok("…ni product_file_upload (mismas filas y fecha)", c0.n === c1.n && String(c0.at) === String(c1.at), `${JSON.stringify(c0)} → ${JSON.stringify(c1)}`);
+      ok("…ni hubo subidas a Meta", (await uploads()).length === u0);
     } finally {
       await sql.end();
     }
   } else {
     ok("(is_test) requiere DATABASE_URL", false, "sin DATABASE_URL");
   }
+}
+
+/**
+ * d2) Reutilización (AC-4, FR-942/943): lo ya subido a Meta no se vuelve a
+ * subir; un id que Meta rechaza se re-sube UNA vez.
+ */
+async function reuse() {
+  console.log("\n== d2) Reutilización de lo ya subido a Meta (AC-4) ==");
+  const conv = ctx.convApi;
+  const send = (id, payload) => seller.api(`/api/conversations/${id}/messages/catalog`, { method: "POST", body: body(payload) });
+  const imagesOut = async () => (await outbox()).filter((o) => o.type === "image");
+
+  await markOutbox();
+  let r = await send(conv?.id, { fileIds: [ctx.img1?.id, ctx.img2?.id] });
+  ok("reenviar las 2 fotos → 200, ambas sent", r.res.status === 200 && r.json?.results?.every((x) => x.status === "sent"), short(r));
+  let imgs = await imagesOut();
+  ok("llegaron las 2 imágenes", imgs.length === 2, JSON.stringify(imgs.map((o) => o.body?.image)));
+  ok("0 subidas nuevas a /media", (await uploads("whatsapp")).length === 0, JSON.stringify(await uploads()));
+  ok("salieron con los MISMOS media id de la 1ª vez", JSON.stringify(imgs.map((o) => o.body?.image?.id)) === JSON.stringify(ctx.firstMediaIds), `${JSON.stringify(imgs.map((o) => o.body?.image?.id))} vs ${JSON.stringify(ctx.firstMediaIds)}`);
+  const msgs = await messagesOf(owner, conv?.id);
+  ok("el hilo muestra las 4 imágenes salientes (copia igual se reutilice o no)", msgs.filter((m) => m.direction === "out" && m.type === "image").length === 4);
+
+  // Meta deja de reconocer el id cacheado de la foto 1 → 1 re-subida.
+  const cachedId = imgs[0]?.body?.image?.id;
+  const inv = await owner.api("/api/dev/wa-mock/invalidate-media", { method: "POST", body: body({ id: cachedId }) });
+  ok("mock: invalidar el media id cacheado", inv.res.ok, short(inv));
+  await markOutbox();
+  r = await send(conv?.id, { fileIds: [ctx.img1?.id] });
+  ok("id inválido → igual sale (200 sent)", r.res.status === 200 && r.json?.results?.[0]?.status === "sent", short(r));
+  imgs = await imagesOut();
+  ok("exactamente 1 re-subida a /media", (await uploads("whatsapp")).length === 1, JSON.stringify(await uploads()));
+  ok("…y llegó con el id nuevo", imgs.length === 1 && imgs[0]?.body?.image?.id && imgs[0].body.image.id !== cachedId, JSON.stringify(imgs.map((o) => o.body?.image?.id)));
+  if (process.env.DATABASE_URL) {
+    const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {}, connection: { search_path: process.env.E2E_DB_SCHEMA ?? "vocero" } });
+    try {
+      const rows = await sql`SELECT remote_id FROM product_file_upload WHERE product_file_id = ${ctx.img1?.id} AND channel = 'whatsapp'`;
+      ok("product_file_upload guarda el id nuevo", rows.length === 1 && rows[0].remote_id === imgs[0]?.body?.image?.id, JSON.stringify(rows));
+    } finally {
+      await sql.end();
+    }
+  }
+
+  // Messenger: Attachment Upload API (is_reusable) → attachment_id reutilizable.
+  if (!(process.env.CHANNELS ?? "").includes("messenger")) {
+    console.log("  (CHANNELS sin messenger: se omite Messenger)");
+    return;
+  }
+  const pageId = `1099${String(Date.now()).slice(-6)}`;
+  r = await owner.api("/api/settings/messenger", { method: "PUT", body: body({ pageId, token: "tok-e2e-canal" }) });
+  ok("conectar Messenger (mock)", r.res.ok, short(r));
+  r = await owner.api("/api/dev/wa-mock/channel-inbound", {
+    method: "POST",
+    body: body({ channel: "messenger", accountId: pageId, senderId: `psid${S}1`, text: `¿me pasas la foto? ${S}`, mid: `mid.e2e.cat.fb.${S}` }),
+  });
+  ok("DM de Messenger entregado", r.res.ok, short(r));
+  let fb = null;
+  await until(async () => {
+    const list = (await owner.api("/api/conversations")).json?.conversations ?? [];
+    fb =
+      list
+        .filter((c) => c.channel === "messenger")
+        .sort((a, b) => String(b.lastInboundAt).localeCompare(String(a.lastInboundAt)))[0] ?? null;
+    return !!fb;
+  });
+  ok("conversación de Messenger creada", !!fb);
+  await owner.api(`/api/conversations/${fb?.id}`, { method: "PATCH", body: body({ aiEnabled: false }) });
+  await sleep(800);
+  const fbAttachments = async () => (await outbox()).filter((o) => o.attachment?.channel === "messenger");
+
+  await markOutbox();
+  r = await owner.api(`/api/conversations/${fb?.id}/messages/catalog`, { method: "POST", body: body({ fileIds: [ctx.img1?.id] }) });
+  ok("Messenger 1ª vez → 200 sent", r.res.status === 200 && r.json?.results?.[0]?.status === "sent", short(r));
+  const up1 = await uploads("messenger");
+  let att = await fbAttachments();
+  ok("1 subida a message_attachments", up1.length === 1, JSON.stringify(await uploads()));
+  ok("…y llegó por attachment_id", att.length === 1 && att[0]?.attachment?.attachmentId === up1[0]?.id, JSON.stringify(att.map((o) => o.attachment)));
+
+  await markOutbox();
+  r = await owner.api(`/api/conversations/${fb?.id}/messages/catalog`, { method: "POST", body: body({ fileIds: [ctx.img1?.id] }) });
+  ok("Messenger 2ª vez → 200 sent", r.res.status === 200 && r.json?.results?.[0]?.status === "sent", short(r));
+  att = await fbAttachments();
+  ok("0 subidas nuevas a message_attachments", (await uploads("messenger")).length === 0, JSON.stringify(await uploads()));
+  ok("…y llegó con el mismo attachment_id", att.length === 1 && att[0]?.attachment?.attachmentId === up1[0]?.id, JSON.stringify(att.map((o) => o.attachment)));
 }
 
 async function instagram() {
@@ -513,6 +622,7 @@ async function main() {
   await sellerPermissions();
   await shortcuts();
   await apiSend();
+  await reuse();
   await instagram();
   if (process.env.E2E_SKIP_UI !== "1") await composerUi();
   await purgeKeepsCatalog();

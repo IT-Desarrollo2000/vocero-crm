@@ -11,8 +11,8 @@ Estado durable del loop. `[x]` = hecho y verificado.
 - [x] A5 E2E `e2e-catalogo` (AC 1–3, 5–10, 12) + gate + regresiones — 77/77; regresión selftest 353/353, respuestas-rápidas 40/40, adjuntos-ui 26/26 (BD aislada, 15-oct)
 
 ## Fase B — Reutilización
-- [ ] B1 `product_file_upload` + reutilización WhatsApp (25 días, re-subida única) y Messenger (Attachment Upload API) + invalidación al borrar
-- [ ] B2 wa-mock: `message_attachments`, contador de subidas, id inválido simulado · E2E AC 4 + sandbox sin caché
+- [x] B1 `product_file_upload` + reutilización WhatsApp (25 días, re-subida única) y Messenger (Attachment Upload API) + invalidación al borrar
+- [ ] B2 wa-mock: `message_attachments`, contador de subidas, id inválido simulado · E2E AC 4 + sandbox sin caché (mock + guion listos; falta correr el E2E en vivo)
 
 ## Fase C — Conector Azure Blob
 - [ ] C1 ADR-003 (almacenamiento como conector; tercera bandera)

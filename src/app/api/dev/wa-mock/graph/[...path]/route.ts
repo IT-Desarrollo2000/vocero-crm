@@ -1,8 +1,10 @@
 import { mockGuard } from "@/lib/dev-guard";
 import {
   getWaMockState,
+  isInvalidMediaId,
   nextN,
   nextOutboundWamid,
+  recordUpload,
   type MockTemplate,
   type OutboxEntry,
 } from "@/server/dev/wa-mock-state";
@@ -230,7 +232,43 @@ export async function POST(req: Request, ctx: Params) {
       );
     }
     // El id arranca con "media" para que el GET de metadata lo resuelva.
-    return Response.json({ id: `media-up-${nextN()}` });
+    const id = recordUpload(
+      {
+        channel: "whatsapp",
+        accountId: path[0]!,
+        fileName: file instanceof File ? file.name : null,
+        mime: file.type || null,
+        bytes: file.size,
+      },
+      "media-up"
+    );
+    return Response.json({ id });
+  }
+
+  // 019 fase B — POST {pageId}/message_attachments (Attachment Upload API de
+  // Messenger, multipart `message` + `filedata`) → `{ attachment_id }`.
+  if (path.length === 2 && path[1] === "message_attachments") {
+    const form = await req.formData().catch(() => null);
+    const message = parseJsonField(form?.get("message") ?? null) as {
+      attachment?: { type?: string; payload?: { is_reusable?: boolean } };
+    } | null;
+    const file = form?.get("filedata");
+    if (!message?.attachment?.type || !(file instanceof Blob)) {
+      return graphParamError("(#100) message.attachment y filedata son obligatorios");
+    }
+    const failure = channelSendFailure(token, null);
+    if (failure) return failure;
+    const attachmentId = recordUpload(
+      {
+        channel: "messenger",
+        accountId: path[0]!,
+        fileName: file instanceof File ? file.name : null,
+        mime: file.type || null,
+        bytes: file.size,
+      },
+      "att-up"
+    );
+    return Response.json({ attachment_id: attachmentId });
   }
 
   // 018 — POST {pageId}/messages multipart: adjunto de Messenger con
@@ -368,10 +406,26 @@ export async function POST(req: Request, ctx: Params) {
       // servidores, sin sesión ni cookies. El mock hace lo mismo, así el
       // self-test prueba que la URL firmada sirve sola; si no responde 200,
       // el envío falla como fallaría en Meta.
-      const attachment = (body.message as { attachment?: { type?: string; payload?: { url?: string } } } | undefined)
+      const attachment = (body.message as { attachment?: { type?: string; payload?: { url?: string; attachment_id?: string } } } | undefined)
         ?.attachment;
       let attachmentLog: OutboxEntry["attachment"];
-      if (attachment) {
+      const attachmentId = attachment?.payload?.attachment_id;
+      if (attachment && attachmentId !== undefined) {
+        // 019 fase B — Messenger: adjunto ya subido (`attachment_id`).
+        if (!attachment.type || typeof attachmentId !== "string" || !attachmentId) {
+          return graphParamError("(#100) attachment.type y attachment.payload.attachment_id son obligatorios");
+        }
+        if (isInvalidMediaId(attachmentId)) {
+          return graphParamError(`(#100) Invalid attachment_id: ${attachmentId}`);
+        }
+        const up = state.uploads.find((u) => u.id === attachmentId);
+        attachmentLog = {
+          channel: "messenger",
+          attachmentType: attachment.type,
+          attachmentId,
+          ...(up ? { fileName: up.fileName, mime: up.mime, bytes: up.bytes } : {}),
+        };
+      } else if (attachment) {
         const url = attachment.payload?.url;
         if (!attachment.type || typeof url !== "string") {
           return graphParamError("(#100) attachment.type y attachment.payload.url son obligatorios");
@@ -423,6 +477,15 @@ export async function POST(req: Request, ctx: Params) {
     if (state.failSends === "error") {
       return Response.json(
         { error: { message: "(#131026) Message undeliverable", type: "OAuthException", code: 131026, fbtrace_id: "mock" } },
+        { status: 400 }
+      );
+    }
+    // 019 fase B — Media id que Meta "ya no reconoce" (`invalidate-media`):
+    // el CRM debe olvidarlo y re-subir una vez.
+    const mediaRef = (body[String(body.type ?? "")] as { id?: unknown } | undefined)?.id;
+    if (isInvalidMediaId(mediaRef)) {
+      return Response.json(
+        { error: { message: `(#131053) Media upload error: media id ${String(mediaRef)} is not valid`, type: "OAuthException", code: 131053, fbtrace_id: "mock" } },
         { status: 400 }
       );
     }

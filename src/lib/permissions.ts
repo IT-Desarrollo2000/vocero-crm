@@ -213,6 +213,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // 10: falla conmutable de los envíos de WhatsApp del mock.
   "GET /api/dev/wa-mock/fail-sends": "dev",
   "POST /api/dev/wa-mock/fail-sends": "dev",
+  // 019 fase B: el mock deja de reconocer un id subido (prueba de re-subida).
+  "POST /api/dev/wa-mock/invalidate-media": "dev",
   "GET /api/dev/google-mock/[...path]": "dev",
   "POST /api/dev/google-mock/[...path]": "dev",
   "PATCH /api/dev/google-mock/[...path]": "dev",
