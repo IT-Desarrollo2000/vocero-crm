@@ -94,7 +94,11 @@ que preguntan) en WhatsApp, Messenger e Instagram. Hoy:
 
 - **FR-805** El compositor muestra el clip según `outboundFiles`, pone
   `accept` con las extensiones permitidas del canal y muestra los rechazos
-  del servidor tal cual.
+  del servidor tal cual. *Ampliación 15-oct:* si el canal envía imágenes, el
+  clip acepta además WebP/GIF/HEIC/HEIF y el navegador convierte/reduce la
+  imagen a JPG con el tope del canal antes de enviarla — ver
+  [019 § Ampliación (15-oct)](../019-catalogo-productos/spec.md) (FR-953).
+  El servidor no cambia: AC-3 (PNG de 6 MB → 413) sigue valiendo por API.
 
 ### Entrantes
 

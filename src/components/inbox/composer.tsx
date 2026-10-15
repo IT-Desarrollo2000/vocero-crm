@@ -45,6 +45,13 @@ import {
 } from "./catalog-staging";
 import { useCatalog } from "./use-catalog";
 import { CatalogPanel } from "./catalog-panel";
+import {
+  CONVERTIBLE_IMAGE_ACCEPT,
+  normalizationSummary,
+  normalizeImageFile,
+  planImageNormalization,
+} from "@/lib/image-normalize";
+import type { OutboundFiles } from "@/lib/outbound-files";
 
 /** Máximo de opciones visibles en el selector `/`. */
 const QUICK_REPLY_PICKER_MAX = 8;
@@ -61,6 +68,25 @@ function extensionAllowed(name: string, accept: string): boolean {
     .filter((e) => e.startsWith("."))
     .some((e) => lower.endsWith(e));
 }
+
+/** 018/019 — Tope de imagen del canal; null si el canal no manda imágenes. */
+function imageMaxBytes(files: OutboundFiles | null | undefined): number | null {
+  return files?.rules.find((r) => r.kind === "image")?.maxBytes ?? null;
+}
+
+/**
+ * `accept` del clip: el del canal y, si el canal manda imágenes, además
+ * WebP/GIF/HEIC/HEIF (el navegador los convierte a JPG antes de subir).
+ */
+function clipAccept(files: OutboundFiles | null | undefined): string | undefined {
+  if (!files) return undefined;
+  return imageMaxBytes(files) !== null
+    ? `${files.accept},${CONVERTIBLE_IMAGE_ACCEPT}`
+    : files.accept;
+}
+
+/** Vista previa solo para lo que el navegador sabe pintar (no HEIC). */
+const PREVIEWABLE = /^image\/(jpeg|png|gif|webp)$/;
 
 /** Extrae lat,long de "21.019, -101.257" o de un enlace de Google Maps. */
 function parseCoords(raw: string): { latitude: number; longitude: number } | null {
@@ -93,6 +119,9 @@ export function Composer({
   const [templates, setTemplates] = useState<TemplateDto[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  // Aviso de la conversión en el navegador ("convertida a JPG", "no se pudo…").
+  const [fileNote, setFileNote] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [panel, setPanel] = useState<AttachPanel>(null);
   const [coordsRaw, setCoordsRaw] = useState("");
   const [placeName, setPlaceName] = useState("");
@@ -248,7 +277,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }
 
-  function pickFile(f: File | null) {
+  async function pickFile(f: File | null) {
     // 018: validación LIGERA por extensión contra el `accept` del canal; el
     // servidor (firma del contenido) sigue siendo la autoridad.
     if (f && staged.length > 0) {
@@ -256,13 +285,35 @@ export function Composer({
       return;
     }
     const files = conversation.outboundFiles;
-    if (f && files && !extensionAllowed(f.name, files.accept)) {
+    const accept = clipAccept(files);
+    if (f && files && accept && !extensionAllowed(f.name, accept)) {
       setError(files.hint);
       return;
     }
+    // 019 (15-oct): WebP/GIF/HEIC → JPG y fotos sobre el tope de imagen del
+    // canal → reducidas, en el navegador. Si no puede, queda el original con
+    // un aviso y el servidor responde su 415/413 como siempre.
+    let picked = f;
+    let note: string | null = null;
+    const maxBytes = imageMaxBytes(files);
+    if (
+      f &&
+      maxBytes !== null &&
+      planImageNormalization({ mimeType: f.type, fileName: f.name, size: f.size }, { maxBytes })
+        .action === "convert"
+    ) {
+      setPreparing(true);
+      setError(null);
+      const r = await normalizeImageFile(f, { maxBytes });
+      setPreparing(false);
+      picked = r.file;
+      const summary = normalizationSummary(r);
+      note = [summary && `Imagen ${summary}`, r.note].filter(Boolean).join(" · ") || null;
+    }
     if (filePreview) URL.revokeObjectURL(filePreview);
-    setFile(f);
-    setFilePreview(f && f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
+    setFile(picked);
+    setFileNote(note);
+    setFilePreview(picked && PREVIEWABLE.test(picked.type) ? URL.createObjectURL(picked) : null);
     setPanel(null);
     setError(null);
   }
@@ -346,6 +397,8 @@ export function Composer({
   }
 
   async function submit() {
+    // Con una imagen convirtiéndose, Enter no debe mandar el pie como texto.
+    if (preparing) return;
     setError(null);
 
     if (staged.length > 0) {
@@ -371,7 +424,7 @@ export function Composer({
         setError(err);
         return;
       }
-      pickFile(null);
+      void pickFile(null);
       setText("");
       if (taRef.current) taRef.current.style.height = "auto";
       onSent();
@@ -488,7 +541,8 @@ export function Composer({
     );
   }
 
-  const canSubmit = file !== null || staged.length > 0 || text.trim().length > 0;
+  const canSubmit =
+    !preparing && (file !== null || staged.length > 0 || text.trim().length > 0);
   // 019: el botón Catálogo, como las respuestas rápidas, solo con texto libre.
   const canUseCatalog =
     conversation.replyMode === "free" || conversation.replyMode === "human_agent";
@@ -562,9 +616,14 @@ export function Composer({
             <p className="text-[11px] text-text-4">
               Los archivos se eliminan del CRM a los 30 días.
             </p>
+            {fileNote && (
+              <p data-testid="attach-note" className="text-[11px] text-warning-text">
+                {fileNote}
+              </p>
+            )}
           </div>
           <button
-            onClick={() => pickFile(null)}
+            onClick={() => void pickFile(null)}
             aria-label="Quitar adjunto"
             className="rounded p-1 text-text-3 hover:bg-secondary hover:text-text-1"
           >
@@ -712,10 +771,10 @@ export function Composer({
         <input
           ref={fileRef}
           type="file"
-          accept={conversation.outboundFiles?.accept}
+          accept={clipAccept(conversation.outboundFiles)}
           className="hidden"
           onChange={(e) => {
-            pickFile(e.target.files?.[0] ?? null);
+            void pickFile(e.target.files?.[0] ?? null);
             // Permite volver a elegir el mismo archivo tras quitarlo o tras
             // un rechazo.
             e.target.value = "";
@@ -729,7 +788,7 @@ export function Composer({
               <button
                 onClick={() => fileRef.current?.click()}
                 aria-label="Adjuntar archivo"
-                disabled={staged.length > 0}
+                disabled={staged.length > 0 || preparing}
                 title={
                   staged.length > 0
                     ? "Quita los archivos del catálogo para adjuntar otro archivo"
@@ -847,6 +906,11 @@ export function Composer({
       </div>
       <div className="mt-1.5 flex items-center justify-between">
         <div className="min-w-0">
+          {preparing && (
+            <p role="status" data-testid="attach-preparing" className="text-xs text-text-2">
+              Preparando la imagen…
+            </p>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           {summary && (
             <p role="status" className="text-xs text-text-2">

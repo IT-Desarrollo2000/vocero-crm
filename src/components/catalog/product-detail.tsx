@@ -24,6 +24,12 @@ import {
   type CatalogProductDto,
   type CatalogVariantDto,
 } from "@/lib/catalog";
+import {
+  CONVERTIBLE_IMAGE_ACCEPT,
+  normalizationSummary,
+  normalizeImageFile,
+} from "@/lib/image-normalize";
+import { WHATSAPP_OUTBOUND_FILES } from "@/lib/outbound-files";
 import { cn } from "@/lib/utils";
 import { CatalogThumb } from "./catalog-thumb";
 import { VariantDialog } from "./product-dialog";
@@ -44,10 +50,26 @@ type Upload = {
   name: string;
   status: "pending" | "uploading" | "done" | "error";
   message?: string;
+  /** "convertida a JPG (1.2 MB)" / "reducida a 4.7 MB". */
+  converted?: string;
+  /** Aviso de la conversión (formato no decodificable, primer fotograma…). */
+  note?: string;
 };
 
-/** Extensiones que admite el catálogo (la API decide por la firma, igual). */
-const UPLOAD_ACCEPT = ".jpg,.jpeg,.png,.pdf,.docx,.xlsx,.pptx,.txt,.csv";
+/**
+ * Extensiones que admite el catálogo (la API decide por la firma, igual).
+ * WebP/GIF/HEIC/HEIF se ofrecen porque el navegador los convierte a JPG
+ * antes de subir; el servidor sigue aceptando solo JPG/PNG.
+ */
+const UPLOAD_ACCEPT = `.jpg,.jpeg,.png,.pdf,.docx,.xlsx,.pptx,.txt,.csv,${CONVERTIBLE_IMAGE_ACCEPT}`;
+
+/**
+ * Tope de imagen al subir: el de WhatsApp (5 MB), el más bajo de los tres
+ * canales, para que toda foto del catálogo sirva en WhatsApp, Messenger e
+ * Instagram.
+ */
+const UPLOAD_IMAGE_MAX_BYTES =
+  WHATSAPP_OUTBOUND_FILES.rules.find((r) => r.kind === "image")?.maxBytes ?? 5 * 1024 * 1024;
 
 /**
  * Detalle de un producto: panel lateral en escritorio, pantalla completa en
@@ -195,8 +217,13 @@ export function ProductDetail({
       const item = batch[i];
       if (!item) continue;
       set(item.key, { status: "uploading" });
+      // El navegador convierte WebP/GIF/HEIC a JPG y reduce lo que pase de
+      // 5 MB; si no puede, sube el original y el servidor decide (415/413).
+      const normalized = await normalizeImageFile(file, { maxBytes: UPLOAD_IMAGE_MAX_BYTES });
+      const converted = normalizationSummary(normalized) ?? undefined;
+      if (converted || normalized.note) set(item.key, { converted, note: normalized.note });
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", normalized.file);
       if (uploadTarget) form.append("variantId", uploadTarget);
       const res = await fetch(
         `/api/catalog/products/${encodeURIComponent(product.id)}/files`,
@@ -504,8 +531,9 @@ export function ProductDetail({
                   />
                 </div>
                 <p className="text-[11px] text-text-3">
-                  Imágenes JPG o PNG y documentos PDF, Word, Excel, PowerPoint, TXT o CSV.
-                  Hasta {CATALOG_LIMITS.maxFilesPerProduct} por producto.
+                  Imágenes JPG o PNG (WebP, GIF y HEIC se convierten a JPG y las de más de
+                  5 MB se reducen al subir) y documentos PDF, Word, Excel, PowerPoint, TXT o
+                  CSV. Hasta {CATALOG_LIMITS.maxFilesPerProduct} por producto.
                 </p>
                 {uploads.length > 0 && (
                   <ul className="space-y-1 text-xs" aria-label="Subidas">
@@ -530,6 +558,16 @@ export function ProductDetail({
                               ? "Subiendo…"
                               : u.message}
                         </span>
+                        {u.converted && (
+                          <span data-testid="catalog-upload-converted" className="text-text-3">
+                            · {u.converted}
+                          </span>
+                        )}
+                        {u.note && (
+                          <span data-testid="catalog-upload-note" className="w-full text-warning-text">
+                            {u.note}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>

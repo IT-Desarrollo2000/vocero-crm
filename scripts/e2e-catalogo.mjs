@@ -17,6 +17,9 @@
  *   f) UI (Playwright como vendedor): `/FOT` + Enter escenifica chips, quitar
  *      uno, enviar → outbox; botón Catálogo con variante + "Insertar
  *      detalles" (AC-1…AC-3)
+ *   f2) UI como Propietario (15-oct): WebP y PNG > 5 MB generados en el
+ *      navegador → JPEG ≤ 5 MB al subir y salen por WhatsApp; `.heic`
+ *      ilegible → aviso + 415 sin colgarse (FR-950..953)
  *   g) purga de 30 días: el catálogo sigue sirviendo (AC-8)
  *   h) borrar producto: archivos 404 y fuera del disco; atajo sin producto;
  *      el hilo conserva su copia (AC-10)
@@ -680,6 +683,95 @@ async function composerUi() {
   });
 }
 
+async function withOwnerPage(fn) {
+  const browser = await chromium.launch(process.env.E2E_BROWSER_CHANNEL ? { channel: process.env.E2E_BROWSER_CHANNEL } : {});
+  try {
+    const bctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await bctx.route("**/api/events*", (route) => route.abort());
+    await bctx.addCookies(toBrowserCookies(owner.jar));
+    const page = await bctx.newPage();
+    page.setDefaultTimeout(60000);
+    await fn(page);
+    await bctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * f2) Ampliación 15-oct (FR-950..953): el navegador convierte WebP/GIF/HEIC a
+ * JPG y reduce lo que pase de 5 MB antes de subir; el servidor sigue con su
+ * lista blanca JPG/PNG por firma.
+ */
+async function browserImagesUi() {
+  console.log("\n== f2) Subida desde el navegador: WebP → JPG, PNG grande → ≤ 5 MB ==");
+  const { browserWebp, browserNoisePng, garbageHeic, jpegSize } = await import("./e2e-test-images.mjs");
+  const pid = ctx.product?.id;
+  const MAX = 5 * 1024 * 1024;
+  await withOwnerPage(async (page) => {
+    await page.goto(`${BASE}/catalog`, { waitUntil: "load", timeout: 90000 });
+    const card = page.locator(`[data-testid="catalog-product"][data-product-id="${pid}"]`);
+    await card.waitFor();
+    const detail = page.locator(`[data-testid="catalog-detail"][data-product-id="${pid}"]`);
+    ok("(UI) abrir el producto como Propietario", await until(async () => {
+      if ((await detail.count()) > 0) return true;
+      await card.click();
+      await sleep(500);
+      return (await detail.count()) > 0;
+    }, 20000));
+    const input = page.getByTestId("catalog-upload-input");
+    const accept = (await input.getAttribute("accept")) ?? "";
+    ok("el input acepta webp/gif/heic/heif", [".webp", ".gif", ".heic", ".heif", "image/heic"].every((x) => accept.includes(x)), accept);
+
+    const webp = await browserWebp(page, `foto-${S}.webp`);
+    const big = await browserNoisePng(page, `grande-${S}.png`);
+    ok(`archivos de prueba generados en el navegador (webp ${webp.buffer.length} B, png ${(big.buffer.length / 1048576).toFixed(1)} MB)`, webp.buffer.length > 0 && big.buffer.length > MAX);
+
+    const rows = page.getByTestId("catalog-upload");
+    await input.setInputFiles([webp, big]);
+    const settled = await until(async () => {
+      const st = await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-status")));
+      return st.length === 2 && st.every((s) => s === "done" || s === "error");
+    }, 120000);
+    const statuses = await rows.evaluateAll((els) => els.map((e) => [e.getAttribute("data-status"), e.textContent]));
+    ok("las 2 subidas terminan en done", settled && statuses.every(([s]) => s === "done"), JSON.stringify(statuses));
+    ok("la fila del WebP dice 'convertida a JPG'", /convertida a JPG/.test(statuses[0]?.[1] ?? ""), statuses[0]?.[1]);
+    ok("la fila del PNG grande dice 'reducida a … MB'", /reducida a \d+(\.\d)? MB/.test(statuses[1]?.[1] ?? ""), statuses[1]?.[1]);
+
+    // Camino infeliz: un .heic que el navegador no decodifica → aviso + 415.
+    const heicRes = page.waitForResponse((r) => r.url().includes(`/api/catalog/products/${pid}/files`) && r.request().method() === "POST", { timeout: 60000 });
+    await input.setInputFiles([garbageHeic(`IMG_${S}.heic`)]);
+    const res = await heicRes.catch(() => null);
+    ok("HEIC no decodificable: el servidor responde 415", res?.status() === 415, `${res?.status()}`);
+    const heicRow = rows.first();
+    ok("…la fila queda en error (sin colgarse)", await until(async () => (await heicRow.getAttribute("data-status")) === "error", 15000), await heicRow.textContent());
+    ok("…con el aviso del navegador", /no puede convertir este formato/.test((await page.getByTestId("catalog-upload-note").first().textContent().catch(() => "")) ?? ""));
+  });
+
+  const prod = (await owner.api("/api/catalog")).json?.products?.find((p) => p.id === pid);
+  const webpFile = prod?.files?.find((f) => f.fileName.startsWith(`foto-${S}`));
+  const bigFile = prod?.files?.find((f) => f.fileName.startsWith(`grande-${S}`));
+  ok("foto.webp quedó kind=image, image/jpeg, .jpg", webpFile?.kind === "image" && webpFile?.mimeType === "image/jpeg" && webpFile?.fileName === `foto-${S}.jpg`, JSON.stringify(webpFile));
+  ok("el PNG grande quedó JPEG ≤ 5 MB", bigFile?.kind === "image" && bigFile?.mimeType === "image/jpeg" && bigFile?.fileName.endsWith(".jpg") && bigFile?.size <= MAX, JSON.stringify(bigFile));
+  ok("el .heic no quedó en el catálogo", !prod?.files?.some((f) => f.fileName.toLowerCase().includes(`img_${S}`)), JSON.stringify(prod?.files?.map((f) => f.fileName)));
+  ctx.webpJpg = webpFile;
+  ctx.bigJpg = bigFile;
+  if (bigFile) {
+    const bytes = Buffer.from(await (await fetch(`${BASE}${bigFile.url}`, { headers: { cookie: owner.jar.cookie } })).arrayBuffer());
+    const dims = jpegSize(bytes);
+    ok("los bytes servidos son JPEG con lado mayor ≤ 2560 px", !!dims && Math.max(dims.width, dims.height) <= 2560 && bytes.length <= MAX, JSON.stringify({ dims, size: bytes.length }));
+  }
+
+  await markOutbox();
+  const r = await owner.api(`/api/conversations/${ctx.convApi?.id}/messages/catalog`, {
+    method: "POST",
+    body: body({ fileIds: [webpFile?.id, bigFile?.id] }),
+  });
+  ok("se envían por WhatsApp (lote) → ambas sent", r.res.status === 200 && r.json?.results?.length === 2 && r.json.results.every((x) => x.status === "sent"), short(r));
+  const imgs = (await outbox()).filter((o) => (o.body?.type ?? o.type) === "image");
+  ok("…Meta recibió 2 imágenes subidas a /media", imgs.length === 2 && (await uploads("whatsapp")).length === 2, JSON.stringify({ imgs: imgs.length, up: (await uploads()).length }));
+}
+
 async function purgeKeepsCatalog() {
   console.log("\n== g) La purga de 30 días no toca el catálogo ==");
   const r = await owner.api("/api/dev/media/purge", { method: "POST", body: body({ advanceDays: 31 }) });
@@ -778,7 +870,10 @@ async function main() {
   await apiSend();
   await reuse();
   await instagram();
-  if (process.env.E2E_SKIP_UI !== "1") await composerUi();
+  if (process.env.E2E_SKIP_UI !== "1") {
+    await composerUi();
+    await browserImagesUi();
+  }
   await azureDown();
   await purgeKeepsCatalog();
   await deleteProduct();

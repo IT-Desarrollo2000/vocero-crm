@@ -17,6 +17,7 @@
  * Requiere: app corriendo con WA_MOCK_ENABLED=true y Playwright.
  */
 import { chromium } from "playwright";
+import { browserWebp, garbageHeic } from "./e2e-test-images.mjs";
 
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const PN = "PN-E2E-1";
@@ -39,7 +40,7 @@ const PDF_BYTES = Buffer.from(
   "latin1"
 );
 
-const browser = await chromium.launch();
+const browser = await chromium.launch(process.env.E2E_BROWSER_CHANNEL ? { channel: process.env.E2E_BROWSER_CHANNEL } : {});
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
 const req = ctx.request;
 
@@ -180,7 +181,15 @@ try {
   const accept = await page.locator('input[type="file"]').getAttribute("accept");
   ok(
     "el clip usa el accept del canal (WhatsApp)",
-    accept === conv.outboundFiles?.accept && /\.pdf/.test(accept ?? "") && !/\.exe/.test(accept ?? ""),
+    !!conv.outboundFiles?.accept &&
+      (accept ?? "").startsWith(conv.outboundFiles.accept) &&
+      /\.pdf/.test(accept ?? "") &&
+      !/\.exe/.test(accept ?? ""),
+    String(accept)
+  );
+  ok(
+    "…más webp/gif/heic/heif (el navegador los convierte a JPG)",
+    [".webp", ".gif", ".heic", ".heif"].every((x) => (accept ?? "").includes(x)),
     String(accept)
   );
   const clip = page.getByRole("button", { name: "Adjuntar archivo" });
@@ -221,6 +230,51 @@ try {
     await enviado.first().waitFor({ timeout: 15000 }).catch(() => {});
   }
   ok("el PDF enviado aparece en el hilo como tarjeta", (await enviado.count()) === 1);
+
+  console.log("\n== Clip: WebP → JPG en el navegador (019, 15-oct) ==");
+  const mock = async () => (await (await req.get(`${BASE}/api/dev/wa-mock/outbox`)).json()) ?? {};
+  const m0 = await mock();
+  const outBase = (m0.outbox ?? []).length;
+  const upBase = (m0.uploads ?? []).length;
+  const webp = await browserWebp(page, `foto-${S}.webp`);
+  await page.locator('input[type="file"]').setInputFiles(webp);
+  const note = page.getByTestId("attach-note");
+  await note.waitFor({ timeout: 30000 }).catch(() => {});
+  ok("al adjuntar foto.webp avisa 'convertida a JPG'", /convertida a JPG/.test((await note.textContent().catch(() => "")) ?? ""), await note.textContent().catch(() => ""));
+  ok("la tarjeta ya muestra foto.jpg", (await page.getByText(`foto-${S}.jpg`).count()) > 0);
+  const caption = `webp ${S}`;
+  await page.getByPlaceholder("Pie del adjunto (opcional)…").fill(caption);
+  const sentImg = page.locator(`img[data-testid="media-image"][alt="${caption}"]`);
+  for (let i = 0; i < 3 && (await sentImg.count()) === 0; i++) {
+    if ((await note.count()) === 0) break;
+    await page.getByRole("button", { name: "Enviar", exact: true }).click();
+    await sentImg.first().waitFor({ timeout: 15000 }).catch(() => {});
+  }
+  const m1 = await mock();
+  const newOut = (m1.outbox ?? []).slice(outBase);
+  const newUp = (m1.uploads ?? []).slice(upBase);
+  ok("el wa-mock recibió type=image", newOut.some((o) => (o.body?.type ?? o.type) === "image"), JSON.stringify(newOut.map((o) => o.body?.type ?? o.type)));
+  ok(
+    "…subida a /media como JPEG (foto.jpg)",
+    newUp.some((u) => u.channel === "whatsapp" && u.mime === "image/jpeg" && u.fileName === `foto-${S}.jpg`),
+    JSON.stringify(newUp).slice(0, 300)
+  );
+  const after = (await (await req.get(`${BASE}/api/conversations/${conv.id}/messages`)).json()).messages ?? [];
+  const lastOut = after.filter((m) => m.direction === "out").at(-1);
+  ok("el mensaje del hilo es imagen", lastOut?.type === "image" && lastOut?.media?.caption === caption, JSON.stringify({ type: lastOut?.type, media: lastOut?.media }).slice(0, 300));
+  ok("y se ve en el hilo", (await sentImg.count()) === 1);
+
+  console.log("\n== Clip: HEIC ilegible → aviso + 415 sin colgarse ==");
+  await page.locator('input[type="file"]').setInputFiles(garbageHeic(`IMG_${S}.heic`));
+  await note.waitFor({ timeout: 30000 }).catch(() => {});
+  ok("avisa que el navegador no puede convertirla", /no puede convertir este formato/.test((await note.textContent().catch(() => "")) ?? ""), await note.textContent().catch(() => ""));
+  const heicRes = page.waitForResponse((r) => r.url().includes("/messages/media") && r.request().method() === "POST", { timeout: 30000 });
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  const hr = await heicRes.catch(() => null);
+  ok("el servidor responde 415", hr?.status() === 415, `${hr?.status()}`);
+  const errShown = await page.locator("p.text-destructive").first().waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  ok("la UI muestra el error y el botón vuelve a estar disponible", errShown && (await page.getByRole("button", { name: "Enviar", exact: true }).isEnabled()));
+  await page.getByRole("button", { name: "Quitar adjunto" }).click();
 
   console.log("\n== A los 30 días: 'Archivo eliminado' ==");
   const purga = await req.post(`${BASE}/api/dev/media/purge`, { data: { advanceDays: 31 } });
