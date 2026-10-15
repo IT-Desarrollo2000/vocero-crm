@@ -22,4 +22,4 @@ Estado durable del loop. `[x]` = hecho y verificado.
 
 ## Cierre
 - [x] Z1 Docs: `CLAUDE.md` (mapa), memoria (`upstream-migraciones` → renumerar desde 0022)
-- [ ] Z2 Revisión de Fable antes de declarar hecho
+- [x] Z2 Revisión de Fable antes de declarar hecho — veredicto: hecho tras 1 corrección (compositor con key por conversación); e2e-catalogo 109/109 (y falla sin el arreglo)

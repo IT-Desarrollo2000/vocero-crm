@@ -637,6 +637,9 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
               }}
             />
             <Composer
+              // 019: un compositor por conversación — la respuesta tardía de
+              // un lote del catálogo no puede tocar el estado del hilo nuevo.
+              key={selected.id}
               conversation={selected}
               onNotVisible={() => closeLost(selected.id, false)}
               onSend={sendText}

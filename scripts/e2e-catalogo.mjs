@@ -438,7 +438,7 @@ async function apiSend() {
       const c0 = await cacheOf();
       const u0 = (await uploads()).length;
       r = await send(owner, lab?.id, { text: "prueba", fileIds: [ctx.img1?.id] });
-      ok("conversación is_test → rechazada (403 sandbox o 404)", r.res.status === 403 || r.res.status === 404, short(r));
+      ok("conversación is_test → 403 sandbox_violation", r.res.status === 403 && r.json?.error?.code === "sandbox_violation", short(r));
       ok("…y el outbox no cambió", (await outbox()).length === n1);
       const c1 = await cacheOf();
       ok("…ni product_file_upload (mismas filas y fecha)", c0.n === c1.n && String(c0.at) === String(c1.at), `${JSON.stringify(c0)} → ${JSON.stringify(c1)}`);
@@ -590,6 +590,8 @@ async function withSellerPage(fn) {
 async function composerUi() {
   console.log("\n== f) Compositor (vendedor) ==");
   const conv = await openWaConversation(`María UI ${S}`);
+  ctx.otherName = `Pedro Otro ${S}`;
+  await openWaConversation(ctx.otherName);
   await sleep(1000);
   await markOutbox();
   await withSellerPage(async (page) => {
@@ -646,6 +648,35 @@ async function composerUi() {
       return kinds.includes("document") && kinds.includes("text");
     }, 20000);
     ok("sale el texto con los detalles + el PDF", sent2, JSON.stringify((await outbox()).map((o) => o.body?.type ?? o.type)));
+
+    // Lote en vuelo + cambio de conversación: la respuesta tardía no puede
+    // dejar chips, resumen ni borrar el borrador del hilo nuevo.
+    await markOutbox();
+    await page.route("**/messages/catalog", async (route) => {
+      await sleep(4000);
+      await route.continue();
+    });
+    const reopened = await until(async () => {
+      await input.fill("");
+      await input.pressSequentially(query, { delay: 40 });
+      await sleep(400);
+      if ((await picker.count()) === 0) return false;
+      await input.press("Enter");
+      return (await chips.count()) > 0;
+    }, 15000);
+    ok("(lote en vuelo) chips escenificados otra vez", reopened);
+    await input.press("Enter");
+    await sleep(300);
+    await page.getByText(ctx.otherName, { exact: false }).first().click();
+    await until(async () => (await page.getByPlaceholder(COMPOSER).inputValue()) === "", 5000);
+    await page.getByPlaceholder(COMPOSER).fill("borrador del otro hilo");
+    await until(async () => (await outbox()).some((o) => (o.body?.type ?? o.type) === "image"), 20000);
+    await sleep(1500);
+    ok("el lote salió igual (al hilo original)", (await outbox()).some((o) => (o.body?.type ?? o.type) === "image"));
+    ok("el hilo nuevo no hereda chips", (await chips.count()) === 0, `chips=${await chips.count()}`);
+    ok("ni el resumen", (await page.getByRole("status").filter({ hasText: /enviad/i }).count()) === 0);
+    ok("y conserva su borrador", (await page.getByPlaceholder(COMPOSER).inputValue()) === "borrador del otro hilo");
+    await page.unroute("**/messages/catalog");
   });
 }
 
