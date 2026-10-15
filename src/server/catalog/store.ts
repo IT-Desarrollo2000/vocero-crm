@@ -534,6 +534,13 @@ export async function deleteProduct(organizationId: string, id: string): Promise
       .select(blobColumns)
       .from(f)
       .where(filesWhere(organizationId, eq(f.productId, id)));
+    // El FK solo anula `product_id`: `attach` también, para que el atajo
+    // quede como texto puro (ambos o ninguno, FR-920).
+    const qr = schema.quickReply;
+    await tx
+      .update(qr)
+      .set({ productId: null, attach: null, updatedAt: new Date() })
+      .where(scoped(qr.organizationId, organizationId, eq(qr.productId, id)));
     const rows = await tx
       .delete(p)
       .where(scoped(p.organizationId, organizationId, eq(p.id, id)))

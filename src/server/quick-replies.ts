@@ -73,7 +73,8 @@ export function serializeQuickReply(
     body: r.body,
     position: r.position,
     productId: r.productId,
-    attach: r.attach,
+    // Sin producto no hay `attach` (defensa ante un SET NULL del FK).
+    attach: r.productId ? r.attach : null,
     product: product && r.productId === product.id ? quickReplyProduct(product, r.attach) : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -231,7 +232,9 @@ export async function updateQuickReply(
       ? null
       : patch.attach !== undefined
         ? patch.attach
-        : current.attach;
+        : current.productId
+          ? current.attach
+          : null;
   const body = patch.body !== undefined ? patch.body : current.body;
 
   const problem = quickReplyLinkProblem({ body, productId, attach });
