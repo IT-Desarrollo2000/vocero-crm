@@ -148,6 +148,13 @@
       "when": 1792001743758,
       "tag": "0020_adjuntos_seguros",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792087395705,
+      "tag": "0021_catalogo_productos",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@
 Estado durable del loop. `[x]` = hecho y verificado.
 
 ## Fase A — Catálogo local
-- [ ] A0 Esquema (5 tablas + columnas en `quick_reply`/`media_asset`), migración 0021 re-ejecutable, ids, contratos (`src/lib/catalog.ts`, `storage/types.ts`, firmas), storage `local` + tests de contrato
+- [x] A0 Esquema (5 tablas + columnas en `quick_reply`/`media_asset`), migración 0021 re-ejecutable, ids, contratos (`src/lib/catalog.ts`, `storage/types.ts`, firmas), storage `local` + tests de contrato
 - [ ] A1 Store + rutas `/api/catalog/*` (categorías, productos, variantes, archivos, servir) + permisos + respuestas rápidas ligadas a producto + tests
 - [ ] A2 `sendCatalogBatch` + `POST /api/conversations/[id]/messages/catalog` (copia en caché, procedencia, errores por archivo) + tests
 - [ ] A3 Página Catálogo (todos; edición owner), categorías, variantes, galería, subida, "Crear atajos" + NAV

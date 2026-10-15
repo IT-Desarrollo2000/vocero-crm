@@ -15,6 +15,7 @@ import {
   BOOKING_REMINDER_SKIP_REASONS,
   BOOKING_REMINDER_STATUSES,
 } from "../reminders";
+import type { ProductAttribute } from "../catalog";
 import type {
   LabConfigSnapshot,
   LabExpectFichaRule,
@@ -656,6 +657,13 @@ export const mediaAsset = pgTable(
       .default("in"),
     /** 018: URL de origen de un entrante de Messenger/Instagram (CDN de Meta). */
     sourceUrl: text("source_url"),
+    /**
+     * 019: copia enviada desde el Catálogo; solo procedencia. `set null`: el
+     * hilo conserva su copia aunque el archivo del catálogo se borre.
+     */
+    productFileId: text("product_file_id").references(() => productFile.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1458,6 +1466,15 @@ export const quickReply = pgTable(
     body: text("body").notNull(),
     /** Orden del selector y de los chips (ascendente). */
     position: integer("position").notNull().default(0),
+    /**
+     * 019: atajo ligado a un producto: escenifica sus archivos según
+     * `attach` (FR-920). Ambos o ninguno (lo valida el store). `set null`:
+     * borrar el producto deja el atajo como texto.
+     */
+    productId: text("product_id").references(() => product.id, {
+      onDelete: "set null",
+    }),
+    attach: text("attach", { enum: ["images", "documents", "all"] }),
     createdByUserId: text("created_by_user_id").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -1467,5 +1484,178 @@ export const quickReply = pgTable(
   (t) => [
     uniqueIndex("quick_reply_org_shortcut_uq").on(t.organizationId, t.shortcut),
     index("quick_reply_org_pos_idx").on(t.organizationId, t.position),
+  ]
+);
+
+/* ============================================================
+ * 019 — Catálogo de productos (categorías → productos → variantes)
+ * ============================================================ */
+
+/** Un solo nivel (FR-901). Borrarla deja sus productos sin categoría. */
+export const productCategory = pgTable(
+  "product_category",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("product_category_org_pos_idx").on(t.organizationId, t.position)]
+);
+
+/**
+ * Producto (FR-902). `code` conserva sus mayúsculas; es único por org sin
+ * distinguirlas (índice parcial sobre `lower(code)`). La unicidad CRUZADA con
+ * `product_variant.code` no la da un índice: la verifica el store dentro de
+ * la transacción (409 `duplicate_code`).
+ */
+export const product = pgTable(
+  "product",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    categoryId: text("category_id").references(() => productCategory.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    code: text("code"),
+    /** Texto libre ("desde $589,900"), ≤ 60. */
+    price: text("price"),
+    description: text("description"),
+    attributes: jsonb("attributes")
+      .$type<ProductAttribute[]>()
+      .notNull()
+      .default([]),
+    /** Inactivo: atenuado en Catálogo, fuera del compositor y los atajos. */
+    active: boolean("active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_org_code_uq")
+      .on(t.organizationId, sql`lower(${t.code})`)
+      .where(sql`${t.code} IS NOT NULL`),
+    index("product_org_pos_idx").on(t.organizationId, t.position),
+  ]
+);
+
+/**
+ * Variante de un producto (FR-903). `price` NULL = hereda el del producto;
+ * sus `attributes` se muestran después de los del producto.
+ */
+export const productVariant = pgTable(
+  "product_variant",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    productId: text("product_id")
+      .notNull()
+      .references(() => product.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    code: text("code"),
+    price: text("price"),
+    attributes: jsonb("attributes")
+      .$type<ProductAttribute[]>()
+      .notNull()
+      .default([]),
+    active: boolean("active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_variant_org_code_uq")
+      .on(t.organizationId, sql`lower(${t.code})`)
+      .where(sql`${t.code} IS NOT NULL`),
+    index("product_variant_org_product_pos_idx").on(
+      t.organizationId,
+      t.productId,
+      t.position
+    ),
+  ]
+);
+
+/**
+ * Imagen o documento del catálogo (FR-905). `variant_id` NULL = compartido
+ * por todas las variantes. `kind` y `mime_type` salen de la FIRMA
+ * (`inspectOutgoing`), nunca de lo que declara el navegador. Cada fila
+ * recuerda dónde se guardó (`storage_provider` + `storage_key`, FR-912):
+ * cambiar de proveedor no migra lo ya subido. La purga de 30 días no la toca.
+ */
+export const productFile = pgTable(
+  "product_file",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    productId: text("product_id")
+      .notNull()
+      .references(() => product.id, { onDelete: "cascade" }),
+    variantId: text("variant_id").references(() => productVariant.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind", { enum: ["image", "document"] }).notNull(),
+    mimeType: text("mime_type").notNull(),
+    fileName: text("file_name").notNull(),
+    fileSize: integer("file_size").notNull(),
+    storageProvider: text("storage_provider", {
+      enum: ["local", "azure-blob"],
+    }).notNull(),
+    /** `{org}/catalog/{fileId}` (ver `catalogStorageKey`). */
+    storageKey: text("storage_key").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_file_org_product_pos_idx").on(
+      t.organizationId,
+      t.productId,
+      t.position
+    ),
+  ]
+);
+
+/**
+ * Fase B — id reutilizable de un archivo del catálogo ya subido a Meta
+ * (FR-942/943): media id de WhatsApp o `attachment_id` de Messenger. La
+ * clave incluye la cuenta: reconectar otro número no reutiliza los ids del
+ * anterior. Upsert por el UNIQUE; borrar/reemplazar el archivo los invalida.
+ */
+export const productFileUpload = pgTable(
+  "product_file_upload",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    productFileId: text("product_file_id")
+      .notNull()
+      .references(() => productFile.id, { onDelete: "cascade" }),
+    channel: text("channel", {
+      enum: ["whatsapp", "messenger", "instagram"],
+    }).notNull(),
+    /** phone_number_id (WhatsApp) o page id (Messenger). */
+    accountId: text("account_id").notNull(),
+    remoteId: text("remote_id").notNull(),
+    uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_file_upload_file_channel_account_uq").on(
+      t.productFileId,
+      t.channel,
+      t.accountId
+    ),
+    index("product_file_upload_org_idx").on(t.organizationId),
   ]
 );
