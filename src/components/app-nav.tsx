@@ -10,6 +10,7 @@ import {
   Inbox,
   Kanban,
   LogOut,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -41,6 +42,8 @@ const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
+  // 019: el catálogo lo consulta todo el equipo; editarlo es del Propietario.
+  { href: "/catalog", label: "Catálogo", icon: Package },
   { href: "/reports", label: "Reportes", icon: BarChart3, ownerOnly: true },
   { href: "/agent", label: "Agente", icon: Sparkles, ownerOnly: true },
   { href: "/lab", label: "Laboratorio", icon: FlaskConical, ownerOnly: true },

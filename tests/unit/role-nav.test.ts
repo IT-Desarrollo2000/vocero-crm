@@ -17,6 +17,7 @@ const NAV = [
   { href: "/pipeline" },
   { href: "/bookings" },
   { href: "/contacts" },
+  { href: "/catalog" },
   { href: "/agent", ownerOnly: true },
   { href: "/lab", ownerOnly: true },
 ];
@@ -28,12 +29,13 @@ describe("filterNavForRole", () => {
     );
   });
 
-  it("Vendedor no ve Agente ni Laboratorio", () => {
+  it("Vendedor no ve Agente ni Laboratorio, sí el Catálogo", () => {
     expect(filterNavForRole(NAV, "member").map((i) => i.href)).toEqual([
       "/inbox",
       "/pipeline",
       "/bookings",
       "/contacts",
+      "/catalog",
     ]);
   });
 
