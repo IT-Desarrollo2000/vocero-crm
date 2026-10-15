@@ -29,6 +29,7 @@ const VAR_HELP: Record<(typeof QUICK_REPLY_VARS)[number], string> = {
   nombre_completo: "nombre completo del cliente",
   vendedor: "tu nombre o el de quien envía",
   negocio: "nombre de tu Marca",
+  producto: "nombre del producto ligado (solo si la respuesta tiene producto)",
 };
 
 /** Mensaje del servidor si lo hay; si no, uno por código. */

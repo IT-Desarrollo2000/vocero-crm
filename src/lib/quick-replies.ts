@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import type { QuickReplyAttach } from "./catalog";
 
 /**
  * Variables admitidas en `body`, escritas `{{variable}}` (se toleran espacios
@@ -19,6 +20,8 @@ import { z } from "zod";
  *   nombre_completo  nombre completo del contacto
  *   vendedor         nombre de quien envía (`useViewer().name`)
  *   negocio          nombre de la Marca (`useViewer().businessName`)
+ *   producto         nombre del producto ligado (019). SOLO en respuestas con
+ *                    producto: sin él es desconocida (422 al guardar)
  *
  * Sin valor (p. ej. contacto sin nombre) → cadena vacía y se colapsan los
  * espacios dobles (RF-09-24).
@@ -28,7 +31,19 @@ export const QUICK_REPLY_VARS = [
   "nombre_completo",
   "vendedor",
   "negocio",
+  "producto",
 ] as const;
+
+/** Variables que solo existen en una respuesta ligada a producto (019). */
+const PRODUCT_ONLY_VARS: ReadonlySet<string> = new Set(["producto"]);
+
+/**
+ * 019 — Qué archivos del producto escenifica la respuesta (FR-920). Misma
+ * tupla que `QUICK_REPLY_ATTACH` de `catalog.ts`, escrita aquí a propósito:
+ * `catalog.ts` importa de este módulo y un import de VALOR en sentido inverso
+ * dejaría la tupla sin inicializar al evaluarse (ciclo).
+ */
+const ATTACH_VALUES = ["images", "documents", "all"] as const satisfies readonly QuickReplyAttach[];
 
 export type QuickReplyVar = (typeof QUICK_REPLY_VARS)[number];
 
@@ -69,12 +84,15 @@ export function normalizeShortcut(raw: string): string {
 /**
  * Variables del cuerpo que no están en `QUICK_REPLY_VARS`, sin repetir y en
  * orden de aparición (`"{{telefono}}"` → `["telefono"]`). Vacío = válido.
+ * `{{producto}}` solo vale con `opts.product` (respuesta ligada a producto);
+ * sin él cuenta como desconocida.
  */
-export function findUnknownVars(body: string): string[] {
+export function findUnknownVars(body: string, opts: { product?: boolean } = {}): string[] {
   const out: string[] = [];
   for (const match of body.matchAll(varPattern())) {
     const name = match[1] ?? "";
-    if (!KNOWN_VARS.has(name) && !out.includes(name)) out.push(name);
+    const known = KNOWN_VARS.has(name) && (opts.product || !PRODUCT_ONLY_VARS.has(name));
+    if (!known && !out.includes(name)) out.push(name);
   }
   return out;
 }
@@ -109,6 +127,8 @@ export type QuickReplyContext = {
   vendedor?: string | null;
   /** Nombre de la Marca (`useViewer().businessName`). */
   negocio?: string | null;
+  /** 019: nombre del producto ligado (`QuickReplyDto.product.name`). */
+  producto?: string | null;
 };
 
 /**
@@ -125,6 +145,7 @@ export function renderQuickReply(body: string, ctx: QuickReplyContext): string {
     nombre_completo: (ctx.nombreCompleto ?? ctx.nombre ?? "").trim(),
     vendedor: (ctx.vendedor ?? "").trim(),
     negocio: (ctx.negocio ?? "").trim(),
+    producto: (ctx.producto ?? "").trim(),
   };
   let emptied = false;
   let out = body.replace(varPattern(), (whole, name: string) => {
@@ -201,25 +222,74 @@ const shortcutSchema = z.preprocess(
 const fields = {
   shortcut: shortcutSchema,
   title: z.string().trim().min(1).max(QUICK_REPLY_LIMITS.titleMax),
-  body: z.string().trim().min(1).max(QUICK_REPLY_LIMITS.bodyMax),
+  /** Puede quedar vacío SOLO si la respuesta está ligada a un producto (019). */
+  body: z.string().trim().max(QUICK_REPLY_LIMITS.bodyMax),
   position: z.number().int().min(0),
+  productId: z.string().min(1).nullable(),
+  attach: z.enum(ATTACH_VALUES).nullable(),
 };
 
-/** `POST /api/quick-replies` (`QuickReplyCreateBody`). */
-export const quickReplyCreateSchema = z.object({
-  shortcut: fields.shortcut,
-  title: fields.title,
-  body: fields.body,
-  position: fields.position.optional(),
-});
+/** Estado de la liga a producto que se valida (create, o PATCH ya fusionado). */
+export type QuickReplyLinkState = {
+  body: string;
+  productId: string | null;
+  attach: QuickReplyAttach | null;
+};
 
-/** `PATCH /api/quick-replies/[id]` (`QuickReplyPatchBody`, al menos un campo). */
+/**
+ * 019 — Reglas de la liga a producto (FR-920/921), sobre el estado
+ * RESULTANTE: `productId` y `attach` ambos o ninguno, y `body` vacío solo
+ * con producto. null = válido; si no, el mensaje del 422.
+ */
+export function quickReplyLinkProblem(s: QuickReplyLinkState): string | null {
+  if (s.productId && !s.attach) {
+    return "attach: elige qué archivos adjunta (images, documents o all) junto con el producto";
+  }
+  if (!s.productId && s.attach) {
+    return "productId: attach solo aplica a una respuesta ligada a un producto";
+  }
+  if (!s.body.trim() && !s.productId) {
+    return `body: el texto lleva de 1 a ${QUICK_REPLY_LIMITS.bodyMax} caracteres (solo puede ir vacío si adjunta archivos de un producto)`;
+  }
+  return null;
+}
+
+/**
+ * `POST /api/quick-replies` (`QuickReplyCreateBody`). Sin `body` → "" (válido
+ * solo con producto). `productId` + `attach` ambos o ninguno.
+ */
+export const quickReplyCreateSchema = z
+  .object({
+    shortcut: fields.shortcut,
+    title: fields.title,
+    body: fields.body.optional().default(""),
+    position: fields.position.optional(),
+    productId: fields.productId.optional(),
+    attach: fields.attach.optional(),
+  })
+  .superRefine((v, ctx) => {
+    const problem = quickReplyLinkProblem({
+      body: v.body,
+      productId: v.productId ?? null,
+      attach: v.attach ?? null,
+    });
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+
+/**
+ * `PATCH /api/quick-replies/[id]` (`QuickReplyPatchBody`, al menos un campo).
+ * Las reglas de la liga a producto y de variables se validan en el servidor
+ * sobre el estado FUSIONADO con lo guardado. `productId: null` desliga (y
+ * deja `attach` en null).
+ */
 export const quickReplyPatchSchema = z
   .object({
     shortcut: fields.shortcut.optional(),
     title: fields.title.optional(),
     body: fields.body.optional(),
     position: fields.position.optional(),
+    productId: fields.productId.optional(),
+    attach: fields.attach.optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "Envía al menos un campo",

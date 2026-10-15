@@ -5,6 +5,7 @@ import {
   matchQuickReplies,
   normalizeShortcut,
   quickReplyCreateSchema,
+  quickReplyLinkProblem,
   quickReplyPatchSchema,
   renderQuickReply,
   slashQuery,
@@ -186,5 +187,81 @@ describe("isDuplicateShortcut", () => {
     expect(isDuplicateShortcut({ code: "23505", constraint_name: "quick_reply_pkey" })).toBe(false);
     expect(isDuplicateShortcut(new Error("x"))).toBe(false);
     expect(isDuplicateShortcut(null)).toBe(false);
+  });
+});
+
+/** 019 — Respuestas rápidas ligadas a un producto (FR-920..923). */
+describe("019: liga a producto", () => {
+  const base = { shortcut: "fotos_t03", title: "Fotos Tiguan" };
+
+  it("body vacío (u omitido) vale SOLO con producto", () => {
+    const ok = quickReplyCreateSchema.safeParse({ ...base, body: "", productId: "prd_1", attach: "images" });
+    expect(ok.success && ok.data.body).toBe("");
+    const omitted = quickReplyCreateSchema.safeParse({ ...base, productId: "prd_1", attach: "all" });
+    expect(omitted.success && omitted.data.body).toBe("");
+    expect(quickReplyCreateSchema.safeParse({ ...base, body: "" }).success).toBe(false);
+    expect(quickReplyCreateSchema.safeParse({ ...base, body: "   " }).success).toBe(false);
+    expect(quickReplyCreateSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("productId y attach: ambos o ninguno", () => {
+    expect(quickReplyCreateSchema.safeParse({ ...base, body: "x", productId: "prd_1" }).success).toBe(false);
+    expect(quickReplyCreateSchema.safeParse({ ...base, body: "x", attach: "images" }).success).toBe(false);
+    expect(
+      quickReplyCreateSchema.safeParse({ ...base, body: "x", productId: null, attach: null }).success
+    ).toBe(true);
+    expect(
+      quickReplyCreateSchema.safeParse({ ...base, body: "x", productId: "prd_1", attach: "fotos" }).success
+    ).toBe(false);
+  });
+
+  it("quickReplyLinkProblem valida el estado fusionado de un PATCH", () => {
+    expect(quickReplyLinkProblem({ body: "", productId: "prd_1", attach: "documents" })).toBeNull();
+    expect(quickReplyLinkProblem({ body: "x", productId: null, attach: null })).toBeNull();
+    expect(quickReplyLinkProblem({ body: "", productId: null, attach: null })).toMatch(/body/);
+    expect(quickReplyLinkProblem({ body: "x", productId: "prd_1", attach: null })).toMatch(/attach/);
+    expect(quickReplyLinkProblem({ body: "x", productId: null, attach: "all" })).toMatch(/productId/);
+  });
+
+  it("PATCH admite desligar (productId null) y body vacío; la regla la aplica el servidor", () => {
+    expect(quickReplyPatchSchema.safeParse({ productId: null }).success).toBe(true);
+    expect(quickReplyPatchSchema.safeParse({ body: "" }).success).toBe(true);
+    expect(quickReplyPatchSchema.safeParse({ attach: "nada" }).success).toBe(false);
+  });
+
+  it("{{producto}}: conocida con producto, desconocida sin él", () => {
+    expect(findUnknownVars("Fotos de {{producto}}", { product: true })).toEqual([]);
+    expect(findUnknownVars("Fotos de {{ producto }}")).toEqual(["producto"]);
+    expect(findUnknownVars("{{producto}} {{x}}", { product: false })).toEqual(["producto", "x"]);
+    expect(unknownVariableMessage(findUnknownVars("{{producto}}"))).toBe(
+      "Variable desconocida: {{producto}}"
+    );
+  });
+
+  it("renderQuickReply sustituye {{producto}}; sin valor queda vacío", () => {
+    expect(renderQuickReply("Te comparto las fotos de {{producto}}", { producto: "Tiguan" })).toBe(
+      "Te comparto las fotos de Tiguan"
+    );
+    expect(renderQuickReply("Fotos de {{producto}}.", {})).toBe("Fotos de.");
+  });
+});
+
+describe("019: búsqueda sin distinguir mayúsculas (FR-923)", () => {
+  const list = [
+    { shortcut: "horario", title: "Horario" },
+    { shortcut: "fotos_t03", title: "Fotos Tiguan" },
+    { shortcut: "ficha_t03", title: "Ficha técnica Tiguan" },
+  ];
+
+  it("/FOTOS_T03 y /FOT encuentran fotos_t03", () => {
+    const text = "Hola /FOTOS_T03";
+    const q = slashQuery(text, text.length);
+    expect(q).toEqual({ query: "fotos_t03", start: 5 });
+    expect(matchQuickReplies(list, q!.query).map((r) => r.shortcut)).toEqual(["fotos_t03"]);
+    expect(matchQuickReplies(list, "/FOT").map((r) => r.shortcut)).toEqual(["fotos_t03"]);
+    expect(matchQuickReplies(list, "TIGUAN").map((r) => r.shortcut)).toEqual([
+      "fotos_t03",
+      "ficha_t03",
+    ]);
   });
 });

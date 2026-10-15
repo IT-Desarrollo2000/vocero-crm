@@ -1,5 +1,6 @@
 /** DTOs que viajan por la API interna (lado cliente). */
 
+import type { CatalogFileDto, QuickReplyAttach } from "@/lib/catalog";
 import type { Channel, ReplyMode } from "@/lib/channels";
 import type { OutboundFiles } from "@/lib/outbound-files";
 import type {
@@ -122,16 +123,39 @@ export type ConversationCounts = {
  */
 export type AssignBody = { userId: string | null; expect?: "unassigned" };
 
-/** 09: body de `POST /api/quick-replies`. `position` default = al final. */
+/**
+ * 09: body de `POST /api/quick-replies`. `position` default = al final.
+ * 019: `productId` + `attach` ambos o ninguno; `body` puede ser "" (u
+ * omitirse) solo con producto.
+ */
 export type QuickReplyCreateBody = {
   shortcut: string;
   title: string;
   body: string;
   position?: number;
+  productId?: string | null;
+  attach?: QuickReplyAttach | null;
 };
 
-/** 09: body de `PATCH /api/quick-replies/[id]` (al menos un campo). */
+/**
+ * 09: body de `PATCH /api/quick-replies/[id]` (al menos un campo). 019:
+ * `productId: null` desliga el producto (y `attach` queda en null).
+ */
 export type QuickReplyPatchBody = Partial<QuickReplyCreateBody>;
+
+/**
+ * 019: producto ligado a una respuesta rápida, ya resuelto por el servidor.
+ * `files` = compartidos + de variantes ACTIVAS filtrados por `attach`
+ * (`filesForAttach`). Un producto inactivo viene con `active: false`: el
+ * compositor no lo escenifica.
+ */
+export type QuickReplyProductDto = {
+  id: string;
+  name: string;
+  code: string | null;
+  active: boolean;
+  files: CatalogFileDto[];
+};
 
 /** 09: respuesta rápida del catálogo de la organización. */
 export type QuickReplyDto = {
@@ -142,6 +166,11 @@ export type QuickReplyDto = {
   /** Texto con variables sin sustituir (`{{nombre}}`…); lo rinde el cliente. */
   body: string;
   position: number;
+  /** 019: producto ligado (null = solo texto). */
+  productId: string | null;
+  attach: QuickReplyAttach | null;
+  /** 019: el producto con sus archivos; null si no hay (o se borró). */
+  product: QuickReplyProductDto | null;
   createdAt: string;
   updatedAt: string;
 };

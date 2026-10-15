@@ -20,6 +20,7 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { inspectOutgoing, MediaValidationError } from "@/server/media/file-policy";
+import { CatalogFileError, getCatalogFileRow, readCatalogFileData } from "./files";
 import {
   catalogStorageKey,
   getCatalogStorage,
@@ -807,15 +808,18 @@ export async function getCatalogFileForServing(
   organizationId: string,
   fileId: string
 ): Promise<{ row: ProductFileRow; data: Buffer } | null> {
-  const row = await getFileRow(getDb(), organizationId, fileId);
+  const row = await getCatalogFileRow(organizationId, fileId);
   if (!row) return null;
   try {
-    const data = await storageFor(row.storageProvider).get(row.storageKey);
+    const data = await readCatalogFileData(row);
     return { row, data };
   } catch (err) {
-    if (err instanceof StorageError && err.code === "not_found") {
-      console.error(`[catalog] ${row.id} sin binario en ${row.storageProvider}`);
-      throw new CatalogError(410, "file_missing");
+    if (err instanceof CatalogFileError) {
+      if (err.code === "file_missing") {
+        console.error(`[catalog] ${row.id} sin binario en ${row.storageProvider}`);
+        throw new CatalogError(410, "file_missing");
+      }
+      throw new CatalogError(503, "storage_unavailable", err.message);
     }
     throw storageError(err);
   }
