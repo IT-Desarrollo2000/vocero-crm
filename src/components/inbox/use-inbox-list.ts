@@ -15,6 +15,7 @@ import {
   countsFromLoaded,
   displayedConversations,
   effectiveFilters,
+  filtersToSearch,
   mergeConversations,
   mergeFirstPage,
   pinFirst,
@@ -41,8 +42,14 @@ export function useInboxList({
   viewerId,
   localTeamMode,
   onResolved,
+  initialFilters = DEFAULT_FILTERS,
 }: {
   viewerId: string;
+  /**
+   * 020: filtros con que arranca (los de la URL de la página, leídos con
+   * `useSearchParams` para que el HTML del servidor ya los pinte).
+   */
+  initialFilters?: InboxFilters;
   /**
    * Regla de respaldo de `teamMode` si `/counts` no responde (`!owner ||
    * equipo > 1`); se le suma "hay alguna asignada en lo cargado".
@@ -51,7 +58,7 @@ export function useInboxList({
   /** Tras cada `?ids=`: quién volvió y quién ya no es visible. */
   onResolved?: (r: Pick<ResolvedIds, "gone" | "present">) => void;
 }) {
-  const [filters, setFiltersState] = useState<InboxFilters>(DEFAULT_FILTERS);
+  const [filters, setFiltersState] = useState<InboxFilters>(initialFilters);
   const [items, setItems] = useState<ConversationDto[] | null>(null);
   // Filtros (como query string) con que se pidió la primera página cargada:
   // si son los activos, la búsqueda ya la resolvió el servidor.
@@ -307,11 +314,28 @@ export function useInboxList({
     setFiltersState((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  // 020 — Los filtros viven en la URL de la página (compartir/recargar). Se
+  // REEMPLAZA la entrada del historial (no se apila una por clic) y se
+  // conservan las claves ajenas, como el enlace `?contact=`.
+  const urlKey = filtersToSearch(filters, new URLSearchParams());
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const here = new URLSearchParams(window.location.search);
+    const next = filtersToSearch(filters, here);
+    if (next === window.location.search) return;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${next}${window.location.hash}`
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `urlKey` resume `filters`
+  }, [urlKey]);
+
   // 05 — Con «Ventana por cerrar» activa, cada minuto: las filas que ya
   // pasaron las 24 h salen (espejo con el reloj nuevo), entran las que
   // acaban de cruzar las 22 h (página 1 fusionada) y se corrigen contadores.
   const [clock, setClock] = useState(() => Date.now());
-  const closingActive = active.filter === "closing";
+  const closingActive = active.closing;
   useEffect(() => {
     if (!closingActive) return;
     setClock(Date.now());

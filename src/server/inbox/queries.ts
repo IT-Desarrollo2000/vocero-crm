@@ -42,6 +42,7 @@ import type {
   ConversationDto,
   ConversationsPage,
   InboxFilter,
+  InboxOrigin,
 } from "@/lib/types";
 
 /**
@@ -129,6 +130,53 @@ export function inboxFilterCondition(
 }
 
 /**
+ * 020 — Filtro Origen sobre el anuncio de ESTA conversación (LEFT JOIN de
+ * `ad_attribution` por (org, conversación), UNIQUE: no multiplica filas).
+ * `ad` = hay anuncio y no es una publicación (`source_type = 'post'`, que
+ * no deduce la fuente "Anuncio" — `cuentaComoAnuncio`); `none` = el resto,
+ * publicaciones incluidas. Exportado para el unit que fija su forma.
+ */
+export function originCondition(origin: InboxOrigin | undefined): SQL | undefined {
+  const a = schema.adAttribution;
+  if (origin === "ad") {
+    return and(isNotNull(a.id), sql`${a.sourceType} is distinct from 'post'`);
+  }
+  if (origin === "none") return or(isNull(a.id), eq(a.sourceType, "post"));
+  return undefined;
+}
+
+/** JOIN del anuncio de la conversación (lista, contadores y detalle). */
+const adAttributionJoin = and(
+  eq(schema.adAttribution.conversationId, schema.conversation.id),
+  eq(schema.adAttribution.organizationId, schema.conversation.organizationId)
+);
+
+/** Filtros del panel que tienen contador propio (facetados, ver counts). */
+type Facet = "channel" | "origin" | "unassigned" | "closing";
+
+/**
+ * 020 (rediseño 4.4) — Los filtros COMBINABLES del panel: canal, origen, sin
+ * asignar y por cerrar (la etapa va en `baseFilters`). Se intersectan entre sí
+ * y con la vista. `omit` quita uno para su propio contador facetado.
+ */
+function panelFilters(
+  viewer: Viewer,
+  opts: Pick<ListConversationsOptions, "channel" | "origin" | "unassigned" | "closing">,
+  now: Date,
+  omit?: Facet
+): (SQL | undefined)[] {
+  const c = schema.conversation;
+  return [
+    omit !== "channel" && opts.channel ? eq(c.channel, opts.channel) : undefined,
+    omit !== "origin" ? originCondition(opts.origin) : undefined,
+    omit !== "unassigned" && opts.unassigned
+      ? assignedCondition(viewer, "unassigned")
+      : undefined,
+    omit !== "closing" && opts.closing ? closingCondition(now) : undefined,
+  ];
+}
+
+/**
  * Filtros que no son de pastilla ni de canal: `q` (nombre/teléfono del
  * contacto), `stage` (por `lead.stage_id`, D-06-2; sin lead o id inexistente
  * → no entra) y `assigned`. Es la capa "base" de los contadores sin la
@@ -147,13 +195,15 @@ function baseFilters(
 
 /**
  * WHERE de la lista (modos lista y `since`): org ∧ `is_test = false` ∧
- * visibilidad (09) ∧ `assigned` ∧ `q` ∧ `stage` ∧ `channel` ∧ pastilla.
+ * visibilidad (09) ∧ `assigned` ∧ `q` ∧ `stage` ∧ (020) filtros del panel
+ * (`channel` ∧ `origin` ∧ `unassigned` ∧ `closing`) ∧ vista.
  * Exportado para el unit que fija su forma.
  */
 export function inboxListWhere(
   organizationId: string,
   viewer: Viewer,
-  opts: ListConversationsOptions
+  opts: ListConversationsOptions,
+  now: Date = new Date()
 ): SQL {
   const c = schema.conversation;
   return scoped(
@@ -162,8 +212,8 @@ export function inboxListWhere(
     eq(c.isTest, false),
     conversationVisibleTo(viewer),
     ...baseFilters(viewer, opts),
-    opts.channel ? eq(c.channel, opts.channel) : undefined,
-    inboxFilterCondition(viewer, opts.filter)
+    ...panelFilters(viewer, opts, now),
+    inboxFilterCondition(viewer, opts.filter, now)
   );
 }
 
@@ -174,6 +224,10 @@ type ListRow = {
   stageId: string | null;
   stageName: string | null;
   assigneeName: string | null;
+  /** 020: anuncio de la conversación (LEFT JOIN); id null = no vino de uno. */
+  adId: string | null;
+  adHeadline: string | null;
+  adSourceType: string | null;
   /** sort_at con µs (`sortKeySql`): la ÚNICA fuente del cursor. */
   sortKey: string;
 };
@@ -257,13 +311,17 @@ export async function listConversations(
       stageId: schema.lead.stageId,
       stageName: schema.pipelineStage.name,
       assigneeName: schema.user.name,
+      adId: schema.adAttribution.id,
+      adHeadline: schema.adAttribution.headline,
+      adSourceType: schema.adAttribution.sourceType,
       sortKey: sortKeySql,
     })
     .from(c)
     .innerJoin(schema.contact, eq(c.contactId, schema.contact.id))
     .leftJoin(schema.lead, eq(schema.lead.contactId, schema.contact.id))
     .leftJoin(schema.pipelineStage, eq(schema.pipelineStage.id, schema.lead.stageId))
-    .leftJoin(schema.user, eq(schema.user.id, c.assignedUserId));
+    .leftJoin(schema.user, eq(schema.user.id, c.assignedUserId))
+    .leftJoin(schema.adAttribution, adAttributionJoin);
 
   // Modos sueltos: solo visibilidad (+ is_test = false), nunca filtros.
   const loose = (extra: SQL) =>
@@ -328,55 +386,78 @@ export async function listConversations(
       r.stageName,
       assigneeOf(r.conversation, r.assigneeName),
       r.stageId,
-      igSource
+      igSource,
+      anuncioDeFila(r)
     )
   );
   return { conversations, nextCursor };
 }
 
+/** 020: lo que la fila pinta del anuncio de origen, o null. */
+function anuncioDeFila(r: {
+  adId: string | null;
+  adHeadline: string | null;
+  adSourceType: string | null;
+}): ConversationDto["anuncio"] {
+  return r.adId ? { headline: r.adHeadline, sourceType: r.adSourceType } : null;
+}
+
 /**
- * Contadores de la Bandeja (`ConversationCounts`, contrato 06-0). Capas:
+ * Contadores de la Bandeja (`ConversationCounts`). 020 — FACETADOS: cada
+ * número es lo que verías al elegir esa opción dejando todo lo demás como
+ * está (ver el tipo en `src/lib/types.ts`):
  *
- *   base         = org ∧ is_test = false ∧ visibilidad ∧ q ∧ stage ∧ assigned
- *   pastillas    = base ∧ channel ∧ predicado (= filas recorribles con ese filter)
- *   byChannel[x] = base ∧ channel = x (ignora el channel pedido)
+ *   base          = org ∧ is_test = false ∧ visibilidad ∧ q ∧ stage ∧ assigned
+ *   filtros       = channel ∧ origin ∧ unassigned ∧ closing (los del panel)
+ *   vistas        = base ∧ filtros ∧ predicado de la vista (la pedida no cuenta)
+ *   unassigned/closing = base ∧ vista ∧ filtros-sin-él ∧ su predicado
+ *   origin.ad/none = base ∧ vista ∧ filtros-sin-origen ∧ ese origen
+ *   byChannel[x]  = base ∧ vista ∧ filtros-sin-canal ∧ channel = x
  *   unreadConversations / unreadMessages = SOLO visibilidad (badge, D-05-1)
- *   teamMode     = !owner ∨ miembros > 1 ∨ alguna visible con responsable
+ *   teamMode      = !owner ∨ miembros > 1 ∨ alguna visible con responsable
  *
- * Una sola pasada: el WHERE lleva solo org ∧ is_test ∧ visibilidad y el resto
- * de capas va en `count(*) filter (where …)`. `filter`/`limit`/`cursor` se
- * ignoran. Postgres devuelve count/sum como bigint/numeric (texto en
- * postgres-js): todo se castea a int y se mapea a Number.
+ * Sin vista ni filtros del panel, coincide con el contrato 06-0. Una sola
+ * pasada: el WHERE lleva solo org ∧ is_test ∧ visibilidad y el resto de capas
+ * va en `count(*) filter (where …)`. `limit`/`cursor` se ignoran. Postgres
+ * devuelve count/sum como bigint/numeric (texto en postgres-js): todo se
+ * castea a int y se mapea a Number.
  */
 export async function countConversations(
   organizationId: string,
   viewer: Viewer,
-  query: Pick<ListConversationsOptions, "q" | "stageId" | "channel" | "assigned"> = {}
+  query: Pick<
+    ListConversationsOptions,
+    "q" | "stageId" | "channel" | "assigned" | "filter" | "origin" | "unassigned" | "closing"
+  > = {}
 ): Promise<ConversationCounts> {
   const c = schema.conversation;
   const db = getDb();
   const always = sql`true`;
   const now = new Date();
   const base = and(...baseFilters(viewer, query));
-  const inChannel = query.channel ? eq(c.channel, query.channel) : undefined;
+  const view = inboxFilterCondition(viewer, query.filter, now);
+  const panel = (omit?: Facet) => panelFilters(viewer, query, now, omit);
   const countWhere = (...conds: (SQL | undefined)[]) =>
     sql<number>`count(*) filter (where ${and(...conds) ?? always})::int`.mapWith(Number);
 
   const aggregates = db
     .select({
-      all: countWhere(base, inChannel),
-      unread: countWhere(base, inChannel, inboxFilterCondition(viewer, "unread")),
-      human: countWhere(base, inChannel, inboxFilterCondition(viewer, "human")),
-      mine: countWhere(base, inChannel, inboxFilterCondition(viewer, "mine")),
+      all: countWhere(base, ...panel()),
+      unread: countWhere(base, ...panel(), inboxFilterCondition(viewer, "unread")),
+      human: countWhere(base, ...panel(), inboxFilterCondition(viewer, "human")),
+      mine: countWhere(base, ...panel(), inboxFilterCondition(viewer, "mine")),
       unassigned: countWhere(
         base,
-        inChannel,
-        inboxFilterCondition(viewer, "unassigned")
+        view,
+        ...panel("unassigned"),
+        assignedCondition(viewer, "unassigned")
       ),
-      closing: countWhere(base, inChannel, inboxFilterCondition(viewer, "closing", now)),
-      whatsapp: countWhere(base, eq(c.channel, "whatsapp")),
-      instagram: countWhere(base, eq(c.channel, "instagram")),
-      messenger: countWhere(base, eq(c.channel, "messenger")),
+      closing: countWhere(base, view, ...panel("closing"), closingCondition(now)),
+      whatsapp: countWhere(base, view, ...panel("channel"), eq(c.channel, "whatsapp")),
+      instagram: countWhere(base, view, ...panel("channel"), eq(c.channel, "instagram")),
+      messenger: countWhere(base, view, ...panel("channel"), eq(c.channel, "messenger")),
+      originAd: countWhere(base, view, ...panel("origin"), originCondition("ad")),
+      originNone: countWhere(base, view, ...panel("origin"), originCondition("none")),
       unreadConversations: countWhere(gt(c.unreadCount, 0)),
       unreadMessages: sql<number>`coalesce(sum(${c.unreadCount}), 0)::int`.mapWith(Number),
       anyAssigned: sql<boolean>`coalesce(bool_or(${c.assignedUserId} is not null), false)`,
@@ -384,6 +465,7 @@ export async function countConversations(
     .from(c)
     .innerJoin(schema.contact, eq(c.contactId, schema.contact.id))
     .leftJoin(schema.lead, eq(schema.lead.contactId, schema.contact.id))
+    .leftJoin(schema.adAttribution, adAttributionJoin)
     .where(
       scoped(
         c.organizationId,
@@ -414,6 +496,7 @@ export async function countConversations(
       instagram: n(agg?.instagram),
       messenger: n(agg?.messenger),
     },
+    origin: { ad: n(agg?.originAd), none: n(agg?.originNone) },
     unreadConversations: n(agg?.unreadConversations),
     unreadMessages: n(agg?.unreadMessages),
     teamMode:
@@ -451,6 +534,9 @@ export async function getConversation(
       conversation: schema.conversation,
       contact: schema.contact,
       assigneeName: schema.user.name,
+      adId: schema.adAttribution.id,
+      adHeadline: schema.adAttribution.headline,
+      adSourceType: schema.adAttribution.sourceType,
     })
     .from(schema.conversation)
     .innerJoin(
@@ -461,6 +547,7 @@ export async function getConversation(
       schema.user,
       eq(schema.user.id, schema.conversation.assignedUserId)
     )
+    .leftJoin(schema.adAttribution, adAttributionJoin)
     .where(
       scoped(
         schema.conversation.organizationId,
@@ -476,6 +563,8 @@ export async function getConversation(
     conversation: row.conversation,
     contact: row.contact,
     assignee: assigneeOf(row.conversation, row.assigneeName),
+    /** 020: para `serializeConversation` (etiqueta de la fila). */
+    anuncio: anuncioDeFila(row),
   };
 }
 
@@ -512,7 +601,9 @@ export function serializeConversation(
   /** 06: etapa del lead (JOIN con `lead`); null si no hay lead. */
   stageId: string | null = null,
   /** 018: fuente de Instagram de la org (Zernio → sin archivos). */
-  instagramSource: InstagramSource | null = null
+  instagramSource: InstagramSource | null = null,
+  /** 020: anuncio de origen de la conversación (etiqueta de la fila). */
+  anuncio: ConversationDto["anuncio"] = null
 ): ConversationDto {
   return {
     id: c.id,
@@ -537,6 +628,7 @@ export function serializeConversation(
     assignedAt: assignee ? (c.assignedAt?.toISOString() ?? null) : null,
     sortAt: (c.lastMessageAt ?? c.createdAt).toISOString(),
     stageId,
+    anuncio,
   };
 }
 

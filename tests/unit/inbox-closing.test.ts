@@ -57,6 +57,7 @@ function mk(over: Partial<ConversationDto> = {}): ConversationDto {
     assignedAt: null,
     sortAt: "2026-01-01T00:00:00.000Z",
     stageId: null,
+    anuncio: null,
     ...over,
   } satisfies ConversationDto;
 }
@@ -111,7 +112,10 @@ describe("«Ventana por cerrar» — bordes", () => {
 
   it("closing está en el catálogo y se parsea", () => {
     expect(INBOX_FILTERS).toContain("closing");
-    expect(parseInboxQuery(new URLSearchParams("filter=closing")).filter).toBe("closing");
+    // 020: la pastilla vieja es hoy el filtro combinable `closing`.
+    const q = parseInboxQuery(new URLSearchParams("filter=closing"));
+    expect(q.filter).toBe("all");
+    expect(q.closing).toBe(true);
   });
 });
 
@@ -144,7 +148,7 @@ describe("«Ventana por cerrar» — paridad servidor ≡ cliente", () => {
           filter: "closing",
           now: NOW,
         }).visible.length === 1;
-        const mirror = matchesFilters(row, { ...DEFAULT_FILTERS, filter: "closing" }, undefined, NOW);
+        const mirror = matchesFilters(row, { ...DEFAULT_FILTERS, closing: true }, undefined, NOW);
         if (server !== client || client !== mirror) {
           diffs.push(`${channel} ${lastInboundAt}: servidor ${server}, cliente ${client}, espejo ${mirror}`);
         }

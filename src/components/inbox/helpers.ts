@@ -3,7 +3,8 @@
 import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
 import { isClosingSoon } from "@/lib/closing-window";
-import type { ConversationDto, InboxFilter } from "@/lib/types";
+import { cuentaComoAnuncio } from "@/lib/anuncios";
+import type { ConversationDto, InboxFilter, InboxOrigin } from "@/lib/types";
 
 /**
  * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana, (09)
@@ -27,8 +28,9 @@ export function needsHuman(c: ConversationDto): boolean {
  * Filtrado de la bandeja, en capas y en este orden:
  *  1. búsqueda (solo NOMBRE y TELÉFONO) + etapa del embudo → `searched`
  *     (base de los contadores por canal);
- *  2. bandeja/canal elegido → `inInbox` (base de las pastillas);
- *  3. pastilla → `visible`.
+ *  2. bandeja/canal elegido + (020) filtros combinables del panel (origen,
+ *     sin asignar, por cerrar) → `inInbox` (base de las vistas);
+ *  3. vista → `visible`.
  *
  * Solo nombre y teléfono, como cualquier filtro de contactos. Antes también
  * miraba el preview, y como el agente nombra al dueño en sus propios
@@ -49,6 +51,13 @@ export function filterConversations(
     stageId?: string;
     inbox: Channel | "all";
     filter: ConversationFilter;
+    /**
+     * 020: filtros combinables del panel. Origen ≡ `originCondition` del
+     * servidor (`cuentaComoAnuncio` sobre el anuncio de la fila).
+     */
+    origin?: InboxOrigin | null;
+    unassigned?: boolean;
+    closing?: boolean;
     /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
     viewerId?: string;
     /** 05: reloj de «Ventana por cerrar» (ms); por defecto, ahora. */
@@ -59,8 +68,15 @@ export function filterConversations(
   inInbox: ConversationDto[];
   visible: ConversationDto[];
 } {
-  const { query, stage, stageId, inbox, filter, viewerId } = opts;
+  const { query, stage, stageId, filter, viewerId, origin } = opts;
   const now = opts.now ?? Date.now();
+  // Los filtros combinables se aplican en la capa del canal: las vistas
+  // cuentan dentro de ellos.
+  const panelOk = (c: ConversationDto): boolean =>
+    (origin == null || (origin === "ad") === cuentaComoAnuncio(c.anuncio)) &&
+    (!opts.unassigned || c.assignedTo === null) &&
+    (!opts.closing || isClosingSoon(c.channel, c.lastInboundAt, now));
+  const inbox = opts.inbox;
   const stageOk = (c: ConversationDto): boolean => {
     if (!stageId) return stage === "all" || c.stageName === stage;
     if (c.stageId != null) return c.stageId === stageId;
@@ -76,8 +92,9 @@ export function filterConversations(
   );
   // La bandeja elegida es el filtro de AFUERA: las pastillas cuentan dentro
   // de ella, no sobre la suma de los canales.
-  const inInbox =
-    inbox === "all" ? searched : searched.filter((c) => c.channel === inbox);
+  const inInbox = searched.filter(
+    (c) => (inbox === "all" || c.channel === inbox) && panelOk(c)
+  );
   const visible =
     filter === "unread"
       ? inInbox.filter((c) => c.unreadCount > 0)

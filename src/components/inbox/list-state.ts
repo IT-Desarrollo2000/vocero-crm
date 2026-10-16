@@ -10,20 +10,29 @@
  *   conserva quien llama); presente y dentro = upsert en su lugar.
  */
 
-import type { Channel } from "@/lib/channels";
+import { CHANNEL_ORDER, type Channel } from "@/lib/channels";
 import type {
   ConversationCounts,
   ConversationDto,
   InboxFilter,
+  InboxOrigin,
+  InboxView,
 } from "@/lib/types";
 import { filterConversations } from "./helpers";
 
 /** Tamaño de página que pide la UI (el servidor acepta [1, 200]). */
 export const PAGE_SIZE = 50;
 
-/** Filtros activos de la Bandeja; todos viajan al servidor. */
+/**
+ * Filtros activos de la Bandeja; todos viajan al servidor y viven en la URL
+ * de la página (020: compartir/recargar conserva la vista y el panel).
+ *
+ * 020 (rediseño 4.4): `filter` es la VISTA (excluyente: Todas · No leídas ·
+ * Mías · Atención humana); canal, etapa, origen, sin asignar y por cerrar son
+ * filtros COMBINABLES entre sí y con la vista.
+ */
 export type InboxFilters = {
-  filter: InboxFilter;
+  filter: InboxView;
   /** Etapa por id (D-06-2), o null = toda etapa. */
   stageId: string | null;
   /**
@@ -33,6 +42,12 @@ export type InboxFilters = {
   stageName: string | null;
   channel: Channel | null;
   q: string;
+  /** 020: Origen — `ad` (de anuncio), `none` (sin anuncio) o null (todos). */
+  origin: InboxOrigin | null;
+  /** 020: solo las que nadie ha tomado (antes, pastilla "Sin asignar"). */
+  unassigned: boolean;
+  /** 020: solo las de ventana por cerrar (antes, pastilla). */
+  closing: boolean;
 };
 
 export const DEFAULT_FILTERS: InboxFilters = {
@@ -41,30 +56,121 @@ export const DEFAULT_FILTERS: InboxFilters = {
   stageName: null,
   channel: null,
   q: "",
+  origin: null,
+  unassigned: false,
+  closing: false,
 };
+
+const VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human"];
+
+/**
+ * 020 — Cuántos filtros del PANEL hay puestos (el número del botón
+ * "Filtros"). La vista y la búsqueda no cuentan: tienen su propio control.
+ */
+export function panelFilterCount(f: InboxFilters): number {
+  return (
+    (f.channel ? 1 : 0) +
+    (f.stageId ? 1 : 0) +
+    (f.origin ? 1 : 0) +
+    (f.unassigned ? 1 : 0) +
+    (f.closing ? 1 : 0)
+  );
+}
 
 /** ¿Hay algún filtro puesto? (decide entre "Sin conversaciones" y "Sin resultados"). */
 export function hasActiveFilters(f: InboxFilters): boolean {
-  return f.filter !== "all" || f.stageId !== null || f.channel !== null || f.q.trim() !== "";
+  return f.filter !== "all" || panelFilterCount(f) > 0 || f.q.trim() !== "";
+}
+
+/** 020: quita los filtros del panel (botón "Limpiar"); vista y búsqueda se quedan. */
+export function clearPanelFilters(): Partial<InboxFilters> {
+  return {
+    stageId: null,
+    stageName: null,
+    channel: null,
+    origin: null,
+    unassigned: false,
+    closing: false,
+  };
 }
 
 /**
- * Sin asignación a la vista (Propietario trabajando solo), una pastilla
- * "Mías"/"Sin asignar" ya elegida no debe seguir filtrando a escondidas.
+ * Sin asignación a la vista (Propietario trabajando solo), la vista "Mías" o
+ * el filtro "Sin asignar" ya elegidos no deben seguir filtrando a escondidas.
  */
 export function effectiveFilters(f: InboxFilters, teamMode: boolean): InboxFilters {
-  if (teamMode || (f.filter !== "mine" && f.filter !== "unassigned")) return f;
-  return { ...f, filter: "all" };
+  if (teamMode || (f.filter !== "mine" && !f.unassigned)) return f;
+  return { ...f, filter: f.filter === "mine" ? "all" : f.filter, unassigned: false };
 }
 
-/** Parámetros compartidos por lista y contadores (sin `filter`). */
+/** Parámetros compartidos por lista, contadores y URL de la página (sin `filter`). */
 function baseParams(f: InboxFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.stageId) p.set("stage", f.stageId);
   if (f.channel) p.set("channel", f.channel);
+  if (f.origin) p.set("origin", f.origin);
+  if (f.unassigned) p.set("unassigned", "1");
+  if (f.closing) p.set("closing", "1");
   const q = f.q.trim();
   if (q) p.set("q", q);
   return p;
+}
+
+/** Claves de la URL de la página que son de filtros (las demás, p. ej. `contact`, se respetan). */
+export const FILTER_URL_KEYS = [
+  "filter",
+  "stage",
+  "channel",
+  "origin",
+  "unassigned",
+  "closing",
+  "q",
+] as const;
+
+const FLAG_ON = new Set(["1", "true", "on", "si", "sí", "yes"]);
+
+/**
+ * 020 — Filtros desde la URL de la página (`/inbox?filter=unread&origin=ad…`),
+ * con el mismo parseo tolerante que el servidor: valor desconocido = sin
+ * filtro. Compatibles con los enlaces viejos: `filter=unassigned` y
+ * `filter=closing` eran pastillas y hoy son los filtros `unassigned`/`closing`.
+ */
+export function filtersFromSearchParams(
+  params: Pick<URLSearchParams, "get">
+): InboxFilters {
+  const raw = params.get("filter") ?? "";
+  const flag = (k: string) => FLAG_ON.has((params.get(k) ?? "").trim().toLowerCase());
+  const channel = params.get("channel") ?? "";
+  const origin = params.get("origin") ?? "";
+  const stage = (params.get("stage") ?? "").trim();
+  return {
+    filter: (VIEWS as readonly string[]).includes(raw) ? (raw as InboxView) : "all",
+    stageId: stage && stage.length <= 64 ? stage : null,
+    stageName: null,
+    channel: (CHANNEL_ORDER as readonly string[]).includes(channel)
+      ? (channel as Channel)
+      : null,
+    q: (params.get("q") ?? "").slice(0, 200),
+    origin: origin === "ad" || origin === "none" ? origin : null,
+    unassigned: raw === "unassigned" || flag("unassigned"),
+    closing: raw === "closing" || flag("closing"),
+  };
+}
+
+/**
+ * 020 — Query string de la página para estos filtros (con `?`, o "" si no hay
+ * nada), conservando las claves ajenas a los filtros de `current` (el enlace
+ * `?contact=`).
+ */
+export function filtersToSearch(f: InboxFilters, current: URLSearchParams): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of current) {
+    if (!(FILTER_URL_KEYS as readonly string[]).includes(k)) p.append(k, v);
+  }
+  if (f.filter !== "all") p.set("filter", f.filter);
+  for (const [k, v] of baseParams(f)) p.set(k, v);
+  const out = p.toString();
+  return out ? "?" + out : "";
 }
 
 /**
@@ -85,9 +191,16 @@ export function buildListQuery(
   return p.toString();
 }
 
-/** Query string de `GET /api/conversations/counts`: los mismos filtros menos `filter`. */
+/**
+ * Query string de `GET /api/conversations/counts`: los mismos filtros que la
+ * lista. 020: la vista también viaja — los contadores del panel (origen, canal,
+ * sin asignar, por cerrar) se cuentan DENTRO de ella (facetados).
+ */
 export function buildCountsQuery(f: InboxFilters): string {
-  return baseParams(f).toString();
+  const p = new URLSearchParams();
+  if (f.filter !== "all") p.set("filter", f.filter);
+  for (const [k, v] of baseParams(f)) p.set(k, v);
+  return p.toString();
 }
 
 /** Tope de ids por `?ids=` (contrato: los extra se descartan en el servidor). */
@@ -186,6 +299,9 @@ export function visibleConversations(
     stageId: f.stageId ?? undefined,
     inbox: f.channel ?? "all",
     filter: f.filter,
+    origin: f.origin,
+    unassigned: f.unassigned,
+    closing: f.closing,
     viewerId,
     now,
   }).visible;
@@ -274,41 +390,43 @@ export function applyResolvedIds(
 
 /**
  * Contadores de respaldo cuando `/counts` no responde (servidor anterior a
- * 06, o error): se calculan sobre lo cargado, con las mismas capas que el
- * contrato. `teamMode` aquí solo mira si hay alguna asignada; quien llama le
+ * 06, o error): se calculan sobre lo cargado, con la misma regla facetada del
+ * contrato (020): cada número = lo que verías al elegir esa opción dejando lo
+ * demás fijo. `teamMode` aquí solo mira si hay alguna asignada; quien llama le
  * suma la regla de rol/equipo.
  */
 export function countsFromLoaded(
   items: readonly ConversationDto[],
   f: InboxFilters,
-  viewerId: string | undefined
+  viewerId: string | undefined,
+  now: number = Date.now()
 ): ConversationCounts {
-  const { searched, inInbox } = filterConversations(items, {
-    query: f.q,
-    stage: f.stageName ?? "all",
-    stageId: f.stageId ?? undefined,
-    inbox: f.channel ?? "all",
-    filter: "all",
-    viewerId,
-  });
-  const byChannel = { whatsapp: 0, instagram: 0, messenger: 0 };
-  for (const c of searched) byChannel[c.channel] += 1;
-  const count = (filter: InboxFilter) =>
-    filterConversations(inInbox, {
-      query: "",
-      stage: "all",
-      inbox: "all",
-      filter,
+  const count = (over: Partial<InboxFilters> & { filter?: InboxFilter }) =>
+    filterConversations(items, {
+      query: f.q,
+      stage: f.stageName ?? "all",
+      stageId: f.stageId ?? undefined,
+      inbox: ("channel" in over ? over.channel : f.channel) ?? "all",
+      filter: over.filter ?? f.filter,
+      origin: "origin" in over ? over.origin : f.origin,
+      unassigned: over.unassigned ?? f.unassigned,
+      closing: over.closing ?? f.closing,
       viewerId,
+      now,
     }).visible.length;
   return {
-    all: inInbox.length,
-    unread: count("unread"),
-    human: count("human"),
-    mine: count("mine"),
-    unassigned: count("unassigned"),
-    closing: count("closing"),
-    byChannel,
+    all: count({ filter: "all" }),
+    unread: count({ filter: "unread" }),
+    human: count({ filter: "human" }),
+    mine: count({ filter: "mine" }),
+    unassigned: count({ unassigned: true }),
+    closing: count({ closing: true }),
+    byChannel: {
+      whatsapp: count({ channel: "whatsapp" }),
+      instagram: count({ channel: "instagram" }),
+      messenger: count({ channel: "messenger" }),
+    },
+    origin: { ad: count({ origin: "ad" }), none: count({ origin: "none" }) },
     unreadConversations: items.filter((c) => c.unreadCount > 0).length,
     unreadMessages: items.reduce((a, c) => a + c.unreadCount, 0),
     teamMode: items.some((c) => c.assignedTo !== null),

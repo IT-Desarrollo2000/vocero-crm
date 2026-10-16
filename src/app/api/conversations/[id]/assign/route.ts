@@ -105,7 +105,8 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       null,
       row.assignee,
       null,
-      await instagramSourceFor(session.organizationId, row.conversation.channel)
+      await instagramSourceFor(session.organizationId, row.conversation.channel),
+      row.anuncio
     ),
   });
 });

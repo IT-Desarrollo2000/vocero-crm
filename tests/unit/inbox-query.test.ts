@@ -76,10 +76,36 @@ describe("parseInboxQuery (tolerante)", () => {
       filter: "all",
       stageId: undefined,
       channel: undefined,
+      origin: undefined,
+      unassigned: false,
+      closing: false,
       q: undefined,
       ids: undefined,
       contactId: undefined,
       since: undefined,
+    });
+  });
+
+  it("020: vista + filtros combinables; pastillas viejas → filtro equivalente", () => {
+    expect(parseInboxQuery(params("filter=unread&origin=ad&unassigned=1&closing=true"))).toMatchObject({
+      filter: "unread",
+      origin: "ad",
+      unassigned: true,
+      closing: true,
+    });
+    expect(parseInboxQuery(params("filter=unassigned"))).toMatchObject({
+      filter: "all",
+      unassigned: true,
+      closing: false,
+    });
+    expect(parseInboxQuery(params("filter=closing"))).toMatchObject({
+      filter: "all",
+      closing: true,
+    });
+    // Tolerante: valores desconocidos = sin filtro.
+    expect(parseInboxQuery(params("origin=organico&unassigned=quizas"))).toMatchObject({
+      origin: undefined,
+      unassigned: false,
     });
   });
 

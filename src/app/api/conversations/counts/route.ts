@@ -7,11 +7,14 @@ export const dynamic = "force-dynamic";
 
 /**
  * 06: contadores de la Bandeja (`ConversationCounts` de `src/lib/types.ts`)
- * con los MISMOS filtros que la lista (`q`, `stage`, `channel`, `assigned`),
- * siempre dentro de lo visible para quien pide. Ignora `filter`, `limit` y
- * `cursor`. Capas y `teamMode`: ver dev-tasks/06-paginacion-de-la-bandeja.md,
- * "Contrato 06-0". `assigned` inválido → 422 `invalid_query` (igual que la
- * lista).
+ * con los MISMOS filtros que la lista, siempre dentro de lo visible para quien
+ * pide. Ignora `limit` y `cursor`. `assigned` inválido → 422
+ * `invalid_query` (igual que la lista).
+ *
+ * 020: también recibe la vista (`filter`) y los filtros del panel (`origin`,
+ * `unassigned`, `closing`): los contadores son FACETADOS — cada uno dice lo
+ * que verías al elegir esa opción dejando lo demás fijo (ver
+ * `countConversations`).
  */
 export const GET = withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
@@ -23,11 +26,13 @@ export const GET = withAuth(async (session, req: Request) => {
       "assigned debe ser me, unassigned o all"
     );
   }
-  const { q, stageId, channel } = parseInboxQuery(url.searchParams);
+  const { q, stageId, channel, filter, origin, unassigned, closing } = parseInboxQuery(
+    url.searchParams
+  );
   const counts: ConversationCounts = await countConversations(
     session.organizationId,
     session,
-    { q, stageId, channel, assigned }
+    { q, stageId, channel, assigned, filter, origin, unassigned, closing }
   );
   return Response.json(counts);
 });

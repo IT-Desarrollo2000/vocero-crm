@@ -23,6 +23,7 @@ import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
 import { AssignmentControl, type TeamOption } from "./assignment-control";
 import { useInboxList } from "./use-inbox-list";
+import { filtersFromSearchParams } from "./list-state";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
 const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
@@ -156,7 +157,11 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
    * abierta se cierra con el aviso; presente = la copia abierta se actualiza
    * aunque haya salido de la lista por el filtro.
    */
+  // 020: los filtros arrancan de la URL (`/inbox?filter=unread&origin=ad…`).
+  const searchParams = useSearchParams();
+  const [initialFilters] = useState(() => filtersFromSearchParams(searchParams));
   const list = useInboxList({
+    initialFilters,
     viewerId: viewer.userId,
     localTeamMode: !owner || (team?.length ?? 0) > 1,
     onResolved: ({ gone, present }) => {
@@ -256,7 +261,6 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   // en lo cargado (conversación antigua, otra página), se pide suelta con
   // `?contact=`. 09: si tampoco viene, el Vendedor no la ve (o no existe) y
   // se dice por qué en vez de dejar el hilo vacío. Una vez por enlace.
-  const searchParams = useSearchParams();
   const contactParam = searchParams.get("contact");
   const loaded = list.items !== null;
   const linkChecked = useRef<string | null>(null);

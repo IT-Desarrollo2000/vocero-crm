@@ -1,8 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Hourglass, PauseCircle, Search, Sparkles, UserRound, X } from "lucide-react";
-import type { ConversationCounts, ConversationDto } from "@/lib/types";
+import {
+  Hourglass,
+  PauseCircle,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  UserRound,
+  X,
+} from "lucide-react";
+import type {
+  ConversationCounts,
+  ConversationDto,
+  InboxOrigin,
+  InboxView,
+} from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
 import { ChannelBadge } from "@/components/channel-badge";
 import { cn } from "@/lib/utils";
@@ -19,9 +32,14 @@ import {
   formatTime,
   initials,
   previewText,
-  type ConversationFilter,
 } from "./helpers";
-import { hasActiveFilters, type InboxFilters } from "./list-state";
+import {
+  clearPanelFilters,
+  hasActiveFilters,
+  panelFilterCount,
+  type InboxFilters,
+} from "./list-state";
+import { EtiquetaDeOrigen } from "@/components/anuncio-origen";
 import { CLOSING_TICK_MS, type InboxListError } from "./use-inbox-list";
 import { AlertsBanner } from "./alerts-banner";
 
@@ -159,6 +177,110 @@ function ListFooter({
   );
 }
 
+/** 020: opción de un grupo excluyente del panel (canal, origen). */
+function PanelOption({
+  on,
+  label,
+  count,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  label: string;
+  count?: number;
+  onClick: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cn(
+        "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
+        on ? "border-brand bg-brand text-brand-fg" : "bg-background text-text-2 hover:bg-accent"
+      )}
+    >
+      {children}
+      {label}
+      {count !== undefined && (
+        <span
+          className={cn(
+            "rounded-full px-1.5 text-[11px]",
+            on ? "bg-brand-veil" : "bg-secondary text-text-3"
+          )}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** 020: un filtro sí/no del panel (Sin asignar, Por cerrar). */
+function PanelToggle({
+  on,
+  label,
+  hint,
+  count,
+  onChange,
+}: {
+  on: boolean;
+  label: string;
+  hint: string;
+  count: number;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className="flex w-full items-center justify-between gap-3 rounded-md px-1 py-1.5 text-left hover:bg-accent"
+    >
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium">
+          {label} <span className="text-[11px] font-normal text-text-3">({count})</span>
+        </span>
+        <span className="block text-[11px] text-text-3">{hint}</span>
+      </span>
+      <span
+        aria-hidden
+        className={cn(
+          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors",
+          on ? "bg-brand" : "bg-border-strong"
+        )}
+      >
+        <span
+          className={cn(
+            "h-4 w-4 rounded-full bg-knob shadow-sm transition-transform",
+            on ? "translate-x-4" : "translate-x-0"
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** 020: un filtro activo como etiqueta removible (x). */
+function ActiveChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-brand-soft bg-brand-tint py-0.5 pl-2 pr-1 text-[11.5px] text-brand-text">
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Quitar filtro: ${label}`}
+        className="shrink-0 rounded-full p-0.5 hover:bg-brand-veil"
+      >
+        <X className="h-3 w-3" strokeWidth={2} />
+      </button>
+    </span>
+  );
+}
+
 export function ConversationList({
   conversations: conversationsProp,
   counts,
@@ -204,12 +326,23 @@ export function ConversationList({
   const inputRef = useRef<HTMLInputElement>(null);
   const viewer = useViewer();
   const viewerOwner = isOwner(viewer);
-  const filter: ConversationFilter =
-    !teamMode && (filters.filter === "mine" || filters.filter === "unassigned")
-      ? "all"
-      : filters.filter;
+  // Sin asignación a la vista (Propietario solo), "Mías" y "Sin asignar" no
+  // se enseñan ni filtran (lo mismo hace `effectiveFilters` con lo que viaja).
+  const filter: InboxView = !teamMode && filters.filter === "mine" ? "all" : filters.filter;
+  const unassignedOn = teamMode && filters.unassigned;
   const stage = filters.stageId ?? "all";
   const inbox: Channel | "all" = filters.channel ?? "all";
+  // 020: panel "Filtros" (desplegable en escritorio, hoja inferior en móvil).
+  const [panelOpen, setPanelOpen] = useState(false);
+  const activeCount = panelFilterCount({ ...filters, unassigned: unassignedOn });
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPanelOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelOpen]);
 
   // La búsqueda la hace el servidor (06): se manda tras una pausa al teclear.
   const onFiltersChangeRef = useRef(onFiltersChange);
@@ -257,21 +390,18 @@ export function ConversationList({
 
   const loading = conversationsProp === null;
   const visible = conversationsProp ?? [];
-  const pills: { id: ConversationFilter; label: string; count: number }[] = [
+  // 020 (rediseño 4.4): un renglón de VISTAS excluyentes. Lo demás (canal,
+  // etapa, origen, sin asignar, por cerrar) vive en el panel "Filtros".
+  const views: { id: InboxView; label: string; count: number }[] = [
     { id: "all", label: "Todas", count: counts?.all ?? 0 },
     { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
+    ...(teamMode ? [{ id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 }] : []),
     { id: "human", label: "Atención humana", count: counts?.human ?? 0 },
-    ...(teamMode
-      ? [
-          { id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 },
-          {
-            id: "unassigned" as const,
-            label: "Sin asignar",
-            count: counts?.unassigned ?? 0,
-          },
-        ]
-      : []),
-    { id: "closing", label: "Ventana por cerrar", count: counts?.closing ?? 0 },
+  ];
+  const ORIGINS: { id: InboxOrigin | null; label: string; count?: number }[] = [
+    { id: null, label: "Todos" },
+    { id: "ad", label: "De anuncio", count: counts?.origin?.ad ?? 0 },
+    { id: "none", label: "Sin anuncio", count: counts?.origin?.none ?? 0 },
   ];
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
@@ -352,7 +482,45 @@ export function ConversationList({
     }
   }, [selectedId, activeRendered]);
 
-  const noFilters = !hasActiveFilters({ ...filters, filter, q: query });
+  const noFilters = !hasActiveFilters({ ...filters, filter, unassigned: unassignedOn, q: query });
+  const stageLabel =
+    filters.stageName ?? pipelineStages.find((s) => s.id === filters.stageId)?.name ?? "Etapa";
+  // Filtros activos como etiquetas removibles (x).
+  const chips: { key: string; label: string; remove: () => void }[] = [
+    ...(filters.channel
+      ? [
+          {
+            key: "channel",
+            label: CHANNEL_LABEL[filters.channel],
+            remove: () => onFiltersChange({ channel: null }),
+          },
+        ]
+      : []),
+    ...(filters.stageId
+      ? [
+          {
+            key: "stage",
+            label: `Etapa: ${stageLabel}`,
+            remove: () => onFiltersChange({ stageId: null, stageName: null }),
+          },
+        ]
+      : []),
+    ...(filters.origin
+      ? [
+          {
+            key: "origin",
+            label: filters.origin === "ad" ? "De anuncio" : "Sin anuncio",
+            remove: () => onFiltersChange({ origin: null }),
+          },
+        ]
+      : []),
+    ...(unassignedOn
+      ? [{ key: "unassigned", label: "Sin asignar", remove: () => onFiltersChange({ unassigned: false }) }]
+      : []),
+    ...(filters.closing
+      ? [{ key: "closing", label: "Por cerrar", remove: () => onFiltersChange({ closing: false }) }]
+      : []),
+  ];
 
   return (
     <div className="flex h-full flex-col">
@@ -417,54 +585,199 @@ export function ConversationList({
 
       <AlertsBanner />
 
-      {/* Con tres pastillas no cabe todo en 360px: el selector de etapa baja
-          a una segunda línea en vez de salirse por la derecha. Con las de
-          asignación (09) "Mías" y "Sin asignar" bajan juntas a esa línea, y
-          (05) "Ventana por cerrar" detrás (D-05-7: flex-wrap). */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5">
-        {pills.map((f) => (
+      {/* 020 (rediseño 4.4): renglón de vistas excluyentes + botón "Filtros".
+          Si no cabe en la columna, el botón baja de línea (flex-wrap) en vez
+          de salirse por la derecha. */}
+      <div className="relative border-b px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {views.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => onFiltersChange({ filter: v.id })}
+              aria-pressed={filter === v.id}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
+                filter === v.id
+                  ? "border-brand bg-brand text-brand-fg"
+                  : "bg-background text-text-2 hover:bg-accent"
+              )}
+            >
+              {v.label}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 text-[11px]",
+                  filter === v.id ? "bg-brand-veil" : "bg-secondary text-text-3"
+                )}
+              >
+                {v.count}
+              </span>
+            </button>
+          ))}
+
           <button
-            key={f.id}
-            onClick={() => onFiltersChange({ filter: f.id })}
-            aria-pressed={filter === f.id}
+            onClick={() => setPanelOpen((o) => !o)}
+            aria-expanded={panelOpen}
+            aria-haspopup="dialog"
+            aria-label={activeCount > 0 ? `Filtros (${activeCount} activos)` : "Filtros"}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
-              filter === f.id
-                ? "border-brand bg-brand text-brand-fg"
+              "ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[12.5px] font-medium transition-colors",
+              activeCount > 0 || panelOpen
+                ? "border-brand bg-brand-veil text-foreground"
                 : "bg-background text-text-2 hover:bg-accent"
             )}
           >
-            {f.label}
-            <span
-              className={cn(
-                "rounded-full px-1.5 text-[11px]",
-                filter === f.id ? "bg-brand-veil" : "bg-secondary text-text-3"
-              )}
-            >
-              {f.count}
-            </span>
-          </button>
-        ))}
-
-        {pipelineStages.length > 0 && (
-          <select
-            value={stage}
-            onChange={(e) => selectStage(e.target.value)}
-            aria-label="Filtrar por etapa del embudo"
-            className={cn(
-              "ml-auto min-w-0 max-w-[42%] truncate rounded-full border px-2 py-[5px] text-[12.5px] font-medium transition-colors",
-              stage === "all"
-                ? "bg-background text-text-2 hover:bg-accent"
-                : "border-brand bg-brand text-brand-fg"
+            <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={1.8} />
+            Filtros
+            {activeCount > 0 && (
+              <span className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-brand px-1 text-[10.5px] font-semibold text-brand-fg">
+                {activeCount}
+              </span>
             )}
-          >
-            <option value="all">Toda etapa</option>
-            {pipelineStages.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
+          </button>
+        </div>
+
+        {chips.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Filtros activos">
+            {chips.map((c) => (
+              <ActiveChip key={c.key} label={c.label} onRemove={c.remove} />
             ))}
-          </select>
+            <button
+              onClick={() => onFiltersChange(clearPanelFilters())}
+              className="text-[11.5px] font-medium text-text-3 underline underline-offset-2 hover:text-foreground"
+            >
+              Limpiar
+            </button>
+          </div>
+        )}
+
+        {panelOpen && (
+          <>
+            {/* Velo: tocar fuera cierra. En escritorio es transparente. */}
+            <button
+              aria-label="Cerrar filtros"
+              tabIndex={-1}
+              onClick={() => setPanelOpen(false)}
+              className="fixed inset-0 z-40 bg-overlay md:bg-transparent"
+            />
+            <div
+              role="dialog"
+              aria-label="Filtros de la Bandeja"
+              className="fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-xl border-t bg-background p-4 shadow-pop md:absolute md:inset-x-4 md:bottom-auto md:top-full md:mt-1 md:max-h-[70vh] md:rounded-md md:border"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[13px] font-[650]">Filtros</p>
+                <button
+                  onClick={() => setPanelOpen(false)}
+                  aria-label="Cerrar el panel de filtros"
+                  className="rounded p-1 text-text-3 hover:bg-accent hover:text-foreground"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.7} />
+                </button>
+              </div>
+
+              {multiChannel && (
+                <section className="mb-3">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+                    Canal
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <PanelOption
+                      on={inbox === "all"}
+                      label="Todos"
+                      onClick={() => onFiltersChange({ channel: null })}
+                    />
+                    {channels.map((ch) => (
+                      <PanelOption
+                        key={ch}
+                        on={inbox === ch}
+                        label={CHANNEL_LABEL[ch]}
+                        count={counts?.byChannel[ch] ?? 0}
+                        onClick={() => onFiltersChange({ channel: ch })}
+                      >
+                        <ChannelBadge channel={ch} className="h-[13px] w-[13px] rounded-[4px]" />
+                      </PanelOption>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {pipelineStages.length > 0 && (
+                <section className="mb-3">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+                    Etapa
+                  </p>
+                  <select
+                    value={stage}
+                    onChange={(e) => selectStage(e.target.value)}
+                    aria-label="Filtrar por etapa del embudo"
+                    className={cn(
+                      "w-full truncate rounded-md border px-2 py-[6px] text-[13px] transition-colors",
+                      stage === "all"
+                        ? "bg-background text-text-2"
+                        : "border-brand bg-brand-veil text-foreground"
+                    )}
+                  >
+                    <option value="all">Toda etapa</option>
+                    {pipelineStages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </section>
+              )}
+
+              <section className="mb-3">
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+                  Origen
+                </p>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Origen">
+                  {ORIGINS.map((o) => (
+                    <PanelOption
+                      key={o.id ?? "all"}
+                      on={filters.origin === o.id}
+                      label={o.label}
+                      count={o.count}
+                      onClick={() => onFiltersChange({ origin: o.id })}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <section className="mb-3 space-y-0.5">
+                {teamMode && (
+                  <PanelToggle
+                    on={unassignedOn}
+                    label="Sin asignar"
+                    hint="Solo las que nadie ha tomado"
+                    count={counts?.unassigned ?? 0}
+                    onChange={(on) => onFiltersChange({ unassigned: on })}
+                  />
+                )}
+                <PanelToggle
+                  on={filters.closing}
+                  label="Por cerrar"
+                  hint="La ventana para responder sin plantilla cierra en menos de 2 h"
+                  count={counts?.closing ?? 0}
+                  onChange={(on) => onFiltersChange({ closing: on })}
+                />
+              </section>
+
+              <div className="flex items-center justify-between gap-2 border-t pt-3">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={activeCount === 0}
+                  onClick={() => onFiltersChange(clearPanelFilters())}
+                >
+                  Limpiar
+                </Button>
+                <Button size="sm" onClick={() => setPanelOpen(false)}>
+                  Listo
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -484,15 +797,13 @@ export function ConversationList({
           <EmptyState onSeeded={onSeeded} />
         ) : visible.length === 0 && !hasMore ? (
           <p className="p-6 text-center text-xs text-text-3">
-            {filter === "human"
-              ? "Ninguna conversación requiere atención humana."
-              : filter === "mine"
-                ? "No tienes conversaciones a tu nombre."
-                : filter === "unassigned"
-                  ? "Todas las conversaciones tienen responsable."
-                  : filter === "closing"
-                    ? "Ninguna ventana de 24 h cierra en las próximas 2 horas."
-                    : "Sin resultados para este filtro."}
+            {activeCount > 0
+              ? "Sin resultados para estos filtros."
+              : filter === "human"
+                ? "Ninguna conversación requiere atención humana."
+                : filter === "mine"
+                  ? "No tienes conversaciones a tu nombre."
+                  : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
@@ -559,7 +870,8 @@ export function ConversationList({
                           </span>
                         )}
                       </span>
-                      <span className="mt-1.5 flex items-center gap-1.5">
+                      <span className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                        {c.anuncio && <EtiquetaDeOrigen anuncio={c.anuncio} />}
                         {c.stageName && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-2">
                             <span

@@ -39,6 +39,7 @@ function mk(
     // 06: clave de orden y etapa por id.
     sortAt: "2026-01-01T00:00:00.000Z",
     stageId: null,
+    anuncio: null,
     ...rest,
   } satisfies ConversationDto;
 }

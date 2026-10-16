@@ -15,6 +15,10 @@ import {
   pinFirst,
   removeConversations,
   visibleConversations,
+  clearPanelFilters,
+  filtersFromSearchParams,
+  filtersToSearch,
+  panelFilterCount,
   type InboxFilters,
 } from "@/components/inbox/list-state";
 import type { ConversationDto } from "@/lib/types";
@@ -48,6 +52,7 @@ function mk(
     assignedAt: null,
     sortAt: "2026-01-01T00:00:00.000Z",
     stageId: null,
+    anuncio: null,
     ...rest,
   } satisfies ConversationDto;
 }
@@ -85,10 +90,13 @@ describe("query strings (contrato 06-0)", () => {
     expect(params(qs).filter).toBe("mine");
   });
 
-  it("counts: mismos filtros menos filter/limit/cursor", () => {
+  it("counts: mismos filtros que la lista (020: la vista también), sin limit/cursor", () => {
     expect(
       params(buildCountsQuery(f({ filter: "unread", stageId: "stg_2", channel: "whatsapp", q: "ana" })))
-    ).toEqual({ stage: "stg_2", channel: "whatsapp", q: "ana" });
+    ).toEqual({ filter: "unread", stage: "stg_2", channel: "whatsapp", q: "ana" });
+    expect(
+      params(buildCountsQuery(f({ origin: "ad", unassigned: true, closing: true })))
+    ).toEqual({ origin: "ad", unassigned: "1", closing: "1" });
     expect(buildCountsQuery(f())).toBe("");
   });
 
@@ -101,7 +109,8 @@ describe("query strings (contrato 06-0)", () => {
 
   it("sin equipo, Mías/Sin asignar no filtran a escondidas", () => {
     expect(effectiveFilters(f({ filter: "mine" }), false).filter).toBe("all");
-    expect(effectiveFilters(f({ filter: "unassigned" }), true).filter).toBe("unassigned");
+    expect(effectiveFilters(f({ unassigned: true }), true).unassigned).toBe(true);
+    expect(effectiveFilters(f({ unassigned: true }), false).unassigned).toBe(false);
     expect(effectiveFilters(f({ filter: "unread" }), false).filter).toBe("unread");
   });
 
@@ -208,7 +217,7 @@ describe("espejo del filtro", () => {
   it("canal y pastillas de asignación", () => {
     const mia = mk({ channel: "instagram", assignedTo: { userId: "u1", name: "Yo" } });
     expect(matchesFilters(mia, f({ channel: "instagram", filter: "mine" }), "u1")).toBe(true);
-    expect(matchesFilters(mia, f({ filter: "unassigned" }), "u1")).toBe(false);
+    expect(matchesFilters(mia, f({ unassigned: true }), "u1")).toBe(false);
     expect(visibleConversations([mia], f({ channel: "whatsapp" }), "u1")).toHaveLength(0);
   });
 });
@@ -276,11 +285,26 @@ describe("countsFromLoaded — respaldo si /counts no responde", () => {
     });
   });
 
-  it("byChannel ignora el canal elegido; las pastillas no", () => {
+  it("facetado (020): byChannel ignora el canal elegido pero respeta la vista", () => {
     const c = countsFromLoaded(items, f({ channel: "instagram", filter: "unread" }), "u1");
     expect(c.all).toBe(1);
     expect(c.unread).toBe(1);
-    expect(c.byChannel).toEqual({ whatsapp: 3, instagram: 1, messenger: 0 });
+    expect(c.byChannel).toEqual({ whatsapp: 1, instagram: 1, messenger: 0 });
+  });
+
+  it("facetado (020): origen cuenta dentro de la vista y los demás filtros", () => {
+    const conAnuncio = [
+      mk({ unreadCount: 1, anuncio: { headline: "Promo", sourceType: "ad" } }),
+      mk({ unreadCount: 1, anuncio: { headline: "Post", sourceType: "post" } }),
+      mk({ unreadCount: 0, anuncio: { headline: "Promo", sourceType: "ad" } }),
+      mk({ unreadCount: 1 }),
+    ];
+    const c = countsFromLoaded(conAnuncio, f({ filter: "unread", origin: "ad" }), "u1");
+    // Una publicación no cuenta como anuncio: va en "Sin anuncio".
+    expect(c.origin).toEqual({ ad: 1, none: 2 });
+    // Las vistas cuentan con el origen puesto.
+    expect(c.all).toBe(2);
+    expect(c.unread).toBe(1);
   });
 
   it("la búsqueda acota pastillas y canales, no el badge", () => {
@@ -292,5 +316,81 @@ describe("countsFromLoaded — respaldo si /counts no responde", () => {
 
   it("sin asignadas, teamMode del respaldo es false", () => {
     expect(countsFromLoaded([mk()], f(), "u1").teamMode).toBe(false);
+  });
+});
+
+/* 020 (rediseño 4.4): vistas + filtros combinables, con estado en la URL. */
+describe("filtros combinables y URL de la página (020)", () => {
+  const sp = (qs: string) => new URLSearchParams(qs);
+
+  it("la URL se lee con el mismo parseo tolerante que el servidor", () => {
+    expect(
+      filtersFromSearchParams(sp("filter=unread&channel=instagram&stage=stg_1&origin=ad&unassigned=1&closing=true&q=ana"))
+    ).toEqual({
+      ...DEFAULT_FILTERS,
+      filter: "unread",
+      channel: "instagram",
+      stageId: "stg_1",
+      origin: "ad",
+      unassigned: true,
+      closing: true,
+      q: "ana",
+    });
+    expect(filtersFromSearchParams(sp(""))).toEqual(DEFAULT_FILTERS);
+    // Valores desconocidos = sin filtro.
+    expect(filtersFromSearchParams(sp("filter=x&channel=fax&origin=tv&unassigned=no"))).toEqual(
+      DEFAULT_FILTERS
+    );
+  });
+
+  it("enlaces viejos: las pastillas Sin asignar / Ventana por cerrar son hoy filtros", () => {
+    expect(filtersFromSearchParams(sp("filter=unassigned"))).toMatchObject({
+      filter: "all",
+      unassigned: true,
+    });
+    expect(filtersFromSearchParams(sp("filter=closing"))).toMatchObject({
+      filter: "all",
+      closing: true,
+    });
+  });
+
+  it("ida y vuelta por la URL sin perder nada, conservando ?contact=", () => {
+    const filtros = f({ filter: "mine", origin: "none", stageId: "stg_9", closing: true });
+    const search = filtersToSearch(filtros, sp("contact=ct_1&origin=ad&filter=human"));
+    const back = new URLSearchParams(search);
+    expect(back.get("contact")).toBe("ct_1");
+    expect(back.getAll("origin")).toEqual(["none"]);
+    expect(filtersFromSearchParams(back)).toEqual({ ...filtros, stageName: null });
+    expect(filtersToSearch(f(), sp(""))).toBe("");
+    expect(filtersToSearch(f(), sp("contact=ct_2"))).toBe("?contact=ct_2");
+  });
+
+  it("los filtros combinables viajan a la lista y se cuentan en el botón", () => {
+    const filtros = f({ filter: "unread", stageId: "stg_2", origin: "ad", unassigned: true });
+    expect(params(buildListQuery(filtros))).toMatchObject({
+      filter: "unread",
+      stage: "stg_2",
+      origin: "ad",
+      unassigned: "1",
+    });
+    expect(panelFilterCount(filtros)).toBe(3); // la vista no cuenta
+    expect(panelFilterCount(f({ q: "ana", filter: "human" }))).toBe(0);
+    expect(hasActiveFilters(f({ origin: "none" }))).toBe(true);
+    const limpio = { ...filtros, ...clearPanelFilters() };
+    expect(panelFilterCount(limpio)).toBe(0);
+    expect(limpio.filter).toBe("unread"); // "Limpiar" deja la vista
+  });
+
+  it("el espejo combina vista + origen + etapa como el servidor", () => {
+    const deAnuncio = mk({ unreadCount: 2, anuncio: { headline: "Promo", sourceType: "ad" } });
+    const post = mk({ unreadCount: 2, anuncio: { headline: "Post", sourceType: "post" } });
+    const leida = mk({ anuncio: { headline: "Promo", sourceType: "ad" } });
+    const items = [deAnuncio, post, leida];
+    expect(ids(visibleConversations(items, f({ filter: "unread", origin: "ad" }), "u1"))).toEqual([
+      deAnuncio.id,
+    ]);
+    expect(
+      ids(visibleConversations(items, f({ filter: "unread", origin: "none" }), "u1"))
+    ).toEqual([post.id]);
   });
 });
