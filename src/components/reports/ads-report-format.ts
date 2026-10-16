@@ -75,9 +75,24 @@ export function isAdsReportEmpty(report: AdsReportDto): boolean {
   return report.bySource.data.rows.every((r) => r.conversations === 0 && r.leads === 0);
 }
 
+/**
+ * Qué se muestra como monto principal y qué va aparte. Si en la moneda del
+ * negocio no hay nada pero sí en otra (p. ej. solo ventas en USD), esa otra
+ * pasa a ser la principal: «$0.00 · USD 50.00 aparte» confunde.
+ */
+function principalYResto(a: WonAmountDto): {
+  principal: { currency: string; amountCents: number };
+  resto: WonAmountDto["otherCurrencies"];
+} {
+  const [primera, ...demas] = a.otherCurrencies;
+  if (a.amountCents === 0 && primera) return { principal: primera, resto: demas };
+  return { principal: a, resto: a.otherCurrencies };
+}
+
 /** Monto principal legible («$12,500.00»). */
 export function formatWonAmount(a: WonAmountDto): string {
-  return formatMoneyCents(a.amountCents, a.currency) ?? EMPTY_VALUE;
+  const { principal } = principalYResto(a);
+  return formatMoneyCents(principal.amountCents, principal.currency) ?? EMPTY_VALUE;
 }
 
 /**
@@ -87,7 +102,7 @@ export function formatWonAmount(a: WonAmountDto): string {
  */
 export function wonAmountNote(a: WonAmountDto): string | null {
   const parts: string[] = [];
-  for (const o of a.otherCurrencies) {
+  for (const o of principalYResto(a).resto) {
     parts.push(`${formatMoneyCents(o.amountCents, o.currency) ?? o.currency} aparte`);
   }
   if (a.wonWithoutAmount > 0) {

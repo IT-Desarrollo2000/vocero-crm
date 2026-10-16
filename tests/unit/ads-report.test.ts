@@ -282,11 +282,22 @@ describe("formato", () => {
     expect(wonAmountNote(amount())).toBeNull();
     expect(wonAmountNote(amount({ wonWithoutAmount: 1 }))).toBe("1 venta sin monto");
     const n = wonAmountNote(
-      amount({ otherCurrencies: [{ currency: "USD", amountCents: 2000, won: 1 }], wonWithoutAmount: 2 })
+      amount({
+        amountCents: 100000,
+        otherCurrencies: [{ currency: "USD", amountCents: 2000, won: 1 }],
+        wonWithoutAmount: 2,
+      })
     );
     expect(n).toMatch(/USD.*20\.00 aparte/);
     expect(n).toContain("2 ventas sin monto");
     expect(formatWonAmount(amount({ amountCents: 1250050 }))).toContain("12,500.50");
+  });
+
+  it("solo ventas en otra moneda: esa es la principal (no «$0.00 · USD aparte»)", () => {
+    const soloUsd = amount({ otherCurrencies: [{ currency: "USD", amountCents: 5000, won: 1 }] });
+    expect(formatWonAmount(soloUsd)).toMatch(/50\.00/);
+    expect(formatWonAmount(soloUsd)).not.toMatch(/^\$0\.00$/);
+    expect(wonAmountNote(soloUsd)).toBeNull();
   });
 
   it("tipo de anuncio", () => {

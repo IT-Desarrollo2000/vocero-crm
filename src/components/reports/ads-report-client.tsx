@@ -298,8 +298,38 @@ function AmountCell({ amount, won }: { amount: WonAmountDto; won: number }) {
 
 function SourcesTable({ rows }: { rows: AdsSourceRowDto[] }) {
   return (
-    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <table className="w-full min-w-[560px] text-sm" aria-label="Por fuente">
+    <>
+      {/* Móvil: una tarjeta por fuente; la tabla de 6 columnas no cabe. */}
+      <ul className="space-y-2 sm:hidden" aria-label="Por fuente">
+        {rows.map((r) => {
+          const vacia = r.conversations === 0 && r.leads === 0;
+          const note = wonAmountNote(r.wonAmount);
+          return (
+            <li
+              key={r.value}
+              data-source={r.value}
+              className={`rounded-md border bg-subtle p-3 ${vacia ? "text-text-3" : ""}`}
+            >
+              <p className="text-sm font-medium">{r.label}</p>
+              <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                <MobileStat label="Conversaciones" value={formatCount(r.conversations)} />
+                <MobileStat label="Leads" value={formatCount(r.leads)} />
+                <MobileStat label="Ventas" value={formatCount(r.won)} />
+                <MobileStat label="Cierre" value={formatPercent(r.winRate)} />
+                <MobileStat
+                  label="Monto"
+                  value={r.won === 0 ? "—" : formatWonAmount(r.wonAmount)}
+                />
+              </dl>
+              {note && <p className="mt-1 text-[11px] text-warning-text">{note}</p>}
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Escritorio: tabla. */}
+      <div className="hidden sm:block">
+      <table className="w-full text-sm" aria-label="Por fuente">
         <thead>
           <tr className="text-left text-xs text-muted-foreground">
             <th scope="col" className="pb-2 pr-3 font-medium">Fuente</th>
@@ -334,7 +364,8 @@ function SourcesTable({ rows }: { rows: AdsSourceRowDto[] }) {
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
 
