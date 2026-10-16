@@ -52,3 +52,28 @@ dice qué se guardó (booleanos, nunca el valor del clic).
    "Contenido orgánico", **deducida**.
 2. `PATCH {source: "referido"}` → capturada, y manda sobre el anuncio.
 3. `PATCH {source: null}` → vuelve a la deducida. Un valor fuera del catálogo → 422.
+
+## US5 — Reportes → Anuncios (fase B, solo Propietario)
+
+Automatizado en `scripts/e2e-selftest.mjs` (`reporteAnunciosChecks`,
+`reporteAnunciosLabChecks`, `reporteAnunciosVendedorChecks`), con la bandera
+`ATRIBUCION` en cualquier posición. Semántica: plan §8.5.
+
+1. Línea base de `GET /api/reports/ads?range=7d`: 200, los tres bloques ok y
+   las seis fuentes en orden.
+2. Sembrar 3 leads del anuncio X (con miniatura, video), 2 del anuncio Y, 1 de
+   una publicación y 2 orgánicos. A Ganado: X1 con 1,500.00 MXN, X2 sin
+   monto, Y1 con 50.00 USD, la publicación con 300.00 y un orgánico con 100.00.
+3. Por anuncio (exacto): X = 3 leads, 2 ventas, 67 %, 1,500.00 y "1 venta sin
+   monto", miniatura servible; Y = 2, 1, 50 %, 0 en MXN y 50.00 USD aparte;
+   la publicación con su fila tipo «Publicación»; orden X > Y > publicación;
+   una sola fila por `source_id`.
+4. Por fuente (delta): Anuncio +5/+5/+3/+1,500.00 (+1 sin monto, +50.00 USD
+   aparte); Contenido orgánico +1/+1/+1/+300.00; Sin identificar
+   +2/+2/+1/+100.00; el resto sin cambios.
+5. Resumen (delta): +8 conversaciones, +5 de anuncio, +5 leads, +3 ventas,
+   +1,500.00; igual a la fila Anuncio; trae el rango previo.
+6. Rango sin datos (2020-01-01 → 07): 200 con bloques vacíos. Rango invertido
+   → 422. `/reports/ads` responde y la pestaña es un enlace real.
+7. Correr el Laboratorio no cambia Por fuente ni el resumen.
+8. Vendedor: API → 403 `forbidden`; `/reports/ads` → 404.
