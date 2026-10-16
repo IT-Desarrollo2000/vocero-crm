@@ -56,10 +56,26 @@ describe("017 — Messenger en el catálogo", () => {
     expect(max("messenger", "video")).toBe(25 * MB);
     expect(mimes("messenger")).toContain("text/csv");
 
-    // Instagram: imágenes 8 MB y SOLO PDF; sin audio/video.
+    // Instagram (doc de Meta): imágenes 8 MB, SOLO PDF como archivo y
+    // audio/video 25 MB, con los MIME que la política detecta por firma.
     expect(max("instagram", "image")).toBe(8 * MB);
-    expect(mimes("instagram")).toEqual(["image/jpeg", "image/png", "application/pdf"]);
-    expect(capabilitiesFor("instagram").outboundFiles?.accept).toBe(".jpg,.jpeg,.png,.pdf");
+    expect(max("instagram", "document")).toBe(25 * MB);
+    expect(max("instagram", "audio")).toBe(25 * MB);
+    expect(max("instagram", "video")).toBe(25 * MB);
+    expect(mimes("instagram")).toEqual([
+      "image/jpeg",
+      "image/png",
+      "application/pdf",
+      "audio/aac",
+      "audio/mp4",
+      "audio/wav",
+      "video/mp4",
+      "video/quicktime",
+      "video/webm",
+    ]);
+    expect(capabilitiesFor("instagram").outboundFiles?.accept).toBe(
+      ".jpg,.jpeg,.png,.pdf,.aac,.m4a,.wav,.mp4,.mov,.webm"
+    );
 
     // Ningún canal envía webp/gif (solo recepción).
     for (const ch of ["whatsapp", "instagram", "messenger"] as const) {

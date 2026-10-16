@@ -31,7 +31,6 @@ import {
   saveRemoteId,
   type RemoteChannel,
 } from "@/server/catalog/remote-cache";
-import { signMediaUrl } from "@/server/media/signed-url";
 import {
   capabilitiesFor,
   outboundFilesFor,
@@ -76,8 +75,8 @@ type TextOnlyChannel = Exclude<Channel, "whatsapp">;
 
 /**
  * 018 — Archivo saliente ya validado (firma + matriz del canal) y guardado en
- * la caché local. `mimeType` es el que se ENTREGA a la plataforma;
- * `assetId` permite firmar una URL temporal (Instagram solo envía por URL).
+ * la caché local. `mimeType` es el que se ENTREGA a la plataforma; `data`
+ * son los bytes que Messenger e Instagram suben por multipart.
  */
 export type OutboundAttachment = {
   organizationId: string;
@@ -96,8 +95,9 @@ export type OutboundAttachment = {
 type TextTransport = {
   send(text: string, humanAgentTag: boolean): Promise<string>;
   /**
-   * 018 — Punto de extensión de adjuntos (Bloque 2: Messenger multipart,
-   * Instagram por URL firmada). Devuelve el id de plataforma SIN prefijo.
+   * 018 — Punto de extensión de adjuntos (Messenger multipart en /messages,
+   * Instagram subida + envío por attachment_id). Devuelve el id de
+   * plataforma SIN prefijo.
    * Ausente → el envío de archivos responde `unsupported_channel`.
    */
   sendAttachment?(file: OutboundAttachment, humanAgentTag: boolean): Promise<string>;
@@ -202,16 +202,15 @@ const TEXT_TRANSPORTS: Record<
       markReconnectRequired: () => markInstagramReconnectRequired(organizationId),
     };
     if (creds.source === "meta") {
-      // Instagram no acepta subidas: descarga el archivo de una URL firmada
-      // y temporal del CRM (10 min). `APP_BASE_URL` debe ser alcanzable por
-      // Meta (en producción lo es: es el dominio público de la instancia).
+      // Igual que Messenger: se suben los bytes (message_attachments) y se
+      // envía por attachment_id. Meta no logra descargar URLs de nuestro
+      // dominio, así que la URL firmada ya no se usa para enviar.
       transport.sendAttachment = async (file, humanAgentTag) =>
         (
           await sendInstagramAttachment({
             credentials: creds,
             recipient,
-            kind: file.kind,
-            url: signMediaUrl(file.organizationId, file.assetId),
+            file,
             humanAgentTag,
           })
         ).platformMessageId;
@@ -504,7 +503,7 @@ export async function sendText(input: {
  *
  * 019 fase B — Con `productFileId` (archivo del catálogo), WhatsApp y
  * Messenger reutilizan el id remoto ya subido (`sendWithReuse`); Instagram
- * sigue por URL firmada. La copia en `media_asset` se crea igual en todos los
+ * sube los bytes en cada envío (`sendAttachment`). La copia en `media_asset` se crea igual en todos los
  * casos: el hilo se ve idéntico se reutilice o no.
  */
 export async function sendMediaMessage(input: {

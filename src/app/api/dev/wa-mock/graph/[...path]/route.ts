@@ -245,8 +245,10 @@ export async function POST(req: Request, ctx: Params) {
     return Response.json({ id });
   }
 
-  // 019 fase B — POST {pageId}/message_attachments (Attachment Upload API de
-  // Messenger, multipart `message` + `filedata`) → `{ attachment_id }`.
+  // 019 fase B — POST {id}/message_attachments (Attachment Upload API,
+  // multipart `message` + `filedata`) → `{ attachment_id }`. Messenger usa el
+  // page id; Instagram (graph.instagram.com, que el self-test apunta aquí) el
+  // id de la cuenta y además `platform=instagram`.
   if (path.length === 2 && path[1] === "message_attachments") {
     const form = await req.formData().catch(() => null);
     const message = parseJsonField(form?.get("message") ?? null) as {
@@ -260,11 +262,13 @@ export async function POST(req: Request, ctx: Params) {
     if (failure) return failure;
     const attachmentId = recordUpload(
       {
-        channel: "messenger",
+        channel: form?.get("platform") === "instagram" ? "instagram" : "messenger",
         accountId: path[0]!,
         fileName: file instanceof File ? file.name : null,
         mime: file.type || null,
         bytes: file.size,
+        attachmentType: message.attachment.type,
+        isReusable: message.attachment.payload?.is_reusable === true,
       },
       "att-up"
     );
@@ -402,16 +406,26 @@ export async function POST(req: Request, ctx: Params) {
       const failure = channelSendFailure(token, body.tag);
       if (failure) return failure;
 
-      // 018 — Adjunto por URL (Instagram): Meta DESCARGA la URL desde sus
-      // servidores, sin sesión ni cookies. El mock hace lo mismo, así el
-      // self-test prueba que la URL firmada sirve sola; si no responde 200,
-      // el envío falla como fallaría en Meta.
-      const attachment = (body.message as { attachment?: { type?: string; payload?: { url?: string; attachment_id?: string } } } | undefined)
-        ?.attachment;
+      // Adjunto ya subido por `attachment_id`: Messenger (catálogo, 019 B) e
+      // Instagram (siempre). Se aceptan las dos formas que admite Meta:
+      // `message.attachments` (arreglo; la de imagen en Instagram) y
+      // `message.attachment` (singular). Por URL ya no se envía nada.
+      type MockAttachment = { type?: string; payload?: { url?: string; attachment_id?: string } };
+      const msg = body.message as
+        | { attachment?: MockAttachment; attachments?: MockAttachment[] }
+        | undefined;
+      const shape: "attachments" | "attachment" | null = Array.isArray(msg?.attachments)
+        ? "attachments"
+        : msg?.attachment
+          ? "attachment"
+          : null;
+      const attachment = shape === "attachments" ? msg?.attachments?.[0] : msg?.attachment;
+      if (shape === "attachments" && !attachment) {
+        return graphParamError("(#100) message.attachments no puede ir vacío");
+      }
       let attachmentLog: OutboxEntry["attachment"];
       const attachmentId = attachment?.payload?.attachment_id;
       if (attachment && attachmentId !== undefined) {
-        // 019 fase B — Messenger: adjunto ya subido (`attachment_id`).
         if (!attachment.type || typeof attachmentId !== "string" || !attachmentId) {
           return graphParamError("(#100) attachment.type y attachment.payload.attachment_id son obligatorios");
         }
@@ -420,36 +434,17 @@ export async function POST(req: Request, ctx: Params) {
         }
         const up = state.uploads.find((u) => u.id === attachmentId);
         attachmentLog = {
-          channel: "messenger",
+          channel: up?.channel === "instagram" ? "instagram" : "messenger",
           attachmentType: attachment.type,
           attachmentId,
+          shape: shape!,
           ...(up ? { fileName: up.fileName, mime: up.mime, bytes: up.bytes } : {}),
         };
       } else if (attachment) {
-        const url = attachment.payload?.url;
-        if (!attachment.type || typeof url !== "string") {
-          return graphParamError("(#100) attachment.type y attachment.payload.url son obligatorios");
-        }
-        let fetched: Response | null = null;
-        try {
-          fetched = await fetch(url, { redirect: "manual", cache: "no-store" });
-        } catch {
-          fetched = null;
-        }
-        if (!fetched || fetched.status !== 200) {
-          return graphParamError(
-            `(#100) url no accesible (${fetched ? `HTTP ${fetched.status}` : "sin respuesta"})`
-          );
-        }
-        const bytes = new Uint8Array(await fetched.arrayBuffer());
-        attachmentLog = {
-          channel: "instagram",
-          attachmentType: attachment.type,
-          url,
-          fetchedStatus: fetched.status,
-          fetchedBytes: bytes.byteLength,
-          contentType: fetched.headers.get("content-type"),
-        };
+        // Regresión del arreglo de Instagram: en producción el descargador de
+        // Meta no baja NADA de nuestro dominio (code 100, subcode 2018007). El
+        // mock lo imita: un adjunto por URL falla como fallaba en Meta.
+        return graphParamError("(#100) Failed to fetch the attachment from the URL (subcode 2018007)");
       }
 
       const n = nextN();

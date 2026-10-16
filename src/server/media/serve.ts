@@ -3,8 +3,8 @@ import { inspectFile, type FileInspection } from "@/server/media/file-policy";
 
 /**
  * 018 — Cómo se sirve un archivo de un cliente (FR-814). Lo usan
- * `GET /api/media/[assetId]`, `/api/bot/media/[mediaId]` y (Bloque 2) la URL
- * firmada de Instagram.
+ * `GET /api/media/[assetId]`, `/api/bot/media/[mediaId]` y la URL firmada
+ * `/api/media/out/[token]`.
  *
  * El archivo lo eligió un tercero: aunque la política lo haya dejado pasar,
  * se sirve como si fuera hostil. `nosniff` impide que el navegador

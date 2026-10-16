@@ -10,8 +10,9 @@ Automatizado en dos partes:
   operador en el hilo y en el compositor.
 
 **Preparación**: app con `WA_MOCK_ENABLED=true`, `META_GRAPH_BASE_URL` e
-`IG_GRAPH_BASE_URL` → wa-mock graph, `APP_BASE_URL` = la URL de la app (el
-mock de Instagram DESCARGA la URL firmada desde ahí) y BD migrada (0020).
+`IG_GRAPH_BASE_URL` → wa-mock graph, `APP_BASE_URL` = la URL de la app y BD
+migrada (0020). Instagram ya no descarga nada del CRM: recibe los bytes por
+subida multipart, así que no depende de que `APP_BASE_URL` sea alcanzable.
 Con `CHANNELS` sin `instagram`/`messenger`, sus secciones se omiten y la de
 WhatsApp corre igual. En local, BD aislada (`.env.e2e`, Postgres en :5433).
 
@@ -36,9 +37,13 @@ dice ser PDF".
 2. Messenger: imagen y PDF → 201; el outbox registra
    `attachment.channel = "messenger"` con los bytes exactos (multipart
    `filedata`) y el nombre `cotizacion.pdf`. `.docx` limpio → 201.
-3. Instagram (Meta directo): imagen y PDF → 201; el outbox registra
-   `fetchedStatus = 200` y `fetchedBytes` = los bytes enviados: el mock
-   descargó la **URL firmada sin sesión**, como lo hace Meta.
+3. Instagram (Meta directo): imagen y PDF → 201; el mock registra en
+   `uploads` una subida `channel = "instagram"` a `message_attachments` con
+   `filedata` (bytes exactos, MIME, nombre, `is_reusable: false`) y el
+   outbox el envío por ese `attachment_id`: la imagen en
+   `message.attachments` (arreglo), el PDF como `file` en
+   `message.attachment`. Ningún cuerpo lleva una URL (el mock rechaza los
+   adjuntos por URL con el 100/2018007 que daba Meta en producción).
 4. El pie (caption) en Messenger/Instagram sale como **un texto aparte**, y
    así queda en el hilo; la imagen enviada queda `sent` con su asset
    disponible.
@@ -88,9 +93,9 @@ apuntando al CDN del mock:
 
 1. `/api/media/out/<basura>` y un token con forma válida pero firma falsa →
    **404**.
-2. La URL que usó Instagram, sin sesión y vigente → 200 con nosniff/sandbox.
-3. Adulterada (un carácter de la firma, el ÚLTIMO carácter de la firma, un
-   carácter del payload) → **404**.
+2. Instagram ya no usa esta URL para enviar (sube los bytes). La vigencia,
+   la adulteración (firma, último carácter, payload) y el alcance por
+   organización se prueban en `tests/unit/media-signed-url.test.ts`.
 
 ## AC-8 — Caché de 30 días (al final: expira todo)
 
@@ -125,7 +130,8 @@ apuntando al CDN del mock:
 
 ## En vivo (producción)
 
-1. Instagram necesita que `APP_BASE_URL` sea HTTPS público: mandar un PDF a
-   la cuenta de pruebas y verificar que llega al teléfono.
+1. Instagram: mandar una imagen y un PDF a la cuenta de pruebas y verificar
+   que llegan al teléfono (subida binaria; ya no depende de que Meta alcance
+   `APP_BASE_URL`).
 2. Desde el teléfono, mandar una foto por Messenger y por Instagram → se ve
    en el hilo del CRM.

@@ -18,9 +18,10 @@ export type OutboxEntry = {
   waMessageId?: string;
   /**
    * 018 — Adjunto de Messenger/Instagram (`type: "attachment"`). Messenger
-   * sube los bytes (multipart `filedata`): `fileName`/`mime`/`bytes` son los
-   * recibidos. Instagram manda una URL que el mock DESCARGA como lo haría
-   * Meta: `fetchedStatus`/`fetchedBytes`/`contentType` son de esa descarga.
+   * sube los bytes en el mismo /messages (multipart `filedata`); Instagram
+   * (y el catálogo de Messenger) los sube antes a `message_attachments` y
+   * envía por `attachment_id`. `fileName`/`mime`/`bytes` son los recibidos
+   * en la subida.
    */
   attachment?: {
     channel: "messenger" | "instagram";
@@ -28,18 +29,17 @@ export type OutboxEntry = {
     fileName?: string | null;
     mime?: string | null;
     bytes?: number;
-    url?: string;
-    fetchedStatus?: number;
-    fetchedBytes?: number;
-    contentType?: string | null;
-    /** 019 fase B — Messenger: enviado por `attachment_id` (ya subido). */
+    /** 019 fase B / arreglo IG — enviado por `attachment_id` (ya subido). */
     attachmentId?: string;
+    /** Forma en que llegó: `message.attachments` (arreglo) o `message.attachment`. */
+    shape?: "attachments" | "attachment";
   };
 };
 
 /**
  * 019 fase B — Una subida de bytes a Meta: `POST {phoneNumberId}/media`
- * (WhatsApp) o `POST {pageId}/message_attachments` (Messenger). Va APARTE
+ * (WhatsApp) o `POST {id}/message_attachments` (Messenger con el page id;
+ * Instagram con el id de la cuenta y `platform=instagram`). Va APARTE
  * del outbox (campo `uploads` de `GET /api/dev/wa-mock/outbox`) para no
  * alterar los guiones que cuentan mensajes; el self-test cuenta aquí cuántas
  * veces se subió un archivo (reutilización del catálogo).
@@ -47,14 +47,17 @@ export type OutboxEntry = {
 export type UploadEntry = {
   n: number;
   kind: "upload";
-  channel: "whatsapp" | "messenger";
-  /** phone_number_id o page id. */
+  channel: "whatsapp" | "messenger" | "instagram";
+  /** phone_number_id, page id o id de la cuenta de Instagram. */
   accountId: string;
-  /** media id (WhatsApp) o attachment_id (Messenger) devuelto. */
+  /** media id (WhatsApp) o attachment_id (Messenger/Instagram) devuelto. */
   id: string;
   fileName: string | null;
   mime: string | null;
   bytes: number;
+  /** message_attachments: `attachment.type` y `is_reusable` recibidos. */
+  attachmentType?: string;
+  isReusable?: boolean;
   at: string;
 };
 

@@ -37,7 +37,7 @@ de cada archivo, por su contenido y no por la extensión, está en
 |---|---|---|
 | WhatsApp | Imagen JPG/PNG (5 MB) · PDF, Word, Excel, PowerPoint, TXT, CSV (100 MB) · audio y video (16 MB) · ubicación y contacto | Todo lo anterior + WEBP/GIF y notas de voz |
 | Messenger | Imagen JPG/PNG · PDF, Word, Excel, PowerPoint, TXT, CSV · audio y video (25 MB cada uno) | Imagen, video, audio y archivo |
-| Instagram (Meta directo) | Imagen JPG/PNG (8 MB) · **solo PDF** como archivo (25 MB) | Imagen, video, audio y archivo |
+| Instagram (Meta directo) | Imagen JPG/PNG (8 MB) · audio AAC/M4A/WAV (25 MB) · video MP4/MOV/WEBM (25 MB) · **solo PDF** como archivo (25 MB) | Imagen, video, audio y archivo |
 | Instagram (Zernio) | ❌ | ❌ — un adjunto entra como "[Adjunto no soportado]" |
 
 - **Siempre bloqueado**, en cualquier canal y en ambas direcciones:
@@ -47,12 +47,18 @@ de cada archivo, por su contenido y no por la extensión, está en
   desde el CRM.
 - Historias, menciones, reels, publicaciones compartidas y stickers sin
   enlace entran como "[Adjunto no soportado: …]", nunca como un mensaje vacío.
-- **Instagram descarga el archivo desde Vocero**: no hay forma documentada
-  de subirlo. Vocero le da a Meta una URL firmada temporal
-  (`/api/media/out/<token>`, 10 minutos, sin sesión). Por eso
-  **`APP_BASE_URL` tiene que ser alcanzable desde Internet** (HTTPS público);
-  en `localhost` o detrás de una VPN el envío de archivos por Instagram falla
-  y el mensaje queda como no entregado.
+- **Instagram recibe los bytes, no una URL**: Vocero sube el archivo con
+  `POST /{ig-user-id}/message_attachments` (multipart: `platform=instagram`,
+  `message` con el tipo y `is_reusable: false`, `filedata`), recibe un
+  `attachment_id` y lo envía con `POST /{ig-user-id}/messages` (imagen en
+  `message.attachments`; audio, video y PDF en `message.attachment`). Así ya
+  **no hace falta que Meta alcance `APP_BASE_URL`** para mandar archivos.
+  Antes Vocero le daba a Meta una URL firmada (`/api/media/out/<token>`)
+  para descargarla, pero el descargador de Instagram no logra bajar nada de
+  nuestro dominio (error 100, subcódigo 2018007, "Ошибка загрузки"); esa ruta
+  sigue existiendo pero ya no se usa para enviar.
+- Lo que Instagram no admite (Word, Excel, TXT, MP3, OGG, AVI…) se bloquea
+  en el CRM con el mensaje del canal **antes** de llamar a Meta.
 - Los archivos (de todos los canales) se guardan en `MEDIA_DIR` como **caché
   de 30 días** (`MEDIA_RETENTION_DAYS`): después se borran solos y el hilo
   muestra "Archivo eliminado — los archivos se guardan 30 días".
@@ -160,7 +166,7 @@ CHANNELS=whatsapp,instagram,messenger
 (`/api/dev/wa-mock/channel-inbound`) y recorre respuesta, ventana de 24 h,
 etiqueta de agente humano, cierre a los 7 días y fallos del proveedor. El
 guion está en [tests/e2e/us-canales.md](../tests/e2e/us-canales.md); los
-adjuntos (envío, recepción, bloqueos, URL firmada y caché de 30 días), en
+adjuntos (envío, recepción, bloqueos, subida binaria a Instagram y caché de 30 días), en
 [tests/e2e/us-adjuntos.md](../tests/e2e/us-adjuntos.md).
 
 ## Problemas comunes
@@ -173,6 +179,6 @@ adjuntos (envío, recepción, bloqueos, URL firmada y caché de 30 días), en
 | No llega nada de Messenger | La Página no está suscrita a la app: reconecta con un token que tenga `pages_manage_metadata`. |
 | "…necesita la función Human Agent…" | Meta aún no aprueba *Human Agent* para la app. Dentro de las 24 h se responde normal. |
 | Instagram pide reconectar cada ~60 días | El token de Instagram caduca: genera otro y pégalo de nuevo. |
-| Un archivo por Instagram queda "no entregado" ("url no accesible") | Meta no pudo descargar la URL firmada: `APP_BASE_URL` no es público, o pasó más de 10 minutos. |
-| "Instagram solo acepta imágenes (JPG/PNG) y PDF" | Es un límite de Instagram: manda el Word/Excel como PDF. |
+| Un archivo por Instagram queda "no entregado" | Meta rechazó la subida o el envío (el motivo queda en el mensaje fallido): revisa que el token tenga `instagram_business_manage_messages` y que el archivo cumpla los límites de arriba. |
+| "Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)" | Es un límite de Instagram: manda el Word/Excel como PDF y el audio en M4A/AAC/WAV. |
 | Error de permisos al enviar por Instagram | El host debe ser `graph.instagram.com`, no `graph.facebook.com` (Vocero ya lo hace; revisa `IG_GRAPH_BASE_URL`). |

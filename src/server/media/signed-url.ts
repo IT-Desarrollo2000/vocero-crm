@@ -4,9 +4,12 @@ import { getEnv } from "@/lib/env";
 /**
  * 018 (FR-812) — URL temporal y firmada de un archivo SALIENTE.
  *
- * Instagram (Meta) no acepta subidas: solo descarga el adjunto de una URL
- * pública. Esta URL es la única puerta sin sesión a la caché de archivos, así
- * que vale solo para UN asset de UNA organización y por pocos minutos:
+ * Se creó para que Instagram descargara el adjunto de una URL pública, pero
+ * su descargador no logra bajar nada de nuestro dominio: desde el arreglo de
+ * adjuntos de Instagram el envío SUBE los bytes (`message_attachments`) y esta
+ * URL ya no se usa para enviar. Se conserva (con sus pruebas) como utilidad.
+ * Es la única puerta sin sesión a la caché de archivos, así que vale solo
+ * para UN asset de UNA organización y por pocos minutos:
  *
  *   token = base64url("<orgId>.<assetId>.<expMs>") + "." + base64url(HMAC)
  *

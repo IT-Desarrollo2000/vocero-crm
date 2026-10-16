@@ -94,14 +94,29 @@ export const MESSENGER_OUTBOUND_FILES: OutboundFiles = {
 };
 
 /**
- * Instagram con login de Instagram (Meta): imagen png/jpeg 8 MB y, como
- * archivo, SOLO PDF (25 MB). Sin audio ni video saliente (fuera de alcance).
+ * Instagram con login de Instagram (Meta, doc de la Messaging API): imagen
+ * png/jpeg 8 MB; audio aac/m4a/wav/mp4 25 MB; video mp4/ogg/avi/mov/webm
+ * 25 MB; como archivo, SOLO PDF (25 MB). Solo se listan los MIME que la
+ * política detecta por firma: el video ogg sale detectado como audio y avi no
+ * se reconoce, así que esos dos quedan bloqueados en el CRM con el `hint`.
  */
 export const INSTAGRAM_OUTBOUND_FILES: OutboundFiles = {
   rules: [
     { kind: "image", mimes: IMAGE_MIMES, maxBytes: 8 * MB, label: "imagen (JPG/PNG, máx. 8 MB)" },
     { kind: "document", mimes: ["application/pdf"], maxBytes: 25 * MB, label: "PDF (máx. 25 MB)" },
+    {
+      kind: "audio",
+      mimes: ["audio/aac", "audio/mp4", "audio/wav"],
+      maxBytes: 25 * MB,
+      label: "audio (AAC/M4A/WAV, máx. 25 MB)",
+    },
+    {
+      kind: "video",
+      mimes: ["video/mp4", "video/quicktime", "video/webm"],
+      maxBytes: 25 * MB,
+      label: "video (MP4/MOV/WEBM, máx. 25 MB)",
+    },
   ],
-  accept: `${IMAGE_EXT},.pdf`,
-  hint: "Instagram solo acepta imágenes (JPG/PNG) y PDF",
+  accept: `${IMAGE_EXT},.pdf,.aac,.m4a,.wav,.mp4,.mov,.webm`,
+  hint: "Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)",
 };

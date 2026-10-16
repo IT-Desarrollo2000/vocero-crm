@@ -173,7 +173,7 @@ describe("envío de adjuntos — validación antes de disco y red", () => {
       })
     ).rejects.toMatchObject({
       code: "unsupported_type",
-      message: "Instagram solo acepta imágenes (JPG/PNG) y PDF",
+      message: "Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)",
     });
 
     // 018 Bloque 2: Instagram (Meta) ya envía PDF por URL firmada; con

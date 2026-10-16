@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * 018 (FR-810, FR-811) — Salida de archivos por Messenger (multipart con
- * `filedata`) e Instagram (Meta: URL firmada del CRM). Ninguno de los dos
+ * `filedata`) e Instagram (Meta: subida a message_attachments + attachment_id). Ninguno de los dos
  * tiene pie en los adjuntos: el caption sale DESPUÉS como texto aparte, y si
  * ese texto falla el adjunto ya cuenta como enviado. Instagram vía Zernio no
  * envía archivos (415 antes de tocar disco).
@@ -92,7 +92,6 @@ vi.mock("@/lib/db", () => {
 });
 
 const { sendMediaMessage } = await import("@/server/inbox/send");
-const { verifyMediaToken } = await import("@/server/media/signed-url");
 
 function conversation(channel: "instagram" | "messenger", waIdentity: string) {
   return [
@@ -280,9 +279,11 @@ describe("Messenger — multipart con filedata", () => {
   });
 });
 
-describe("Instagram (Meta) — por URL firmada", () => {
-  it("manda attachment.payload.url = URL firmada de ESE asset; PDF sale como file", async () => {
-    fetchMock.mockResolvedValue(Response.json({ recipient_id: "igsid_1", message_id: "igm.1" }));
+describe("Instagram (Meta) — subida binaria + envío por attachment_id", () => {
+  it("sube los bytes del asset a message_attachments y manda el PDF como file", async () => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ attachment_id: "att_ig_1" }))
+      .mockResolvedValueOnce(Response.json({ recipient_id: "igsid_1", message_id: "igm.1" }));
     h.selectRows.push(conversation("instagram", "ig:igsid_1"));
 
     await sendMediaMessage({
@@ -291,16 +292,24 @@ describe("Instagram (Meta) — por URL firmada", () => {
       file: { data: PDF, mimeType: "application/pdf", fileName: "c.pdf" },
     });
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [upUrl, upInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(upUrl).toMatch(/\/igu_1\/message_attachments$/);
+    const form = upInit.body as FormData;
+    expect(form.get("platform")).toBe("instagram");
+    const blob = form.get("filedata") as File;
+    expect(blob.size).toBe(PDF.length);
+    expect(blob.name).toBe("c.pdf");
+
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toMatch(/\/igu_1\/messages$/);
     const body = JSON.parse(String(init.body));
     expect(body.recipient).toEqual({ id: "igsid_1" });
-    expect(body.message.attachment.type).toBe("file");
-    const signed: string = body.message.attachment.payload.url;
-    expect(signed).toMatch(/^https:\/\/crm\.example\.com\/api\/media\/out\//);
-    const claims = verifyMediaToken(signed.split("/").pop()!);
+    expect(body.message.attachment).toEqual({
+      type: "file",
+      payload: { attachment_id: "att_ig_1" },
+    });
     const asset = h.inserts.find((v) => v.kind === "document");
-    expect(claims).toEqual({ organizationId: "org_1", assetId: asset?.id });
     expect(asset).toMatchObject({ direction: "out" });
     expect(messageInserts()[0]).toMatchObject({ waMessageId: "ig_igm.1", status: "sent" });
   });

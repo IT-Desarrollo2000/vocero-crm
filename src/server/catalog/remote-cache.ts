@@ -13,7 +13,9 @@ import { scoped } from "@/lib/db/tenant";
  *   - Messenger: `attachment_id` de la Attachment Upload API con
  *     `is_reusable: true`. Meta: "Attachment IDs expire after 90 days"
  *     (saving-assets, oct-2026); se reutiliza solo si tiene menos de 85.
- *   - Instagram: nada que cachear (envía por URL firmada del CRM).
+ *   - Instagram: hoy nada (sube los bytes con `is_reusable: false` en cada
+ *     envío). Reutilizar su `attachment_id` queda pendiente: ni
+ *     `is_reusable: true` ni la caducidad del id están verificados en IG.
  *
  * El llamador (`sendMediaMessage`) solo llega aquí DESPUÉS de `prepareSend`
  * (FR-944): una conversación `is_test` no consulta ni escribe esta tabla.

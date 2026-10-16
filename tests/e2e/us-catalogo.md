@@ -29,7 +29,7 @@ Spec: [specs/019-catalogo-productos/spec.md](../../specs/019-catalogo-productos/
 | 5 | En una conversación de WhatsApp abierta, la Vendedora escribe `/FOTOS_T03` + Enter | Texto "Te comparto las fotos de Tiguan" y 2 chips; nada sale |
 | 6 | Quitar una foto y enviar | Sale el texto + 1 foto; chips limpios; resumen "enviados" |
 | 7 | Botón **Catálogo** → Tiguan → 400 km → marcar su ficha → Insertar detalles → Agregar → enviar | El panel no ofrece la ficha de 300 km; sale el texto con "400 km" y "$629,900" + el PDF |
-| 8 | Instagram: lote con `resumen.txt` + ficha PDF | `.txt` → `skipped` ("Instagram solo acepta imágenes (JPG/PNG) y PDF"); el PDF sale |
+| 8 | Instagram: lote con `resumen.txt` + ficha PDF | `.txt` → `skipped` ("Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)"); el PDF sale |
 | 9 | Lote a una conversación con la ventana cerrada | 409 `window_closed`; nada sale |
 | 10 | Lote a una conversación `is_test` | Rechazado (sandbox); nada sale, ninguna subida a Meta y `product_file_upload` intacta |
 | 11 | Lote con un id inexistente y texto | 404; el texto tampoco sale |

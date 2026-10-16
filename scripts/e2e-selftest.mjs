@@ -3228,7 +3228,7 @@ async function asignacionChecks() {
  * El tipo de un archivo lo decide la FIRMA de sus bytes, no la extensión: por
  * eso cada caso manda bytes reales (PDF, JPEG, ZIP de Office, MZ, OLE). Cubre
  * envío y recepción en los tres canales, lo que se bloquea, cómo se sirve
- * (cabeceras), la URL firmada de Instagram y la caché de 30 días. Con
+ * (cabeceras), la URL firmada /api/media/out y la caché de 30 días. Con
  * CHANNELS apagado solo corre WhatsApp. Va AL FINAL del self-test: la purga
  * adelanta el reloj 31 días y expira todos los adjuntos de la BD.
  * ============================================================ */
@@ -3398,8 +3398,9 @@ async function adjuntosChecks() {
   );
 
   /* ---------- URL firmada pública (AC-7) ---------- */
+  // Instagram ya no la usa para enviar (sube los bytes); la ruta sigue viva
+  // y su firma se prueba a fondo en tests/unit/media-signed-url.test.ts.
   console.log("\n== 018: URL firmada /api/media/out ==");
-  // Además compila la ruta en frío ANTES de que el mock de Instagram la pida.
   const basura = await fetch(`${BASE}/api/media/out/esto-no-es-un-token`);
   ok("token basura → 404", basura.status === 404, `status=${basura.status}`);
   const basura2 = await fetch(`${BASE}/api/media/out/${"A".repeat(20)}.${"B".repeat(43)}`);
@@ -3536,20 +3537,41 @@ async function adjuntosChecks() {
         `status=${docx.status} ${JSON.stringify(docx.json)}`
       );
     } else {
+      // Arreglo IG: Meta no logra descargar URLs de nuestro dominio, así que
+      // el CRM SUBE los bytes (message_attachments con filedata) y envía por
+      // attachment_id. El mock registra la subida en `uploads`.
+      const upsIg = ((await api("/api/dev/wa-mock/outbox")).json?.uploads ?? []).filter(
+        (u) => u.channel === "instagram"
+      );
+      const upImg = upsIg.find((u) => u.id === obImg?.attachment?.attachmentId);
+      const upPdf = upsIg.find((u) => u.id === obPdf?.attachment?.attachmentId);
       ok(
-        "Instagram: Meta (el mock) DESCARGÓ la imagen de la URL firmada sin sesión",
-        obImg?.attachment?.channel === "instagram" &&
-          obImg.attachment.fetchedStatus === 200 &&
-          obImg.attachment.fetchedBytes === JPEG_1X1.length &&
-          /^image\/jpeg/.test(obImg.attachment.contentType ?? ""),
-        JSON.stringify(obImg?.attachment)
+        "Instagram: la imagen se SUBIÓ por filedata (bytes, image/jpeg, no reutilizable)",
+        !!upImg &&
+          upImg.bytes === JPEG_1X1.length &&
+          /^image\/jpeg/.test(upImg.mime ?? "") &&
+          upImg.attachmentType === "image" &&
+          upImg.isReusable === false &&
+          upImg.fileName === "auto.jpg",
+        JSON.stringify({ upsIg, att: obImg?.attachment })
       );
       ok(
-        "Instagram: y el PDF también (200 + bytes)",
-        obPdf?.attachment?.channel === "instagram" &&
-          obPdf.attachment.fetchedStatus === 200 &&
-          obPdf.attachment.fetchedBytes === PDF_BYTES.length,
-        JSON.stringify(obPdf?.attachment)
+        "Instagram: la imagen sale por attachment_id en message.attachments (sin URL)",
+        obImg?.attachment?.channel === "instagram" &&
+          obImg.attachment.shape === "attachments" &&
+          !JSON.stringify(obImg.body ?? {}).includes("\"url\""),
+        JSON.stringify(obImg?.body)
+      );
+      ok(
+        "Instagram: el PDF se SUBIÓ (bytes + nombre) y sale como file en message.attachment",
+        !!upPdf &&
+          upPdf.bytes === PDF_BYTES.length &&
+          upPdf.mime === "application/pdf" &&
+          upPdf.fileName === "cotizacion.pdf" &&
+          obPdf?.attachment?.channel === "instagram" &&
+          obPdf.attachment.shape === "attachment" &&
+          !JSON.stringify(obPdf.body ?? {}).includes("\"url\""),
+        JSON.stringify({ upPdf, att: obPdf?.attachment })
       );
       const docx = await sendFile(cv.id, DOCX_LIMPIO, "propuesta.docx", DOCX_MIME);
       ok(
@@ -3557,33 +3579,6 @@ async function adjuntosChecks() {
         docx.status === 415 && /Instagram solo acepta/.test(docx.json?.error?.message ?? ""),
         `status=${docx.status} ${JSON.stringify(docx.json)}`
       );
-
-      // AC-7: la URL firmada que usó Meta. Sin sesión, vale; adulterada, 404.
-      const url = obImg?.attachment?.url ?? "";
-      ok(
-        "la URL firmada apunta a /api/media/out/<token>",
-        /\/api\/media\/out\/[\w-]+\.[\w-]+$/.test(url),
-        url
-      );
-      if (url) {
-        const sinSesion = await fetch(url);
-        ok(
-          "URL firmada vigente sin sesión → 200 con nosniff + sandbox",
-          sinSesion.status === 200 && isNosniff(sinSesion) && isSandboxed(sinSesion),
-          `status=${sinSesion.status}`
-        );
-        const [p, s] = url.split("/").at(-1).split(".");
-        const flip = (str, i) => `${str.slice(0, i)}${str[i] === "A" ? "B" : "A"}${str.slice(i + 1)}`;
-        const base = url.slice(0, url.lastIndexOf("/") + 1);
-        for (const [label, tok] of [
-          ["un carácter de la firma", `${p}.${flip(s, 5)}`],
-          ["el último carácter de la firma", `${p}.${flip(s, s.length - 1)}`],
-          ["un carácter del payload", `${flip(p, 3)}.${s}`],
-        ]) {
-          const r = await fetch(`${base}${tok}`);
-          ok(`URL firmada adulterada (${label}) → 404`, r.status === 404, `status=${r.status}`);
-        }
-      }
     }
     ob = await outbox();
     ok(

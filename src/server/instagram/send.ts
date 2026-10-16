@@ -1,4 +1,5 @@
 import { MetaApiError } from "@/lib/meta/client";
+import type { OutboundFileKind } from "@/lib/outbound-files";
 import type { InstagramCredentials } from "@/server/instagram/credentials";
 
 /**
@@ -119,49 +120,117 @@ async function sendViaMeta(input: {
   return { platformMessageId: String(id) };
 }
 
+/** 018: kind del CRM → `attachment.type` de la API de Instagram. */
+const IG_ATTACHMENT_TYPE: Record<OutboundFileKind, string> = {
+  image: "image",
+  audio: "audio",
+  video: "video",
+  document: "file",
+};
+
 /**
  * 018 (FR-811) — Envía un archivo por Instagram (SOLO Meta directo; Zernio no
- * lleva adjuntos). La plataforma no acepta subidas: descarga el archivo de
- * `url`, que es la URL firmada y temporal del CRM (`signMediaUrl`). Imagen →
- * `image`; documento (solo PDF, lo garantiza la matriz del canal) → `file`.
- * Instagram no tiene pie en los adjuntos: el núcleo manda el caption aparte.
+ * lleva adjuntos) SUBIENDO los bytes, en dos pasos:
+ *
+ *   1. `POST /{igUserId}/message_attachments` multipart (`platform`,
+ *      `message`, `filedata`) → `{ attachment_id }`.
+ *   2. `POST /{igUserId}/messages` con ese `attachment_id`.
+ *
+ * Antes se mandaba una URL firmada del CRM para que Meta la descargara, pero
+ * el descargador de Instagram no logra bajar nada de nuestro dominio (code
+ * 100, subcode 2018007, confirmado en producción); la subida binaria sí
+ * funciona. Instagram no tiene pie en los adjuntos: el núcleo manda el
+ * caption aparte. La matriz del canal ya filtró tipo y tamaño.
  */
 export async function sendInstagramAttachment(input: {
   credentials: InstagramCredentials;
   recipient: string;
-  kind: "image" | "audio" | "video" | "document";
-  url: string;
+  file: {
+    kind: OutboundFileKind;
+    data: Buffer | Uint8Array;
+    mimeType: string;
+    fileName: string | null;
+  };
   humanAgentTag?: boolean;
 }): Promise<InstagramSendResult> {
-  const { credentials } = input;
+  const { credentials, file } = input;
   if (credentials.source !== "meta") {
     throw new MetaApiError("Instagram vía Zernio no envía archivos", { status: 400 });
   }
-  const body: Record<string, unknown> = {
-    recipient: { id: input.recipient },
-    message: {
-      attachment: {
-        type: input.kind === "document" ? "file" : input.kind,
-        payload: { url: input.url },
-      },
-    },
-  };
-  if (input.humanAgentTag) {
-    body.messaging_type = "MESSAGE_TAG";
-    body.tag = "HUMAN_AGENT";
+  const type = IG_ATTACHMENT_TYPE[file.kind];
+  const base = `${IG_GRAPH_BASE}/${IG_GRAPH_VERSION}/${credentials.igUserId}`;
+
+  // (1) Subida. Sin Content-Type a mano: fetch pone el boundary del multipart.
+  const form = new FormData();
+  form.set("platform", "instagram");
+  form.set(
+    "message",
+    JSON.stringify({ attachment: { type, payload: { is_reusable: false } } })
+  );
+  form.set(
+    "filedata",
+    new Blob([new Uint8Array(file.data)], { type: file.mimeType }),
+    file.fileName ?? "adjunto"
+  );
+  const uploaded = (await fetchJson(`${base}/message_attachments`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${credentials.token}` },
+    body: form,
+  })) as { attachment_id?: string } | null;
+  const attachmentId = uploaded?.attachment_id;
+  if (!attachmentId) {
+    throw new MetaApiError("Instagram no devolvió attachment_id del archivo subido", {
+      status: 200,
+    });
   }
 
-  const res = await fetchJson(
-    `${IG_GRAPH_BASE}/${IG_GRAPH_VERSION}/${credentials.igUserId}/messages`,
-    {
+  // (2) Envío por id. Según la doc de Instagram, la imagen va en
+  // `attachments` (arreglo) y lo demás en `attachment` (singular).
+  const payload = { type, payload: { attachment_id: String(attachmentId) } };
+  const send = (message: Record<string, unknown>) => {
+    const body: Record<string, unknown> = {
+      recipient: { id: input.recipient },
+      message,
+    };
+    if (input.humanAgentTag) {
+      body.messaging_type = "MESSAGE_TAG";
+      body.tag = "HUMAN_AGENT";
+    }
+    return fetchJson(`${base}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${credentials.token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+    });
+  };
+
+  let res: unknown;
+  if (file.kind === "image") {
+    try {
+      res = await send({ attachments: [payload] });
+    } catch (err) {
+      // Un formato inesperado no tumba el envío: si Meta rechaza el arreglo
+      // como parámetro inválido (400/100, no de auth), UNA vez en singular.
+      if (
+        !(err instanceof MetaApiError) ||
+        err.status !== 400 ||
+        err.code !== 100 ||
+        err.isAuthError
+      ) {
+        throw err;
+      }
+      console.warn(
+        "[instagram] Meta rechazó la imagen en `attachments`; se reintenta con `attachment`:",
+        err.message
+      );
+      res = await send({ attachment: payload });
     }
-  );
+  } else {
+    res = await send({ attachment: payload });
+  }
+
   const id = (res as { message_id?: string } | null)?.message_id;
   if (!id) {
     throw new MetaApiError("Instagram no devolvió ID del mensaje con adjunto", {

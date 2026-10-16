@@ -295,13 +295,37 @@ describe("validación de salida (FR-803: tope → firma → canal)", () => {
     ).toThrowError(
       expect.objectContaining({
         code: "unsupported_type",
-        message: "Instagram solo acepta imágenes (JPG/PNG) y PDF",
+        message: "Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)",
       })
     );
     const pdf = inspectOutgoing(PDF, {});
     expect(checkChannelFile(INSTAGRAM_OUTBOUND_FILES, pdf, 1000, "Instagram").sendMime).toBe(
       "application/pdf"
     );
+  });
+
+  it("Instagram: wav/mp4/mov/webm entran (25 MB); mp3 y ogg se bloquean antes de Meta", () => {
+    const MP4 = bytes(pad(4), "ftypisom", pad(4));
+    const MOV = bytes(pad(4), "ftypqt  ", pad(4));
+    const WEBM = bytes([0x1a, 0x45, 0xdf, 0xa3], pad(8));
+    const kinds = [
+      [WAV, "audio"],
+      [MP4, "video"],
+      [MOV, "video"],
+      [WEBM, "video"],
+    ] as const;
+    for (const [buf, kind] of kinds) {
+      const r = checkChannelFile(INSTAGRAM_OUTBOUND_FILES, inspectOutgoing(buf, {}), 20 * MB, "Instagram");
+      expect(r.rule.kind).toBe(kind);
+    }
+    expect(() =>
+      checkChannelFile(INSTAGRAM_OUTBOUND_FILES, inspectOutgoing(WAV, {}), 26 * MB, "Instagram")
+    ).toThrowError(expect.objectContaining({ code: "too_large" }));
+    for (const buf of [bytes("ID3", pad(8)), bytes("OggS", pad(8))]) {
+      expect(() =>
+        checkChannelFile(INSTAGRAM_OUTBOUND_FILES, inspectOutgoing(buf, {}), 1000, "Instagram")
+      ).toThrowError(expect.objectContaining({ code: "unsupported_type" }));
+    }
   });
 
   it("Messenger: imagen de 20 MB cabe (25 MB); canal sin archivos → 415", () => {

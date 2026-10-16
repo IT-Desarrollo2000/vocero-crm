@@ -573,6 +573,17 @@ async function instagram() {
   ok("el PDF → sent", byId[ctx.pdf400?.id]?.status === "sent", JSON.stringify(byId[ctx.pdf400?.id]));
   const ob = await outbox();
   ok("Meta recibió exactamente 1 adjunto (el PDF)", ob.filter((o) => JSON.stringify(o).includes("attachment")).length === 1, JSON.stringify(ob).slice(0, 300));
+  // Arreglo IG: el PDF del catálogo se SUBE a message_attachments (bytes) y
+  // sale por attachment_id; ya no se manda una URL para que Meta la descargue.
+  const upIg = await uploads("instagram");
+  const obPdf = ob.find((o) => o.type === "attachment");
+  ok(
+    "IG: 1 subida binaria del PDF y el envío usa ese attachment_id",
+    upIg.length === 1 && upIg[0].mime === "application/pdf" && upIg[0].bytes > 0 &&
+      obPdf?.attachment?.channel === "instagram" && obPdf.attachment.attachmentId === upIg[0].id &&
+      obPdf.attachment.shape === "attachment" && obPdf.attachment.attachmentType === "file",
+    JSON.stringify({ upIg, att: obPdf?.attachment })
+  );
 }
 
 async function withSellerPage(fn) {

@@ -15,9 +15,10 @@ function notFound(): Response {
 }
 
 /**
- * 018 (FR-812) — URL firmada de un archivo SALIENTE, para que Instagram lo
- * descargue (no acepta subidas). PÚBLICA a propósito: quien la pide es Meta,
- * sin sesión. Su defensa es el token (`src/server/media/signed-url.ts`):
+ * 018 (FR-812) — URL firmada de un archivo SALIENTE. Nació para que Instagram
+ * lo descargara; hoy Instagram recibe los bytes por subida multipart y esta
+ * ruta ya no participa en el envío (se conserva con sus pruebas). PÚBLICA a
+ * propósito: quien la pediría es un tercero sin sesión. Su defensa es el token (`src/server/media/signed-url.ts`):
  * HMAC sobre organización + asset + vencimiento de 10 minutos.
  *
  * Solo sirve assets `direction = "out"` de la organización del token
