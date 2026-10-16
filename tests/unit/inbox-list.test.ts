@@ -415,6 +415,7 @@ describe("countConversations — capas del contrato 06-0", () => {
     "instagram",
     "messenger",
     "originAd",
+    "originPost",
     "originNone",
     "unreadConversations",
   ] as const;
@@ -482,6 +483,8 @@ describe("countConversations — capas del contrato 06-0", () => {
     expect(seg.originAd?.match(/"ad_attribution"\."id" is not null/g)).toHaveLength(1);
     expect(seg.originNone).toContain('"ad_attribution"."id" is null');
     expect(seg.originNone).not.toContain('"ad_attribution"."id" is not null');
+    expect(seg.originPost).toContain('"ad_attribution"."id" is not null');
+    expect(seg.originPost).toContain('"source_type" = $');
     expect(seg.whatsapp?.match(/"channel" = \$/g)).toHaveLength(1);
     expect(seg.whatsapp).toContain('"unread_count" > $');
     // Una publicación no cuenta como anuncio.
@@ -497,7 +500,7 @@ describe("countConversations — capas del contrato 06-0", () => {
 
   it("los números vuelven como Number aunque el driver mande texto", async () => {
     responder = (c) => {
-      if (isCounts(c)) return [["9", "2", "3", "1", "4", "2", "7", "1", "1", "3", "6", "5", "12", false]];
+      if (isCounts(c)) return [["9", "2", "3", "1", "4", "2", "7", "1", "1", "3", "2", "6", "5", "12", false]];
       if (isMembers(c)) return [["1"]];
       return [];
     };
@@ -510,7 +513,7 @@ describe("countConversations — capas del contrato 06-0", () => {
       unassigned: 4,
       closing: 2,
       byChannel: { whatsapp: 7, instagram: 1, messenger: 1 },
-      origin: { ad: 3, none: 6 },
+      origin: { ad: 3, post: 2, none: 6 },
       unreadConversations: 5,
       unreadMessages: 12,
       teamMode: false,
@@ -520,7 +523,7 @@ describe("countConversations — capas del contrato 06-0", () => {
   it("teamMode: owner solo y sin asignadas → false; con 2 miembros o una asignada → true; vendedor → true", async () => {
     const run = async (viewer: typeof owner | typeof seller, members: string, any: boolean) => {
       responder = (c) => {
-        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
+        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
         if (isMembers(c)) return [[members]];
         return [];
       };

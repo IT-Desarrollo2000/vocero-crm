@@ -21,6 +21,7 @@ import { effectiveSource } from "@/server/contact-source";
 import { purgeableCondition } from "@/server/media/purge";
 import {
   cuentaComoAnuncio,
+  tipoDeOrigen,
   etiquetaDeOrigen,
   titularDeOrigen,
 } from "@/lib/anuncios";
@@ -408,14 +409,16 @@ describe("freno de la reparación", () => {
 
 describe("fuente y etiquetas", () => {
   it("lo capturado manda sobre el anuncio", () => {
-    expect(effectiveSource("referido", true)).toEqual({
+    expect(effectiveSource("referido", "ad")).toEqual({
       value: "referido",
       source: "capturada",
     });
   });
 
-  it("sin captura, un anuncio deduce la fuente", () => {
-    expect(effectiveSource(null, true)).toEqual({ value: "anuncio", source: "deducida" });
+  it("sin captura, un anuncio deduce Anuncio y una publicación Contenido orgánico", () => {
+    expect(effectiveSource(null, "ad")).toEqual({ value: "anuncio", source: "deducida" });
+    expect(effectiveSource(null, "post")).toEqual({ value: "organico", source: "deducida" });
+    expect(effectiveSource(null, "none")).toEqual({ value: "desconocida", source: "deducida" });
     expect(effectiveSource(null)).toEqual({ value: "desconocida", source: "deducida" });
   });
 
@@ -424,6 +427,10 @@ describe("fuente y etiquetas", () => {
     expect(cuentaComoAnuncio({ sourceType: "ad" })).toBe(true);
     expect(cuentaComoAnuncio({ sourceType: null })).toBe(true);
     expect(cuentaComoAnuncio(null)).toBe(false);
+    expect(tipoDeOrigen({ sourceType: "post" })).toBe("post");
+    expect(tipoDeOrigen({ sourceType: "ad" })).toBe("ad");
+    expect(tipoDeOrigen({ sourceType: null })).toBe("ad");
+    expect(tipoDeOrigen(null)).toBe("none");
     expect(etiquetaDeOrigen("post")).toBe("Publicación");
     expect(etiquetaDeOrigen("ad")).toBe("Anuncio");
     expect(titularDeOrigen(null, "ad")).toBe("Anuncio sin título");

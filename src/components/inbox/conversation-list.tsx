@@ -404,7 +404,8 @@ export function ConversationList({
   const ORIGINS: { id: InboxOrigin | null; label: string; count?: number }[] = [
     { id: null, label: "Todos" },
     { id: "ad", label: "De anuncio", count: counts?.origin?.ad ?? 0 },
-    { id: "none", label: "Sin anuncio", count: counts?.origin?.none ?? 0 },
+    { id: "post", label: "De publicación", count: counts?.origin?.post ?? 0 },
+    { id: "none", label: "Sin origen", count: counts?.origin?.none ?? 0 },
   ];
   // Con un solo canal encendido no hay bandejas que distinguir: ni marca en
   // los renglones ni filtro. La pantalla queda exactamente como antes de 014.
@@ -512,7 +513,12 @@ export function ConversationList({
       ? [
           {
             key: "origin",
-            label: filters.origin === "ad" ? "De anuncio" : "Sin anuncio",
+            label:
+              filters.origin === "ad"
+                ? "De anuncio"
+                : filters.origin === "post"
+                  ? "De publicación"
+                  : "Sin origen",
             remove: () => onFiltersChange({ origin: null }),
           },
         ]

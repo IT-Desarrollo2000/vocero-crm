@@ -3,7 +3,7 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
-import { cuentaComoAnuncio } from "@/lib/anuncios";
+import { tipoDeOrigen } from "@/lib/anuncios";
 import type { ContactDetailResponse } from "@/lib/types";
 import {
   getContactById,
@@ -38,7 +38,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   // segundo plano y con freno: la tarjeta se pinta igual sin ella.
   if (anuncio && !anuncio.imageUrl) repararImagenSiFalta(session.organizationId, id);
   const body: ContactDetailResponse = {
-    contact: serializeContact(contact, null, null, cuentaComoAnuncio(anuncio)),
+    contact: serializeContact(contact, null, null, tipoDeOrigen(anuncio)),
     stage: stageRow
       ? {
           id: stageRow.stage.id,
@@ -104,7 +104,7 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   if (!updated) return apiError(404, "not_found", "Contacto no encontrado");
   const anuncio = await anuncioDelContacto(session.organizationId, id);
   return Response.json({
-    contact: serializeContact(updated, null, null, cuentaComoAnuncio(anuncio)),
+    contact: serializeContact(updated, null, null, tipoDeOrigen(anuncio)),
   });
 });
 

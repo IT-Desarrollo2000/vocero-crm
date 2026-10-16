@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
-import { cuentaComoAnuncio } from "@/lib/anuncios";
+import { tipoDeOrigen, type TipoDeOrigen } from "@/lib/anuncios";
 import type { AnuncioDto } from "@/lib/types";
 import { descargaEnCurso, guardarCreativo } from "@/server/attribution/creativo";
 import { atribucionEnabled } from "@/server/attribution/flag";
@@ -133,15 +133,15 @@ export async function anuncioDelContacto(
 }
 
 /**
- * De una lista de contactos, cuáles llegaron por un ANUNCIO (no publicación),
- * mirando su primer origen (D1). En lote: la lista de contactos no pregunta
- * fila por fila.
+ * De una lista de contactos, por dónde llegó cada uno (anuncio o publicación),
+ * mirando su primer origen (D1). Los que no figuran no tienen origen. En lote:
+ * la lista de contactos no pregunta fila por fila.
  */
-export async function contactosQueLlegaronPorAnuncio(
+export async function origenDeContactos(
   organizationId: string,
   contactIds: string[]
-): Promise<Set<string>> {
-  const out = new Set<string>();
+): Promise<Map<string, TipoDeOrigen>> {
+  const out = new Map<string, TipoDeOrigen>();
   if (contactIds.length === 0) return out;
   const a = schema.adAttribution;
   const filas = await getDb()
@@ -149,7 +149,7 @@ export async function contactosQueLlegaronPorAnuncio(
     .from(a)
     .where(scoped(a.organizationId, organizationId, inArray(a.contactId, contactIds)))
     .orderBy(a.contactId, asc(a.createdAt), asc(a.id));
-  for (const f of filas) if (cuentaComoAnuncio(f)) out.add(f.contactId);
+  for (const f of filas) out.set(f.contactId, tipoDeOrigen(f));
   return out;
 }
 

@@ -1899,8 +1899,8 @@ async function anuncioOrigenChecks(encendida) {
   );
   const detP = fila(NOM_P) ? await detalle(fila(NOM_P).contact.id) : null;
   ok(
-    "una publicación NO deduce la fuente «Anuncio»",
-    detP?.anuncio?.sourceType === "post" && detP?.contact?.source?.value === "desconocida",
+    "una publicación deduce «Contenido orgánico» (no «Anuncio»)",
+    detP?.anuncio?.sourceType === "post" && detP?.contact?.source?.value === "organico",
     JSON.stringify(detP?.contact?.source)
   );
 
@@ -1912,16 +1912,22 @@ async function anuncioOrigenChecks(encendida) {
     JSON.stringify(nombres(deAnuncio)) === JSON.stringify([NOM_A, NOM_B, NOM_E].sort()),
     JSON.stringify(nombres(deAnuncio))
   );
-  const sinAnuncio = await lista({ origin: "none" });
+  const dePublicacion = await lista({ origin: "post" });
   ok(
-    "Origen = Sin anuncio: la publicación y la orgánica",
-    JSON.stringify(nombres(sinAnuncio)) === JSON.stringify([NOM_P, NOM_O].sort()),
-    JSON.stringify(nombres(sinAnuncio))
+    "Origen = De publicación: solo la publicación",
+    JSON.stringify(nombres(dePublicacion)) === JSON.stringify([NOM_P]),
+    JSON.stringify(nombres(dePublicacion))
+  );
+  const sinOrigen = await lista({ origin: "none" });
+  ok(
+    "Origen = Sin origen: solo la orgánica",
+    JSON.stringify(nombres(sinOrigen)) === JSON.stringify([NOM_O]),
+    JSON.stringify(nombres(sinOrigen))
   );
   const c0 = await contadores();
   ok(
-    "contadores de Origen: de anuncio 3, sin anuncio 2",
-    c0?.origin?.ad === 3 && c0?.origin?.none === 2,
+    "contadores de Origen: de anuncio 3, de publicación 1, sin origen 1",
+    c0?.origin?.ad === 3 && c0?.origin?.post === 1 && c0?.origin?.none === 1,
     JSON.stringify(c0?.origin)
   );
 
@@ -1961,7 +1967,8 @@ async function anuncioOrigenChecks(encendida) {
     cCombo?.unread === filasCombo.length &&
       cCombo?.all === 1 && // Todas con De anuncio + etapa: A
       cCombo?.origin?.ad === 1 && // No leídas + etapa, de anuncio: A
-      cCombo?.origin?.none === 1, // No leídas + etapa, sin anuncio: la publicación
+      cCombo?.origin?.post === 1 && // No leídas + etapa, de publicación: P
+      cCombo?.origin?.none === 0, // la orgánica sigue en la etapa inicial
     JSON.stringify({ unread: cCombo?.unread, all: cCombo?.all, origin: cCombo?.origin })
   );
   const sinEtapa = { filter: "unread", origin: "ad" };

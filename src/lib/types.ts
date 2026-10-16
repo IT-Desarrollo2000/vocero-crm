@@ -112,11 +112,11 @@ export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned" | "
 export type InboxView = "all" | "unread" | "mine" | "human";
 
 /**
- * 020: filtro Origen, `?origin=`. `ad` = la conversación llegó por un anuncio
- * (una publicación —`source_type=post`— no cuenta); `none` = el resto.
- * Ausente = todos.
+ * 020: filtro Origen, `?origin=`. `ad` = la conversación llegó por un anuncio;
+ * `post` = por una publicación orgánica con botón (`source_type=post`);
+ * `none` = sin origen que Meta haya dicho. Ausente = todos.
  */
-export type InboxOrigin = "ad" | "none";
+export type InboxOrigin = "ad" | "post" | "none";
 
 /**
  * 06: respuesta de `GET /api/conversations`. `nextCursor` es opaco (lo arma

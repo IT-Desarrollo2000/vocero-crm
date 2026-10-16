@@ -151,7 +151,7 @@ export function filtersFromSearchParams(
       ? (channel as Channel)
       : null,
     q: (params.get("q") ?? "").slice(0, 200),
-    origin: origin === "ad" || origin === "none" ? origin : null,
+    origin: origin === "ad" || origin === "post" || origin === "none" ? origin : null,
     unassigned: raw === "unassigned" || flag("unassigned"),
     closing: raw === "closing" || flag("closing"),
   };
@@ -426,7 +426,11 @@ export function countsFromLoaded(
       instagram: count({ channel: "instagram" }),
       messenger: count({ channel: "messenger" }),
     },
-    origin: { ad: count({ origin: "ad" }), none: count({ origin: "none" }) },
+    origin: {
+      ad: count({ origin: "ad" }),
+      post: count({ origin: "post" }),
+      none: count({ origin: "none" }),
+    },
     unreadConversations: items.filter((c) => c.unreadCount > 0).length,
     unreadMessages: items.reduce((a, c) => a + c.unreadCount, 0),
     teamMode: items.some((c) => c.assignedTo !== null),

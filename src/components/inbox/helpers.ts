@@ -3,7 +3,7 @@
 import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
 import { isClosingSoon } from "@/lib/closing-window";
-import { cuentaComoAnuncio } from "@/lib/anuncios";
+import { tipoDeOrigen } from "@/lib/anuncios";
 import type { ConversationDto, InboxFilter, InboxOrigin } from "@/lib/types";
 
 /**
@@ -53,7 +53,7 @@ export function filterConversations(
     filter: ConversationFilter;
     /**
      * 020: filtros combinables del panel. Origen ≡ `originCondition` del
-     * servidor (`cuentaComoAnuncio` sobre el anuncio de la fila).
+     * servidor (`tipoDeOrigen` sobre el anuncio de la fila).
      */
     origin?: InboxOrigin | null;
     unassigned?: boolean;
@@ -73,7 +73,7 @@ export function filterConversations(
   // Los filtros combinables se aplican en la capa del canal: las vistas
   // cuentan dentro de ellos.
   const panelOk = (c: ConversationDto): boolean =>
-    (origin == null || (origin === "ad") === cuentaComoAnuncio(c.anuncio)) &&
+    (origin == null || origin === tipoDeOrigen(c.anuncio)) &&
     (!opts.unassigned || c.assignedTo === null) &&
     (!opts.closing || isClosingSoon(c.channel, c.lastInboundAt, now));
   const inbox = opts.inbox;

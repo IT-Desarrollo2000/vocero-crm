@@ -20,6 +20,20 @@ export function cuentaComoAnuncio(
   return !!anuncio && anuncio.sourceType !== "post";
 }
 
+/**
+ * De dónde llegó una conversación o un contacto: un anuncio pagado, una
+ * PUBLICACIÓN orgánica con botón de WhatsApp (`source_type: "post"`) o nada
+ * que Meta haya dicho. Es la misma partición del filtro Origen de la Bandeja.
+ */
+export type TipoDeOrigen = "ad" | "post" | "none";
+
+export function tipoDeOrigen(
+  anuncio: { sourceType: string | null } | null | undefined
+): TipoDeOrigen {
+  if (!anuncio) return "none";
+  return anuncio.sourceType === "post" ? "post" : "ad";
+}
+
 /** Titular a enseñar cuando Meta no mandó ninguno. */
 export function titularDeOrigen(
   headline: string | null | undefined,

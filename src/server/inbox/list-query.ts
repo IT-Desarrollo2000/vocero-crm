@@ -33,7 +33,7 @@ export const INBOX_FILTERS: readonly InboxFilter[] = [
 export const INBOX_VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human"];
 
 /** 020: valores de `?origin=`. */
-export const INBOX_ORIGINS: readonly InboxOrigin[] = ["ad", "none"];
+export const INBOX_ORIGINS: readonly InboxOrigin[] = ["ad", "post", "none"];
 
 /** Tope de ids por `?ids=` (los extra se descartan, sin error). */
 export const IDS_MAX = 50;

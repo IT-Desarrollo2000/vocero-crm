@@ -96,7 +96,7 @@ el encabezado. Nuevo diseño (elegido por el dueño):
   Mías · Atención humana.
 - **Botón "Filtros"** (con número de filtros activos) que abre un panel con
   filtros **combinables** entre sí y con la vista: Canal (WhatsApp/Instagram/
-  Messenger), Etapa, **Origen** (Todos / De anuncio / Sin anuncio, con
+  Messenger), Etapa, **Origen** (Todos / De anuncio / De publicación / Sin origen, con
   contador), Sin asignar, Por cerrar.
 - **Filtros activos** como etiquetas removibles (x) + "Limpiar".
 - Los contadores de canal del encabezado se quedan como atajo al filtro Canal.
@@ -203,15 +203,14 @@ fase con autorización del dueño.
   valores viejos `filter=unassigned|closing` se traducen al filtro nuevo (en
   servidor y en la URL de la página).
 - **Origen por conversación**: "De anuncio" = la conversación tiene anuncio y
-  no es `source_type=post`; "Sin anuncio" = el resto (publicaciones
-  incluidas, coherente con la fuente deducida). La tarjeta y la fuente miran
+  no es `source_type=post`; "De publicación" = `source_type=post` (deduce la fuente «Contenido orgánico», decisión del dueño 2026-10-16); "Sin origen" = sin fila de origen. La tarjeta y la fuente miran
   al contacto (primer anuncio, D1); en WhatsApp es lo mismo (una conversación
   por contacto y canal).
 - **Semántica de contadores (facetada):** cada número es lo que verías al
   elegir esa opción dejando todo lo demás fijo.
   - Vistas (Todas/No leídas/Mías/Atención humana) = base ∧ todos los filtros
     del panel ∧ esa vista (la vista activa se reemplaza, no se suma).
-  - Origen (De anuncio/Sin anuncio), Canal (encabezado y panel), Sin asignar,
+  - Origen (De anuncio/De publicación/Sin origen), Canal (encabezado y panel), Sin asignar,
     Por cerrar = base ∧ vista activa ∧ los demás filtros ∧ esa opción.
   - Badge de no leídas del menú/título: solo visibilidad (sin cambios).
   - Sin vista ni filtros nuevos, coincide con el contrato 06-0. Cambio

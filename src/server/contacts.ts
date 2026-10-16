@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import type { TipoDeOrigen } from "@/lib/anuncios";
 import { effectiveSource } from "@/server/contact-source";
 import type { FichaMeta } from "@/lib/ficha-fields";
 import type { FichaDto, PriorityValue } from "@/lib/types";
@@ -9,8 +10,8 @@ export function serializeContact(
   c: typeof schema.contact.$inferSelect,
   stageName: string | null = null,
   priority: PriorityValue | null = null,
-  /** 020: ¿su primer origen es un anuncio? Deduce la fuente si no hay captura. */
-  llegoPorAnuncio = false
+  /** 020: su primer origen (anuncio/publicación). Deduce la fuente si no hay captura. */
+  origen: TipoDeOrigen = "none"
 ) {
   return {
     id: c.id,
@@ -19,7 +20,7 @@ export function serializeContact(
     notes: c.notes,
     stageName,
     archivedAt: c.archivedAt?.toISOString() ?? null,
-    source: effectiveSource(c.source, llegoPorAnuncio),
+    source: effectiveSource(c.source, origen),
     priority,
     // Viaja siempre, aunque esté vacía: la pantalla necesita distinguir "aún
     // no la han llenado" de "este contacto no la trae".

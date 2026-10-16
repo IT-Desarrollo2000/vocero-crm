@@ -132,16 +132,17 @@ export function inboxFilterCondition(
 /**
  * 020 — Filtro Origen sobre el anuncio de ESTA conversación (LEFT JOIN de
  * `ad_attribution` por (org, conversación), UNIQUE: no multiplica filas).
- * `ad` = hay anuncio y no es una publicación (`source_type = 'post'`, que
- * no deduce la fuente "Anuncio" — `cuentaComoAnuncio`); `none` = el resto,
- * publicaciones incluidas. Exportado para el unit que fija su forma.
+ * `ad` = hay anuncio y no es una publicación; `post` = publicación orgánica
+ * con botón (`source_type = 'post'`); `none` = sin origen. Misma partición que
+ * `tipoDeOrigen`. Exportado para el unit que fija su forma.
  */
 export function originCondition(origin: InboxOrigin | undefined): SQL | undefined {
   const a = schema.adAttribution;
   if (origin === "ad") {
     return and(isNotNull(a.id), sql`${a.sourceType} is distinct from 'post'`);
   }
-  if (origin === "none") return or(isNull(a.id), eq(a.sourceType, "post"));
+  if (origin === "post") return and(isNotNull(a.id), eq(a.sourceType, "post"));
+  if (origin === "none") return isNull(a.id);
   return undefined;
 }
 
@@ -411,7 +412,7 @@ function anuncioDeFila(r: {
  *   filtros       = channel ∧ origin ∧ unassigned ∧ closing (los del panel)
  *   vistas        = base ∧ filtros ∧ predicado de la vista (la pedida no cuenta)
  *   unassigned/closing = base ∧ vista ∧ filtros-sin-él ∧ su predicado
- *   origin.ad/none = base ∧ vista ∧ filtros-sin-origen ∧ ese origen
+ *   origin.ad/post/none = base ∧ vista ∧ filtros-sin-origen ∧ ese origen
  *   byChannel[x]  = base ∧ vista ∧ filtros-sin-canal ∧ channel = x
  *   unreadConversations / unreadMessages = SOLO visibilidad (badge, D-05-1)
  *   teamMode      = !owner ∨ miembros > 1 ∨ alguna visible con responsable
@@ -457,6 +458,7 @@ export async function countConversations(
       instagram: countWhere(base, view, ...panel("channel"), eq(c.channel, "instagram")),
       messenger: countWhere(base, view, ...panel("channel"), eq(c.channel, "messenger")),
       originAd: countWhere(base, view, ...panel("origin"), originCondition("ad")),
+      originPost: countWhere(base, view, ...panel("origin"), originCondition("post")),
       originNone: countWhere(base, view, ...panel("origin"), originCondition("none")),
       unreadConversations: countWhere(gt(c.unreadCount, 0)),
       unreadMessages: sql<number>`coalesce(sum(${c.unreadCount}), 0)::int`.mapWith(Number),
@@ -496,7 +498,7 @@ export async function countConversations(
       instagram: n(agg?.instagram),
       messenger: n(agg?.messenger),
     },
-    origin: { ad: n(agg?.originAd), none: n(agg?.originNone) },
+    origin: { ad: n(agg?.originAd), post: n(agg?.originPost), none: n(agg?.originNone) },
     unreadConversations: n(agg?.unreadConversations),
     unreadMessages: n(agg?.unreadMessages),
     teamMode:

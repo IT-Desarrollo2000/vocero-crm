@@ -300,8 +300,8 @@ describe("countsFromLoaded — respaldo si /counts no responde", () => {
       mk({ unreadCount: 1 }),
     ];
     const c = countsFromLoaded(conAnuncio, f({ filter: "unread", origin: "ad" }), "u1");
-    // Una publicación no cuenta como anuncio: va en "Sin anuncio".
-    expect(c.origin).toEqual({ ad: 1, none: 2 });
+    // Anuncio, publicación y sin origen son tres cubetas aparte.
+    expect(c.origin).toEqual({ ad: 1, post: 1, none: 1 });
     // Las vistas cuentan con el origen puesto.
     expect(c.all).toBe(2);
     expect(c.unread).toBe(1);
@@ -390,7 +390,10 @@ describe("filtros combinables y URL de la página (020)", () => {
       deAnuncio.id,
     ]);
     expect(
-      ids(visibleConversations(items, f({ filter: "unread", origin: "none" }), "u1"))
+      ids(visibleConversations(items, f({ filter: "unread", origin: "post" }), "u1"))
     ).toEqual([post.id]);
+    expect(
+      ids(visibleConversations(items, f({ filter: "unread", origin: "none" }), "u1"))
+    ).toEqual([]);
   });
 });

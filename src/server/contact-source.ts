@@ -1,3 +1,4 @@
+import type { TipoDeOrigen } from "@/lib/anuncios";
 import type { SourceDto, SourceValue } from "@/lib/types";
 
 /**
@@ -35,15 +36,16 @@ export function isSourceValue(v: unknown): v is SourceValue {
  * lo inventa: queda "sin identificar" hasta que alguien lo capture.
  *
  * 020 — Salvo que Meta lo haya dicho: si el primer origen del contacto es un
- * ANUNCIO (no una publicación, ver `cuentaComoAnuncio`), la fuente se DEDUCE
- * "anuncio". Lo capturado a mano sigue mandando (D3), y borrar la captura
- * (`PATCH source: null`) vuelve a esta deducción.
+ * ANUNCIO, la fuente se DEDUCE "anuncio"; si es una PUBLICACIÓN orgánica con
+ * botón de WhatsApp, "organico". Lo capturado a mano sigue mandando (D3), y
+ * borrar la captura (`PATCH source: null`) vuelve a esta deducción.
  */
 export function effectiveSource(
   stored: SourceValue | null,
-  llegoPorAnuncio = false
+  origen: TipoDeOrigen = "none"
 ): SourceDto {
   if (stored) return { value: stored, source: "capturada" };
-  if (llegoPorAnuncio) return { value: "anuncio", source: "deducida" };
+  if (origen === "ad") return { value: "anuncio", source: "deducida" };
+  if (origen === "post") return { value: "organico", source: "deducida" };
   return { value: "desconocida", source: "deducida" };
 }

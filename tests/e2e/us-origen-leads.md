@@ -39,7 +39,7 @@ dice qué se guardó (booleanos, nunca el valor del clic).
 1. La fila trae `anuncio {headline, sourceType}` (también por `?ids=`, lo que
    la Bandeja pide tras el SSE): "Anuncio · <titular>", o "Publicación · …".
 2. Filtro Origen: "De anuncio" deja solo las de anuncio (no publicaciones);
-   "Sin anuncio", el resto. Sus contadores cuadran.
+   "De publicación", las de `source_type=post` (deducen «Contenido orgánico»); "Sin origen", el resto. Sus contadores cuadran.
 3. Combinado con una vista y una etapa (No leídas + De anuncio + Etapa), la
    lista y los contadores facetados coinciden.
 4. Panel "Filtros": número de activos, etiquetas removibles, "Limpiar" (deja
@@ -49,6 +49,6 @@ dice qué se guardó (booleanos, nunca el valor del clic).
 ## US4 — Fuente del contacto (D3)
 
 1. Sin captura y con anuncio: fuente "Anuncio", **deducida**. Con publicación:
-   "Sin identificar".
+   "Contenido orgánico", **deducida**.
 2. `PATCH {source: "referido"}` → capturada, y manda sobre el anuncio.
 3. `PATCH {source: null}` → vuelve a la deducida. Un valor fuera del catálogo → 422.
