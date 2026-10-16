@@ -157,3 +157,15 @@ export function toRangeDto(range: ReportRange): ReportRangeDto {
     toUtc: range.toUtc.toISOString(),
   };
 }
+
+/**
+ * 020 — El rango inmediatamente anterior con el mismo número de días locales
+ * (para la variación del resumen). Calculado aquí, en Node, como el resto.
+ * `null` si los límites no se pueden resolver.
+ */
+export function previousRange(range: ReportRange): ReportRange | null {
+  const n = range.days.length;
+  if (n < 1) return null;
+  const built = build("custom", addDaysISO(range.from, -n), addDaysISO(range.from, -1), range.tz);
+  return built.ok ? built.range : null;
+}

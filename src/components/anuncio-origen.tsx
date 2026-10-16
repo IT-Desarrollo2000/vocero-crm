@@ -116,3 +116,37 @@ export function EtiquetaDeOrigen({
     </span>
   );
 }
+
+/**
+ * 020 fase B — Miniatura compacta del anuncio (tabla de Reportes → Anuncios).
+ * Sin imagen, o si deja de servirse, un icono en su lugar: la fila no salta.
+ */
+export function MiniaturaDeAnuncio({
+  src,
+  titular,
+  className,
+}: {
+  src: string | null;
+  titular: string;
+  className?: string;
+}) {
+  const [rota, setRota] = useState(false);
+  const base = `shrink-0 rounded border border-info-soft bg-info-tint ${className ?? "h-10 w-10"}`;
+  if (!src || rota) {
+    return (
+      <span aria-hidden="true" className={`${base} flex items-center justify-center text-info-text`}>
+        <Megaphone className="h-4 w-4" strokeWidth={1.7} />
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- adjunto privado servido con sesión; no hay host que optimizar
+    <img
+      src={src}
+      alt={`Miniatura: ${titular}`}
+      loading="lazy"
+      onError={() => setRota(true)}
+      className={`${base} object-cover`}
+    />
+  );
+}

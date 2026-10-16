@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * encendida) se anuncian deshabilitadas para que el marco no cambie de forma
  * cuando lleguen. Al cambiar de pestaña se conserva el rango de la URL.
  */
-export function ReportsTabs({ ads, bookings }: { ads: boolean; bookings: boolean }) {
+export function ReportsTabs({ bookings }: { bookings: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const qs = searchParams.toString();
@@ -26,7 +26,11 @@ export function ReportsTabs({ ads, bookings }: { ads: boolean; bookings: boolean
         />
       )}
       <DisabledTab label="Ventas" />
-      {ads && <DisabledTab label="Anuncios" />}
+      <Tab
+        href={withRange("/reports/ads")}
+        label="Anuncios"
+        active={pathname.startsWith("/reports/ads")}
+      />
     </nav>
   );
 }

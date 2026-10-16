@@ -247,6 +247,111 @@ export type BookingReportDto = {
   byReminder: ReportBlock<AttendanceByReminderDto>;
 };
 
+// ── Reportes → Anuncios (020 fase B) ────────────────────────────────────
+
+/**
+ * Semántica (plan 020 §8.5), la misma en los tres bloques:
+ *  - Un LEAD (uno por contacto) entra al rango en su FECHA DE LLEGADA: la de su
+ *    PRIMER anuncio de origen si llegó por uno (D1), o la de alta del lead si
+ *    no. Un contacto viejo que vuelve hoy por un anuncio cuenta para ese
+ *    anuncio hoy.
+ *  - GANADO = de esos leads, los que HOY están en una etapa `won`. Un ganado
+ *    que luego se movió fuera fue una corrección y deja de contar.
+ *  - MONTO = suma de `amount_cents` de los ganados, por moneda (sin moneda =
+ *    la del negocio). Nunca se suman monedas distintas. Un ganado sin monto
+ *    cuenta como venta pero no suma.
+ *  - CONVERSACIONES = conversaciones reales creadas en el rango.
+ *  - FUENTE = la efectiva del contacto (`effectiveSource`): la capturada
+ *    manda; si no, la deducida por su primer origen.
+ *  - Excluye el Laboratorio (conversaciones `is_test` y contactos cuya única
+ *    conversación es de prueba).
+ */
+
+/** Monto ganado de un conjunto de leads. */
+export type WonAmountDto = {
+  /** Moneda principal: la del negocio (Ajustes → Marca). */
+  currency: string;
+  /** Suma en la moneda principal, en centavos. */
+  amountCents: number;
+  /** Ganados con monto en OTRA moneda: aparte, nunca sumados a la principal. */
+  otherCurrencies: { currency: string; amountCents: number; won: number }[];
+  /** Ganados sin monto capturado (cuentan como venta, no suman). */
+  wonWithoutAmount: number;
+};
+
+export type AdSourceKey =
+  | "anuncio"
+  | "organico"
+  | "referido"
+  | "conocido"
+  | "otro"
+  | "desconocida";
+
+export type AdsSourceRowDto = {
+  value: AdSourceKey;
+  label: string;
+  conversations: number;
+  leads: number;
+  won: number;
+  /** `won / leads`; null sin leads. */
+  winRate: number | null;
+  wonAmount: WonAmountDto;
+};
+
+/** Cifras del resumen de un rango. */
+export type AdsSummaryFiguresDto = {
+  conversations: number;
+  /** Conversaciones cuya fuente efectiva es «Anuncio». */
+  adConversations: number;
+  /** `adConversations / conversations`; null sin conversaciones. */
+  adShare: number | null;
+  adLeads: number;
+  adWon: number;
+  adWonAmount: WonAmountDto;
+};
+
+export type AdsSummaryDto = AdsSummaryFiguresDto & {
+  /** El rango inmediatamente anterior, del mismo número de días. */
+  previous: (AdsSummaryFiguresDto & { from: string; to: string }) | null;
+};
+
+export type AdsBySourceDto = { rows: AdsSourceRowDto[] };
+
+export type AdRowDto = {
+  /** `source_id`, o el id de la fila de atribución si Meta no mandó ninguno. */
+  key: string;
+  sourceId: string | null;
+  /** `"ad"` | `"post"` (null = anuncio). */
+  sourceType: string | null;
+  /** Ya resuelto con `titularDeOrigen`. */
+  title: string;
+  mediaType: string | null;
+  /** `/api/media/<id>` o null. */
+  imageUrl: string | null;
+  leads: number;
+  won: number;
+  winRate: number | null;
+  wonAmount: WonAmountDto;
+};
+
+export type AdsByAdDto = {
+  /** Ordenadas por leads; como mucho `ADS_REPORT_MAX_ROWS`. */
+  rows: AdRowDto[];
+  /** Anuncios/publicaciones distintos en el rango (puede pasar de las filas). */
+  total: number;
+};
+
+/** Filas máximas de la tabla por anuncio. */
+export const ADS_REPORT_MAX_ROWS = 50;
+
+/** Respuesta 200 de `GET /api/reports/ads` (solo Propietario). */
+export type AdsReportDto = {
+  range: ReportRangeDto;
+  summary: ReportBlock<AdsSummaryDto>;
+  bySource: ReportBlock<AdsBySourceDto>;
+  byAd: ReportBlock<AdsByAdDto>;
+};
+
 /** Mensaje del 503 `report_timeout` (RF-02-08). */
 export const REPORT_TIMEOUT_MESSAGE = "Prueba un rango más corto";
 
