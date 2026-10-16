@@ -213,6 +213,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/dev/reminders/tick": "dev",
   // 018: una vuelta de la purga de adjuntos (caché de 30 días), reloj adelantable.
   "POST /api/dev/media/purge": "dev",
+  // 020: ¿se guardó el ctwa_clid? (la API pública solo dice si existe con la bandera).
+  "GET /api/dev/attribution": "dev",
   // 10: falla conmutable de los envíos de WhatsApp del mock.
   "GET /api/dev/wa-mock/fail-sends": "dev",
   "POST /api/dev/wa-mock/fail-sends": "dev",

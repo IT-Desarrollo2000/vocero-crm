@@ -30,6 +30,10 @@ const schema = z
     ctwaClid: z.string().optional(),
     adHeadline: z.string().optional(),
     adSourceId: z.string().optional(),
+    // 020 — tipo (`ad`/`post`), medio y miniatura del creativo
+    adSourceType: z.string().optional(),
+    adMediaType: z.string().optional(),
+    adThumbnailUrl: z.string().optional(),
   })
   .refine((v) => v.from || v.fromUserId, {
     message: "Se requiere from o fromUserId",

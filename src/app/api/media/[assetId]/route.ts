@@ -1,4 +1,4 @@
-import { eq, exists, sql } from "drizzle-orm";
+import { eq, exists, or, sql } from "drizzle-orm";
 import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
@@ -49,26 +49,52 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
         // 09 (D-09-5): al Vendedor solo si el adjunto cuelga de un mensaje
         // de una conversación que ve y que no es del Laboratorio (`is_test`);
         // si no (o sin mensaje) → 404.
+        //
+        // 020: o si es la miniatura del anuncio de origen de una conversación
+        // que ve (no cuelga de ningún mensaje: es del anuncio). Con la misma
+        // visibilidad y la misma exclusión del Laboratorio (D4: la tarjeta la
+        // ven todos los roles).
         isOwner(session)
           ? undefined
-          : exists(
-              db
-                .select({ one: sql`1` })
-                .from(schema.message)
-                .innerJoin(
-                  schema.conversation,
-                  eq(schema.conversation.id, schema.message.conversationId)
-                )
-                .where(
-                  scoped(
-                    schema.message.organizationId,
-                    session.organizationId,
-                    eq(schema.message.mediaAssetId, schema.mediaAsset.id),
-                    eq(schema.conversation.organizationId, session.organizationId),
-                    eq(schema.conversation.isTest, false),
-                    conversationVisibleTo(session)
+          : or(
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(schema.message)
+                  .innerJoin(
+                    schema.conversation,
+                    eq(schema.conversation.id, schema.message.conversationId)
                   )
-                )
+                  .where(
+                    scoped(
+                      schema.message.organizationId,
+                      session.organizationId,
+                      eq(schema.message.mediaAssetId, schema.mediaAsset.id),
+                      eq(schema.conversation.organizationId, session.organizationId),
+                      eq(schema.conversation.isTest, false),
+                      conversationVisibleTo(session)
+                    )
+                  )
+              ),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(schema.adAttribution)
+                  .innerJoin(
+                    schema.conversation,
+                    eq(schema.conversation.id, schema.adAttribution.conversationId)
+                  )
+                  .where(
+                    scoped(
+                      schema.adAttribution.organizationId,
+                      session.organizationId,
+                      eq(schema.adAttribution.imageAssetId, schema.mediaAsset.id),
+                      eq(schema.conversation.organizationId, session.organizationId),
+                      eq(schema.conversation.isTest, false),
+                      conversationVisibleTo(session)
+                    )
+                  )
+              )
             )
       )
     )

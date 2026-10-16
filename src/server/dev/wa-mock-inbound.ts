@@ -73,6 +73,15 @@ type MockReferralInput = {
   ctwaClid?: string;
   adHeadline?: string;
   adSourceId?: string;
+  /** 020: `ad` (default) o `post` (el clic vino de una publicación). */
+  adSourceType?: string;
+  /** 020: `image` (default) o `video`. */
+  adMediaType?: string;
+  /**
+   * 020: miniatura del creativo. Para que la ingesta la copie en el self-test
+   * apunta al CDN del mock (`/api/dev/wa-mock/cdn/<id>`, JPEG).
+   */
+  adThumbnailUrl?: string;
 };
 
 export function buildInboundPayload(input: {
@@ -104,12 +113,13 @@ export function buildInboundPayload(input: {
   // la ingesta no sepa que habla con un mock.
   if (input.ctwaClid || input.adHeadline || input.adSourceId) {
     message.referral = {
-      source_type: "ad",
+      source_type: input.adSourceType ?? "ad",
       source_id: input.adSourceId ?? "1200000000000",
       source_url: "https://fb.me/anuncio-de-prueba",
       headline: input.adHeadline ?? "Anuncio de prueba",
       body: "Escríbenos por WhatsApp",
-      media_type: "image",
+      media_type: input.adMediaType ?? "image",
+      ...(input.adThumbnailUrl ? { thumbnail_url: input.adThumbnailUrl } : {}),
       ...(input.ctwaClid ? { ctwa_clid: input.ctwaClid } : {}),
     };
   }

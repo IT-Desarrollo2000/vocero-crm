@@ -19,8 +19,8 @@ import {
 } from "@/server/inbox/identity";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { markHandoff } from "@/server/inbox/handoff";
-import { atribucionEnabled } from "@/server/attribution/flag";
-import { recordAttribution } from "@/server/attribution/store";
+import { anuncioDeWhatsapp } from "@/server/attribution/referral";
+import { registrarAnuncioDeOrigen } from "@/server/attribution/store";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
 
@@ -450,14 +450,20 @@ export async function ingestInboundMessage(input: {
   // 016 — Si el mensaje viene de un anuncio, capturar su origen ANTES del
   // dedup de mensaje: es idempotente por sí mismo (el primer referral gana) y
   // así un reintento de Meta que llegue con el referral no lo pierde por
-  // haberse cortado antes en el dedup. Solo con la bandera encendida: una
+  // haberse cortado antes en el dedup.
+  //
+  // 020 — SIEMPRE, sin la bandera: de qué anuncio llegó un lead es dato
+  // interno del negocio (tarjeta, etiqueta, filtro). La bandera `ATRIBUCION`
+  // solo decide el `ctwa_clid` (columna y `raw`) y el reporte a Meta: una
   // instancia que no atribuye no guarda identificadores de clic (ADR-001).
-  if (input.referral && atribucionEnabled()) {
-    await recordAttribution({
+  // Ver `anuncioParaGuardar` en `src/server/attribution/store.ts`.
+  const anuncio = input.referral ? anuncioDeWhatsapp(input.referral) : null;
+  if (anuncio) {
+    await registrarAnuncioDeOrigen({
       organizationId,
       contactId: contact.id,
       conversationId: conversation.id,
-      referral: input.referral,
+      anuncio,
     });
   }
 

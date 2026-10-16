@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { and, inArray, lt } from "drizzle-orm";
+import { and, inArray, lt, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { mediaFilePath } from "@/server/whatsapp/media";
 
@@ -53,18 +53,37 @@ export type MediaPurgeDeps = {
   batchSize?: number;
 };
 
+/**
+ * WHERE de lo purgable: creado antes del corte, con binario y en un estado
+ * que pueda tenerlo, y que NO sea la miniatura de un anuncio de origen.
+ *
+ * 020 — La miniatura del creativo (`ad_attribution.image_asset_id`) se queda:
+ * la copió el CRM del CDN de Meta, cuya URL caduca en días, así que borrarla
+ * a los 30 días la perdería para siempre — y es una por anuncio, no un
+ * adjunto por mensaje. La exclusión va por la clave foránea (no por el
+ * `payload.origen`): si ya ninguna conversación la referencia (se borraron
+ * por cascada), es un archivo huérfano y SÍ se purga. La subconsulta va en
+ * SQL crudo —no un `db.select()`— para que el predicado se arme sin base
+ * (lo fija `tests/unit/anuncio-origen.test.ts`); con paréntesis propios:
+ * `notExists(sql…)` no los pone.
+ */
+export function purgeableCondition(cutoff: Date): SQL {
+  const m = schema.mediaAsset;
+  const a = schema.adAttribution;
+  return and(
+    lt(m.createdAt, cutoff),
+    inArray(m.fetchStatus, [...PURGEABLE_STATUSES]),
+    inArray(m.kind, [...BINARY_KINDS]),
+    sql`not exists (select 1 from ${a} where ${a.imageAssetId} = ${m.id} and ${a.organizationId} = ${m.organizationId})`
+  )!;
+}
+
 async function defaultSelectBatch(cutoff: Date, limit: number): Promise<PurgeRow[]> {
   const db = getDb();
   return db
     .select({ id: schema.mediaAsset.id, organizationId: schema.mediaAsset.organizationId })
     .from(schema.mediaAsset)
-    .where(
-      and(
-        lt(schema.mediaAsset.createdAt, cutoff),
-        inArray(schema.mediaAsset.fetchStatus, [...PURGEABLE_STATUSES]),
-        inArray(schema.mediaAsset.kind, [...BINARY_KINDS])
-      )
-    )
+    .where(purgeableCondition(cutoff))
     .limit(limit);
 }
 
