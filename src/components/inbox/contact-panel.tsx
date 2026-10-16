@@ -171,6 +171,10 @@ export function ContactPanel({
 
   useEffect(() => {
     setNotesLoaded(false);
+    // 020: al cambiar de contacto, no mostrar un instante el anuncio ni la
+    // fuente del anterior (ni "Sin identificar" antes de saberlo).
+    setAnuncio(null);
+    setSource(null);
     void refetch();
   }, [refetch]);
 
@@ -435,7 +439,11 @@ export function ContactPanel({
             Origen
           </p>
           {anuncio && <AnuncioOrigen anuncio={anuncio} />}
-          <SourcePicker source={source} onChange={(v) => void saveSource(v)} />
+          {source ? (
+            <SourcePicker source={source} onChange={(v) => void saveSource(v)} />
+          ) : (
+            <p className="text-xs text-text-3">Cargando…</p>
+          )}
         </section>
 
         {/* Ficha: lo que se SABE del lead. Va antes de Notas —lo que alguien
