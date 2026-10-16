@@ -200,6 +200,25 @@ ok(
   anchoLista >= PHONE.width - 8,
   `${anchoLista}px de ${PHONE.width}`
 );
+// 020 (rediseño 4.4): en el teléfono el panel "Filtros" abre como hoja
+// inferior: de borde a borde y pegada al fondo de la pantalla.
+const botonFiltros = phone.getByRole("button", { name: /^Filtros/ });
+ok("el botón Filtros se ve en el teléfono", await botonFiltros.isVisible());
+await botonFiltros.click();
+const hoja = phone.getByRole("dialog", { name: "Filtros de la Bandeja" });
+ok("tocar Filtros abre el panel", await until(async () => await hoja.isVisible(), 5000));
+const cajaHoja = await hoja.boundingBox();
+ok(
+  "el panel es una hoja inferior (ancho completo, pegada al fondo)",
+  cajaHoja !== null &&
+    cajaHoja.x <= 1 &&
+    cajaHoja.width >= PHONE.width - 2 &&
+    Math.abs(cajaHoja.y + cajaHoja.height - PHONE.height) <= 2,
+  JSON.stringify(cajaHoja)
+);
+await phone.screenshot({ path: `${SHOTS}/phone-filtros.png` });
+await phone.getByRole("button", { name: "Listo" }).click();
+ok("«Listo» cierra la hoja", await until(async () => !(await hoja.isVisible()), 3000));
 await fila.click();
 const composer = phone.getByPlaceholder("Escribe una respuesta");
 ok(
@@ -316,27 +335,53 @@ ok(
   JSON.stringify(tres)
 );
 await desk.screenshot({ path: `${SHOTS}/desktop-inbox.png` });
-// Las pastillas (Todas / No leídas / Atención humana) y el selector de etapa
-// no se salen de la columna de 360px: si no caben, bajan de línea.
-const filtros = await desk.evaluate(() => {
-  const lista = document.querySelector("main > div > section");
-  const sel = document.querySelector('select[aria-label="Filtrar por etapa del embudo"]');
-  const pastilla = [...document.querySelectorAll("button")].find((b) =>
-    b.textContent?.startsWith("Atención humana")
-  );
-  if (!lista || !sel || !pastilla) return null;
-  const l = lista.getBoundingClientRect();
-  const dentro = (el) => {
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.left >= l.left && r.right <= l.right + 0.5;
-  };
-  return { selector: dentro(sel), pastilla: dentro(pastilla) };
+// 020 (rediseño 4.4): las vistas (Todas / No leídas / Atención humana) y el
+// botón "Filtros" no se salen de la columna de 360px (si no caben, bajan de
+// línea); el panel abierto —con el selector de etapa— tampoco.
+const dentroDeLaLista = (selectores) =>
+  desk.evaluate((sels) => {
+    const lista = document.querySelector("main > div > section");
+    if (!lista) return null;
+    const l = lista.getBoundingClientRect();
+    const out = {};
+    for (const [k, find] of Object.entries(sels)) {
+      const el =
+        find.startsWith("text:")
+          ? [...document.querySelectorAll("button")].find((b) =>
+              b.textContent?.startsWith(find.slice(5))
+            )
+          : document.querySelector(find);
+      if (!el) return { falta: k };
+      const r = el.getBoundingClientRect();
+      out[k] = r.width > 0 && r.left >= l.left - 0.5 && r.right <= l.right + 0.5;
+    }
+    return out;
+  }, selectores);
+const filtros = await dentroDeLaLista({
+  pastilla: "text:Atención humana",
+  boton: "text:Filtros",
 });
 ok(
-  "los filtros de la Bandeja caben en la columna (nada se sale por la derecha)",
-  filtros?.selector === true && filtros?.pastilla === true,
+  "las vistas y el botón Filtros caben en la columna (nada se sale por la derecha)",
+  filtros?.pastilla === true && filtros?.boton === true,
   JSON.stringify(filtros)
 );
+await desk.getByRole("button", { name: /^Filtros/ }).click();
+await desk
+  .getByRole("dialog", { name: "Filtros de la Bandeja" })
+  .waitFor({ timeout: 5000 })
+  .catch(() => {});
+const panel = await dentroDeLaLista({
+  panel: '[role="dialog"][aria-label="Filtros de la Bandeja"]',
+  selector: 'select[aria-label="Filtrar por etapa del embudo"]',
+});
+ok(
+  "en escritorio el panel se despliega dentro de la columna (con el selector de etapa)",
+  panel?.panel === true && panel?.selector === true,
+  JSON.stringify(panel)
+);
+await desk.screenshot({ path: `${SHOTS}/desktop-filtros.png` });
+await desk.keyboard.press("Escape");
 
 console.log("\n== 7. Escritorio: el lateral se contrae y lo recuerda ==");
 const anchoLateral = () =>

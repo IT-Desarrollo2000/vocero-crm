@@ -1672,6 +1672,345 @@ main().catch((err) => {
  * tiene que estrenar leads o estaría midiendo los de la corrida anterior.
  * ============================================================ */
 
+/* ============================================================
+ * 020 — Origen de leads, fase A (specs/020-origen-de-leads/plan.md)
+ *
+ * El anuncio de origen se guarda SIEMPRE (la bandera ATRIBUCION solo decide
+ * el ctwa_clid), gana el primero (D1), su miniatura se copia una vez por
+ * anuncio y NO la purga la caché de 30 días (lo afirma `adjuntosChecks`, que
+ * corre al final), la fila y el detalle lo traen, el filtro Origen se combina
+ * con la vista y la etapa con contadores coherentes, y la fuente se deduce y
+ * se corrige a mano (D3). Corre con la bandera apagada Y encendida.
+ * ============================================================ */
+
+/** Ruta servible de la miniatura copiada (la afirma la purga, al final). */
+let MINIATURA_ANUNCIO = null;
+
+async function anuncioOrigenChecks(encendida) {
+  const modo = encendida ? "encendida" : "apagada";
+  const SUF = String(Date.now()).slice(-6);
+  const tel = (n) => `52166${SUF}${n}`;
+  const AD1 = `1202${SUF}01`;
+  const AD2 = `1202${SUF}02`;
+  const POST = `1202${SUF}03`;
+  const AD_FUERA = `1202${SUF}04`;
+  const thumb = (id) => `${BASE}/api/dev/wa-mock/cdn/anuncio-${id}.jpg`;
+  const CLID = `clid-020-${SUF}`;
+  const TITULAR = `Kit de verano ${SUF}`;
+  const inbound = (body) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({ phoneNumberId: PN, ...body }),
+    });
+  const lista = async (params = {}) =>
+    (await api(`/api/conversations?${new URLSearchParams({ q: SUF, ...params })}`)).json
+      ?.conversations ?? [];
+  const contadores = async (params = {}) =>
+    (await api(`/api/conversations/counts?${new URLSearchParams({ q: SUF, ...params })}`))
+      .json;
+  const detalle = async (contactId) => (await api(`/api/contacts/${contactId}`)).json;
+  /** Espera a que la miniatura (que se copia en segundo plano) aparezca. */
+  const conImagen = async (contactId) => {
+    let d = null;
+    for (let i = 0; i < 30; i++) {
+      d = await detalle(contactId);
+      if (d?.anuncio?.imageUrl) break;
+      await sleep(400);
+    }
+    return d;
+  };
+  const conversacionDe = async (name) => {
+    for (let i = 0; i < 20; i++) {
+      const c = (await lista()).find((x) => x.contact.name === name);
+      if (c) return c;
+      await sleep(400);
+    }
+    return null;
+  };
+
+  console.log(`\n== 020: anuncio de origen (atribución ${modo}) ==`);
+
+  const NOM_A = `Lead anuncio A ${SUF}`;
+  await inbound({
+    from: tel("1"),
+    name: NOM_A,
+    text: "vi su anuncio",
+    ctwaClid: CLID,
+    adHeadline: TITULAR,
+    adSourceId: AD1,
+    adMediaType: "video",
+    adThumbnailUrl: thumb(AD1),
+    waMessageId: `wamid.e2e.020.${SUF}.a1`,
+  });
+  await sleep(1200);
+  // Otro referral en la MISMA conversación: el primero gana (D1).
+  await inbound({
+    from: tel("1"),
+    name: NOM_A,
+    text: "sigo aquí",
+    ctwaClid: `${CLID}-otro`,
+    adHeadline: "Anuncio que no debe ganar",
+    adSourceId: AD2,
+    waMessageId: `wamid.e2e.020.${SUF}.a2`,
+  });
+  const convA = await conversacionDe(NOM_A);
+  ok("la conversación del anuncio está en la Bandeja", !!convA);
+  const ctA = convA?.contact?.id;
+  const detA = ctA ? await conImagen(ctA) : null;
+  const anA = detA?.anuncio;
+  ok(
+    `con la bandera ${modo}, el anuncio de origen SE GUARDA`,
+    anA?.sourceId === AD1 && anA?.sourceType === "ad",
+    JSON.stringify(anA)
+  );
+  ok(
+    "first-touch: el segundo referral no pisa al primero",
+    anA?.headline === TITULAR && anA?.sourceId === AD1,
+    JSON.stringify(anA?.headline)
+  );
+  ok(
+    "la tarjeta trae texto, 'con video', fecha y enlace https",
+    anA?.body === "Escríbenos por WhatsApp" &&
+      anA?.mediaType === "video" &&
+      !Number.isNaN(Date.parse(anA?.capturedAt ?? "")) &&
+      anA?.sourceUrl === "https://fb.me/anuncio-de-prueba",
+    JSON.stringify(anA)
+  );
+  ok(
+    `hasCtwaClid = ${encendida} (solo si existe y la bandera está encendida)`,
+    anA?.hasCtwaClid === encendida,
+    JSON.stringify(anA?.hasCtwaClid)
+  );
+  ok(
+    "el valor del ctwa_clid jamás viaja al cliente",
+    !JSON.stringify(detA ?? {}).includes(CLID)
+  );
+  const guardado = ctA
+    ? (await api(`/api/dev/attribution?contact=${ctA}`)).json?.rows ?? []
+    : [];
+  ok(
+    encendida
+      ? "encendida: el ctwa_clid se guarda (columna y raw)"
+      : "apagada: el ctwa_clid NO se guarda (ni columna ni raw)",
+    guardado.length === 1 &&
+      guardado[0].ctwaClidColumn === encendida &&
+      guardado[0].ctwaClidInRaw === encendida,
+    JSON.stringify(guardado)
+  );
+
+  ok(
+    "la miniatura se copió como adjunto propio (ruta de medios)",
+    /^\/api\/media\/[\w.-]+$/.test(anA?.imageUrl ?? ""),
+    JSON.stringify(anA?.imageUrl)
+  );
+  if (anA?.imageUrl) {
+    const img = await fetch(`${BASE}${anA.imageUrl}`, { headers: { cookie, origin: BASE } });
+    ok(
+      "y se sirve como imagen",
+      img.status === 200 && /^image\//.test(img.headers.get("content-type") ?? ""),
+      `${img.status} ${img.headers.get("content-type")}`
+    );
+    MINIATURA_ANUNCIO = anA.imageUrl;
+  }
+
+  ok(
+    "fuente deducida: Anuncio (nadie la capturó)",
+    detA?.contact?.source?.value === "anuncio" && detA?.contact?.source?.source === "deducida",
+    JSON.stringify(detA?.contact?.source)
+  );
+
+  // Otro lead del MISMO anuncio: reutiliza la miniatura (una por source_id).
+  const NOM_B = `Lead anuncio B ${SUF}`;
+  await inbound({
+    from: tel("2"),
+    name: NOM_B,
+    text: "hola, también lo vi",
+    adHeadline: TITULAR,
+    adSourceId: AD1,
+    adThumbnailUrl: thumb(AD1),
+    waMessageId: `wamid.e2e.020.${SUF}.b1`,
+  });
+  // Una publicación (no anuncio) y una orgánica.
+  const NOM_P = `Lead publicacion ${SUF}`;
+  await inbound({
+    from: tel("3"),
+    name: NOM_P,
+    text: "vi tu publicación",
+    adHeadline: `Mi publicación ${SUF}`,
+    adSourceId: POST,
+    adSourceType: "post",
+    waMessageId: `wamid.e2e.020.${SUF}.p1`,
+  });
+  const NOM_O = `Lead organico 020 ${SUF}`;
+  await inbound({
+    from: tel("4"),
+    name: NOM_O,
+    text: "hola",
+    waMessageId: `wamid.e2e.020.${SUF}.o1`,
+  });
+  // Camino infeliz: miniatura fuera de los hosts de Meta → no se descarga.
+  const NOM_E = `Lead miniatura ajena ${SUF}`;
+  await inbound({
+    from: tel("5"),
+    name: NOM_E,
+    text: "hola",
+    adHeadline: `Anuncio raro ${SUF}`,
+    adSourceId: AD_FUERA,
+    adThumbnailUrl: "https://example.com/creativo.jpg",
+    waMessageId: `wamid.e2e.020.${SUF}.e1`,
+  });
+
+  const convB = await conversacionDe(NOM_B);
+  const detB = convB ? await conImagen(convB.contact.id) : null;
+  ok(
+    "mismo anuncio, misma miniatura (una por source_id)",
+    !!detB?.anuncio?.imageUrl && detB.anuncio.imageUrl === anA?.imageUrl,
+    `${detB?.anuncio?.imageUrl} vs ${anA?.imageUrl}`
+  );
+  const convE = await conversacionDe(NOM_E);
+  await sleep(1500);
+  const detE = convE ? await detalle(convE.contact.id) : null;
+  ok(
+    "una miniatura fuera de Meta no se descarga y la tarjeta sale igual",
+    detE?.anuncio?.headline === `Anuncio raro ${SUF}` && detE?.anuncio?.imageUrl === null,
+    JSON.stringify(detE?.anuncio)
+  );
+
+  /* ---------- La fila de la Bandeja (y el `?ids=` que dispara el SSE) ---------- */
+  await conversacionDe(NOM_O);
+  const filas = await lista();
+  const fila = (n) => filas.find((c) => c.contact.name === n);
+  ok(
+    "la fila trae el anuncio {headline, sourceType} para la etiqueta",
+    fila(NOM_A)?.anuncio?.headline === TITULAR && fila(NOM_A)?.anuncio?.sourceType === "ad",
+    JSON.stringify(fila(NOM_A)?.anuncio)
+  );
+  ok(
+    "una publicación llega marcada (la etiqueta dirá «Publicación»)",
+    fila(NOM_P)?.anuncio?.sourceType === "post",
+    JSON.stringify(fila(NOM_P)?.anuncio)
+  );
+  ok("una orgánica no trae anuncio", fila(NOM_O)?.anuncio === null, JSON.stringify(fila(NOM_O)?.anuncio));
+  const porIds = (await api(`/api/conversations?ids=${fila(NOM_A)?.id}`)).json?.conversations ?? [];
+  ok(
+    "el ?ids= (lo que pide la Bandeja tras un conversation.updated) también lo trae",
+    porIds[0]?.anuncio?.headline === TITULAR,
+    JSON.stringify(porIds[0]?.anuncio)
+  );
+  const detP = fila(NOM_P) ? await detalle(fila(NOM_P).contact.id) : null;
+  ok(
+    "una publicación NO deduce la fuente «Anuncio»",
+    detP?.anuncio?.sourceType === "post" && detP?.contact?.source?.value === "desconocida",
+    JSON.stringify(detP?.contact?.source)
+  );
+
+  /* ---------- Filtro Origen combinado con una vista y una etapa ---------- */
+  const nombres = (l) => l.map((c) => c.contact.name).sort();
+  const deAnuncio = await lista({ origin: "ad" });
+  ok(
+    "Origen = De anuncio: solo los de anuncio (no la publicación ni la orgánica)",
+    JSON.stringify(nombres(deAnuncio)) === JSON.stringify([NOM_A, NOM_B, NOM_E].sort()),
+    JSON.stringify(nombres(deAnuncio))
+  );
+  const sinAnuncio = await lista({ origin: "none" });
+  ok(
+    "Origen = Sin anuncio: la publicación y la orgánica",
+    JSON.stringify(nombres(sinAnuncio)) === JSON.stringify([NOM_P, NOM_O].sort()),
+    JSON.stringify(nombres(sinAnuncio))
+  );
+  const c0 = await contadores();
+  ok(
+    "contadores de Origen: de anuncio 3, sin anuncio 2",
+    c0?.origin?.ad === 3 && c0?.origin?.none === 2,
+    JSON.stringify(c0?.origin)
+  );
+
+  // B leída; A y la publicación a otra etapa.
+  if (convB) {
+    await api(`/api/conversations/${convB.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ markRead: true }),
+    });
+  }
+  const board = (await api("/api/pipeline/board")).json;
+  const leadDe = (n) => board?.leads?.find((l) => l.contact.name === n);
+  const etapaInicial = leadDe(NOM_A)?.stageId;
+  const etapa2 = board?.stages?.find((s) => s.kind === "open" && s.id !== etapaInicial);
+  for (const n of [NOM_A, NOM_P]) {
+    const lead = leadDe(n);
+    if (lead && etapa2) {
+      await api(`/api/pipeline/leads/${lead.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ stageId: etapa2.id }),
+      });
+    }
+  }
+  ok("(setup) hay una segunda etapa abierta y los leads existen", !!etapa2 && !!leadDe(NOM_A));
+  await sleep(500);
+
+  const combo = { filter: "unread", origin: "ad", stage: etapa2?.id ?? "" };
+  const filasCombo = await lista(combo);
+  const cCombo = await contadores(combo);
+  ok(
+    "No leídas + De anuncio + Etapa: solo A",
+    JSON.stringify(nombres(filasCombo)) === JSON.stringify([NOM_A]),
+    JSON.stringify(nombres(filasCombo))
+  );
+  ok(
+    "contadores coherentes con la combinación (vista = filas; facetas)",
+    cCombo?.unread === filasCombo.length &&
+      cCombo?.all === 1 && // Todas con De anuncio + etapa: A
+      cCombo?.origin?.ad === 1 && // No leídas + etapa, de anuncio: A
+      cCombo?.origin?.none === 1, // No leídas + etapa, sin anuncio: la publicación
+    JSON.stringify({ unread: cCombo?.unread, all: cCombo?.all, origin: cCombo?.origin })
+  );
+  const sinEtapa = { filter: "unread", origin: "ad" };
+  const filasSinEtapa = await lista(sinEtapa);
+  const cSinEtapa = await contadores(sinEtapa);
+  ok(
+    "No leídas + De anuncio (sin etapa): A y la de miniatura ajena; B ya está leída",
+    JSON.stringify(nombres(filasSinEtapa)) === JSON.stringify([NOM_A, NOM_E].sort()) &&
+      cSinEtapa?.unread === 2 &&
+      cSinEtapa?.all === 3,
+    JSON.stringify({ filas: nombres(filasSinEtapa), unread: cSinEtapa?.unread, all: cSinEtapa?.all })
+  );
+
+  /* ---------- Fuente: deducida → capturada a mano → deducida (D3) ---------- */
+  if (ctA) {
+    const p1 = await api(`/api/contacts/${ctA}`, {
+      method: "PATCH",
+      body: JSON.stringify({ source: "referido" }),
+    });
+    ok(
+      "la fuente se corrige a mano y queda «capturada»",
+      p1.res.ok &&
+        p1.json?.contact?.source?.value === "referido" &&
+        p1.json?.contact?.source?.source === "capturada",
+      JSON.stringify(p1.json)
+    );
+    const tras = await detalle(ctA);
+    ok(
+      "lo capturado manda sobre el anuncio",
+      tras?.contact?.source?.value === "referido" && tras?.anuncio?.sourceId === AD1,
+      JSON.stringify(tras?.contact?.source)
+    );
+    const p2 = await api(`/api/contacts/${ctA}`, {
+      method: "PATCH",
+      body: JSON.stringify({ source: null }),
+    });
+    ok(
+      "source: null vuelve a la deducida (Anuncio)",
+      p2.json?.contact?.source?.value === "anuncio" && p2.json?.contact?.source?.source === "deducida",
+      JSON.stringify(p2.json?.contact?.source)
+    );
+    const malo = await api(`/api/contacts/${ctA}`, {
+      method: "PATCH",
+      body: JSON.stringify({ source: "desconocida" }),
+    });
+    ok("una fuente fuera del catálogo → 422", malo.res.status === 422, `status=${malo.res.status}`);
+  }
+}
+
 async function atribucionChecks() {
   const encendida = /^(on|1|true|si|sí|yes)$/i.test(
     (process.env.ATRIBUCION ?? "").trim()
@@ -1679,6 +2018,9 @@ async function atribucionChecks() {
   const SUF = String(Date.now()).slice(-6);
   const tel = (n) => `52155${SUF}${n}`;
   const nom = (base) => `${base} ${SUF}`;
+
+  // 020: el anuncio de origen se captura con la bandera en CUALQUIER posición.
+  await anuncioOrigenChecks(encendida);
 
   console.log("\n== 016: la bandera de la atribución ==");
 
@@ -3024,4 +3366,16 @@ async function adjuntosChecks() {
     favTras.status === 200 && favBytes.equals(PNG_1X1),
     `${favTras.status} ${favTras.headers.get("content-type")} ${favBytes.length}B`
   );
+  // 020: la miniatura del anuncio de origen (copiada en `anuncioOrigenChecks`)
+  // sobrevive a la purga con el reloj adelantado 31 días: su URL de Meta ya
+  // habría caducado y no habría de dónde volver a bajarla.
+  ok("(setup) hay una miniatura de anuncio que vigilar", !!MINIATURA_ANUNCIO);
+  if (MINIATURA_ANUNCIO) {
+    const mini = await fetch(`${BASE}${MINIATURA_ANUNCIO}`, { headers: { cookie, origin: BASE } });
+    ok(
+      "la miniatura del anuncio NO se purga (sigue sirviéndose tras 31 días)",
+      mini.status === 200 && /^image\//.test(mini.headers.get("content-type") ?? ""),
+      `${mini.status} ${mini.headers.get("content-type")}`
+    );
+  }
 }

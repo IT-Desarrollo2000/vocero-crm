@@ -363,6 +363,25 @@ async function main() {
   ok("byChannel ignora el channel pedido", cig?.byChannel?.whatsapp === SEED, JSON.stringify(cig?.byChannel));
   ok("channel inválido → ignorado (todas)", ((await counts(owner, { channel: "fax", q: S }))?.all ?? -1) === SEED);
 
+  // 020: filtros combinables (origen, sin asignar, por cerrar) y vista en /counts.
+  const tad = await traverse(owner, { origin: "ad", q: S });
+  const tnone = await traverse(owner, { origin: "none", q: S });
+  const corg = await counts(owner, { q: S });
+  ok("origin=ad ∪ origin=none particionan la lista (ninguna sembrada vino de anuncio)",
+    tad.rows.length === 0 && tnone.rows.length === SEED, `${tad.rows.length} + ${tnone.rows.length}`);
+  ok("counts.origin cuadra con los recorridos", corg?.origin?.ad === 0 && corg?.origin?.none === SEED,
+    JSON.stringify(corg?.origin));
+  const cUnreadOrigin = await counts(owner, { filter: "unread", q: S });
+  ok("counts con vista: origin.none = counts.unread (facetado dentro de la vista)",
+    cUnreadOrigin?.origin?.none === cUnreadOrigin?.unread, JSON.stringify(cUnreadOrigin));
+  const tLegacy = await traverse(owner, { filter: "unassigned", q: S });
+  const tNuevo = await traverse(owner, { unassigned: 1, q: S });
+  ok("compat: filter=unassigned (viejo) ≡ unassigned=1 (nuevo)",
+    tLegacy.rows.length === tNuevo.rows.length && tNuevo.rows.every((r) => r.assignedTo === null),
+    `${tLegacy.rows.length} vs ${tNuevo.rows.length}`);
+  const tOriginBad = await traverse(owner, { origin: "tele", q: S });
+  ok("origin inválido → ignorado (todas)", tOriginBad.rows.length === SEED, `${tOriginBad.rows.length}`);
+
   // q: acentos y teléfono con formato.
   const tq = await traverse(owner, { q: `jose nandu ${S}` });
   const cq = await counts(owner, { q: `JOSÉ ÑANDÚ ${S}` });
@@ -421,6 +440,53 @@ async function main() {
   ok("counts con assigned=me: all = 1", cAssigned?.all === 1, JSON.stringify(cAssigned));
   const ownerCounts = await counts(owner, { q: S });
   ok("owner: teamMode = true (hay miembros/asignadas)", ownerCounts?.teamMode === true);
+
+  // 020 (D4): la tarjeta del anuncio —con su miniatura— la ven todos los
+  // roles, pero la miniatura no cuelga de ningún mensaje: /api/media la sirve
+  // al vendedor solo si VE una conversación que llegó por ese anuncio.
+  const adLead = async (n, tag) => {
+    const name = `Anuncio vend ${RUN} ${tag}`;
+    await owner.api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: body({
+        phoneNumberId: PN,
+        from: `52166${RUN}9${n}`,
+        name,
+        text: "vengo del anuncio",
+        adHeadline: `Promo ${tag} ${RUN}`,
+        adSourceId: `1207${RUN}${n}`,
+        adThumbnailUrl: `${BASE}/api/dev/wa-mock/cdn/anuncio-${RUN}-${n}.jpg`,
+        waMessageId: `wamid.e2e.pag.${S}.ad.${n}`,
+      }),
+    });
+    let conv = null;
+    let det = null;
+    await until(async () => {
+      conv = (await owner.api(`/api/conversations${qs({ q: name })}`)).json?.conversations?.[0];
+      if (!conv) return false;
+      det = (await owner.api(`/api/contacts/${conv.contact.id}`)).json;
+      return !!det?.anuncio?.imageUrl;
+    }, 20000);
+    return { conv, imageUrl: det?.anuncio?.imageUrl ?? null };
+  };
+  const libre = await adLead(1, "libre");
+  const delOwner = await adLead(2, "owner");
+  ok("(setup) dos leads de anuncio con miniatura copiada", !!libre.imageUrl && !!delOwner.imageUrl &&
+    libre.imageUrl !== delOwner.imageUrl, `${libre.imageUrl} ${delOwner.imageUrl}`);
+  r = await owner.api(`/api/conversations/${delOwner.conv?.id}/assign`, {
+    method: "POST",
+    body: body({ userId: ownerUserId }),
+  });
+  ok("(setup) el owner se queda una de las de anuncio", r.res.ok, short(r));
+  const detVend = (await seller.api(`/api/contacts/${libre.conv?.contact?.id}`)).json;
+  ok("vendedor: la tarjeta del anuncio le llega (D4)",
+    detVend?.anuncio?.headline === `Promo libre ${RUN}` && detVend?.anuncio?.imageUrl === libre.imageUrl,
+    JSON.stringify(detVend?.anuncio));
+  const miniVend = await seller.api(libre.imageUrl ?? "/api/media/x");
+  ok("vendedor: ve la miniatura de una conversación que ve", miniVend.res.status === 200, `status=${miniVend.res.status}`);
+  const miniAjena = await seller.api(delOwner.imageUrl ?? "/api/media/x");
+  ok("vendedor: la miniatura de una conversación ajena → 404", miniAjena.res.status === 404,
+    `status=${miniAjena.res.status}`);
 
   console.log("\n== g) Deep link, 404, 422, cursor basura, limit=0 y compat ==");
   const old = byIndex(0);

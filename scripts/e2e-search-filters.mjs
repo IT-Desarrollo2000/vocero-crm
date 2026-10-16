@@ -134,8 +134,21 @@ ok("el botón X limpia la búsqueda", (await box.inputValue()) === "");
 ok("y vuelven todas las conversaciones", (await rows()).length >= 3);
 
 console.log("\n== Bandeja: filtro por etapa del embudo ==");
+// 020 (rediseño 4.4): la etapa vive en el panel "Filtros" (combinable con la
+// vista). Se abre el panel antes de tocarla y se cierra con "Listo".
+const filtrosBtn = page.getByRole("button", { name: /^Filtros/ });
+const abrirFiltros = async () => {
+  if ((await filtrosBtn.getAttribute("aria-expanded")) !== "true") await filtrosBtn.click();
+  await page.getByRole("dialog", { name: "Filtros de la Bandeja" }).waitFor({ timeout: 5000 });
+};
+const cerrarFiltros = async () => {
+  const listo = page.getByRole("button", { name: "Listo" });
+  if (await listo.isVisible().catch(() => false)) await listo.click();
+};
+const rowOf2 = (l, name) => l.find((t) => t.includes(name)) ?? "";
+await abrirFiltros();
 const sel = page.getByLabel("Filtrar por etapa del embudo");
-ok("el selector de etapa existe", await sel.isVisible());
+ok("el selector de etapa existe (dentro del panel Filtros)", await sel.isVisible());
 const options = await sel.locator("option").allInnerTexts();
 ok("ofrece 'Toda etapa' + las etapas presentes",
    options[0] === "Toda etapa" && options.length > 1, JSON.stringify(options));
@@ -154,11 +167,90 @@ ok("búsqueda y etapa se combinan (nunca contradicen)",
    list.every((t) => t.includes(`Zoraida${S}`) && t.includes(stage)), JSON.stringify(list));
 await page.screenshot({ path: ".tmp/e2e-inbox.png" });
 
+console.log("\n== Bandeja (020): botón Filtros, etiquetas removibles y estado en la URL ==");
+await cerrarFiltros();
+ok("el botón dice cuántos filtros hay activos",
+   /\(1 activos\)/.test((await filtrosBtn.getAttribute("aria-label")) ?? ""),
+   await filtrosBtn.getAttribute("aria-label"));
+ok("el filtro activo se ve como etiqueta removible",
+   await page.getByRole("button", { name: `Quitar filtro: Etapa: ${stage}` }).isVisible());
+const urlNow = new URL(page.url());
+ok("la URL guarda la búsqueda y la etapa",
+   urlNow.searchParams.get("q") === `Zoraida${S}` && urlNow.searchParams.has("stage"),
+   urlNow.search);
+await page.reload({ waitUntil: "load" });
+await page.getByText(`Zoraida${S}`).first().waitFor({ timeout: 20000 });
+await page.waitForTimeout(800);
+list = await rows();
+ok("al recargar, los filtros siguen puestos (vienen de la URL)",
+   list.length >= 1 && list.every((t) => t.includes(`Zoraida${S}`) && t.includes(stage)) &&
+     (await box.inputValue()) === `Zoraida${S}`,
+   JSON.stringify({ list, box: await box.inputValue() }));
+await settle(
+  () => page.getByRole("button", { name: `Quitar filtro: Etapa: ${stage}` }).click(),
+  (p) => !p.has("stage")
+);
+ok("la x quita el filtro (y sale de la URL)",
+   !new URL(page.url()).searchParams.has("stage") &&
+     !(await page.getByRole("button", { name: /^Quitar filtro: Etapa/ }).isVisible().catch(() => false)));
+
+console.log("\n== Bandeja (020): filtro Origen + etiqueta del anuncio ==");
+const PUB = `Publi${S} Anuncio`;
+await req.post(`${BASE}/api/dev/wa-mock/inbound`, {
+  data: {
+    phoneNumberId: PN,
+    from: `521477${SUF}`,
+    name: PUB,
+    text: "vengo del anuncio",
+    adHeadline: `Promo ${S}`,
+    adSourceId: `1209${SUF}`,
+    waMessageId: `wamid.s.${S}.ad`,
+  },
+});
+await settle(() => box.fill(S), withQ(S));
+await page.getByText(PUB).first().waitFor({ timeout: 20000 });
+list = await rows();
+ok("la fila del anuncio lleva «Anuncio · <titular>»",
+   rowOf2(list, PUB).includes(`Anuncio · Promo ${S}`), JSON.stringify(rowOf2(list, PUB)));
+ok("las orgánicas no llevan etiqueta de anuncio",
+   !rowOf2(list, `Zoraida${S}`).includes("Anuncio ·"));
+await abrirFiltros();
+const deAnuncio = page.getByRole("button", { name: /^De anuncio/ });
+await settle(() => deAnuncio.click(), (p) => p.get("origin") === "ad" && withQ(S)(p));
+await page.waitForTimeout(600);
+list = await rows();
+const nAnuncio = Number((await deAnuncio.innerText()).replace(/\D/g, ""));
+ok("Origen = De anuncio deja solo la del anuncio", list.length === 1 && has(list, PUB),
+   JSON.stringify(list));
+ok("y su contador coincide con la lista", nAnuncio === list.length,
+   JSON.stringify({ nAnuncio, filas: list.length }));
+await cerrarFiltros();
+await settle(
+  () => page.getByRole("button", { name: /^No leídas/ }).click(),
+  (p) => p.get("filter") === "unread" && p.get("origin") === "ad"
+);
+await page.waitForTimeout(600);
+list = await rows();
+const nUnread = Number(
+  (await page.getByRole("button", { name: /^No leídas/ }).innerText()).replace(/\D/g, "")
+);
+ok("la vista No leídas se combina con el Origen (y su contador cuadra)",
+   list.length === 1 && has(list, PUB) && nUnread === list.length,
+   JSON.stringify({ list, nUnread }));
+await settle(
+  () => page.getByRole("button", { name: "Limpiar", exact: true }).first().click(),
+  (p) => !p.has("origin")
+);
+ok("«Limpiar» quita los filtros del panel y deja la vista",
+   new URL(page.url()).searchParams.get("filter") === "unread" &&
+     !new URL(page.url()).searchParams.has("origin"),
+   new URL(page.url()).search);
+await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
+
 console.log("\n== Bandeja: pastilla 'Atención humana' ==");
 // Se provoca el handoff con un echo del mock (el dueño contesta a mano desde
 // el teléfono → handoff manual_reply): no requiere BOT_API_KEY.
 await box.fill("");
-await sel.selectOption("all");
 const echo = await req.post(`${BASE}/api/dev/wa-mock/echo`, {
   data: {
     phoneNumberId: PN,

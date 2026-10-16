@@ -414,19 +414,26 @@ async function main() {
     ok("filter=closing incluye la de hace 23 h", closingList.some((c) => c.id === caroConv.id), JSON.stringify(closingList.map((c) => c.id)));
     ok("filter=closing excluye la de hace 10 h", !closingList.some((c) => c.id === betoConv.id));
     ok("counts.closing coherente con la lista", counts?.closing === closingList.length, `${counts?.closing} vs ${closingList.length}`);
-    const pill = p1.getByRole("button", { name: /Ventana por cerrar/ });
+    // 020 (rediseño 4.4): «Ventana por cerrar» dejó de ser pastilla: es el
+    // filtro combinable «Por cerrar» del panel "Filtros" (un interruptor con
+    // su contador).
     await p1.goto(`${BASE}/inbox`, { waitUntil: "load" });
-    await pill.first().waitFor({ timeout: 20000 }).catch(() => {});
-    ok("pastilla «Ventana por cerrar» visible", (await pill.count()) > 0);
-    // `/counts` llega después de pintar la pastilla (arranca en 0): esperar.
-    const pillRe = new RegExp(`Ventana por cerrar\\s*${counts?.closing}$`);
+    const filtrosBtn = p1.getByRole("button", { name: /^Filtros/ });
+    await filtrosBtn.waitFor({ timeout: 20000 }).catch(() => {});
+    await filtrosBtn.click().catch(() => {});
+    const pill = p1.getByRole("switch", { name: "Por cerrar" });
+    await pill.first().waitFor({ timeout: 10000 }).catch(() => {});
+    ok("filtro «Por cerrar» visible en el panel", (await pill.count()) > 0);
+    // `/counts` llega después de pintar el panel (arranca en 0): esperar.
+    const pillRe = new RegExp(`\\(${counts?.closing}\\)`);
     await until(async () => pillRe.test((await pill.first().innerText()).trim()), 10000);
     const pillTxt = (await pill.first().innerText().catch(() => "")).replace(/\s+/g, " ");
-    ok(`la pastilla cuenta ${counts?.closing}`, pillTxt.includes(String(counts?.closing)), pillTxt);
+    ok(`el filtro cuenta ${counts?.closing}`, pillTxt.includes(`(${counts?.closing})`), pillTxt);
     await pill.first().click().catch(() => {});
+    await p1.getByRole("button", { name: "Listo" }).click().catch(() => {});
     const row = p1.locator(`[data-conversation-id="${caroConv.id}"]`);
     await row.waitFor({ timeout: 15000 }).catch(() => {});
-    ok("la de hace 23 h aparece con la pastilla activa", (await row.count()) > 0);
+    ok("la de hace 23 h aparece con el filtro activo", (await row.count()) > 0);
     const chip = (await row.locator('[data-testid="closing-chip"]').first().innerText().catch(() => "")).trim();
     ok("renglón con «Cierra en …» (~59m)", /^Cierra en (59m|1h 0m|58m)$/.test(chip), chip);
     ok("la de hace 10 h no aparece", (await p1.locator(`[data-conversation-id="${betoConv.id}"]`).count()) === 0);
@@ -435,7 +442,7 @@ async function main() {
     await mctx.addCookies(toCookies(owner.jar));
     const mp = await mctx.newPage();
     await mp.goto(`${BASE}/inbox`, { waitUntil: "load" });
-    await mp.getByRole("button", { name: /Ventana por cerrar/ }).first().waitFor({ timeout: 20000 }).catch(() => {});
+    await mp.getByRole("button", { name: /^Filtros/ }).first().waitFor({ timeout: 20000 }).catch(() => {});
     const overflow = await mp.evaluate(() => ({
       page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       pills: [...document.querySelectorAll("button[aria-pressed]")]
