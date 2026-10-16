@@ -40,7 +40,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
-  { href: "/pipeline", label: "Pipeline", icon: Kanban },
+  { href: "/pipeline", label: "Seguimiento", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
   // 019: el catálogo lo consulta todo el equipo; editarlo es del Propietario.
   { href: "/catalog", label: "Catálogo", icon: Package },
@@ -106,7 +106,7 @@ export function AppNav({
   }
 
   const sha = commit || BUILD_COMMIT;
-  // Citas va después de Pipeline: es el paso siguiente de un trato, no una
+  // Citas va después de Seguimiento: es el paso siguiente de un trato, no una
   // sección aparte.
   // Primero se arma el menú completo y luego se filtra por rol: así la
   // posición de Citas no depende de qué ítems ve cada quien.

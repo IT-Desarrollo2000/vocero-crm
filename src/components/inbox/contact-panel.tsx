@@ -387,7 +387,7 @@ export function ContactPanel({
         {stages.length > 0 && leadId && (
           <section className="border-b p-4">
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-text-3">
-              Etapa del pipeline
+              Etapa de seguimiento
             </p>
             <ol>
               {stages.map((s, i) => {

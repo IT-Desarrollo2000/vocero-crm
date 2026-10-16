@@ -52,7 +52,7 @@ export function AppShell({
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
 
-  // Navegar = cerrar el cajón. Sin esto, tocar "Pipeline" deja el velo encima
+  // Navegar = cerrar el cajón. Sin esto, tocar "Seguimiento" deja el velo encima
   // de la pantalla recién cargada.
   useEffect(() => {
     setNavOpen(false);

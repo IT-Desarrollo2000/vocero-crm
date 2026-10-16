@@ -211,7 +211,7 @@ export function NewContactDialog({
         {error && <p className="mt-3 text-xs text-danger-text">{error}</p>}
         {stages.length === 0 && (
           <p className="mt-3 text-xs text-warning-text">
-            Tu embudo no tiene etapas abiertas. Crea una en el Pipeline antes de
+            No hay etapas abiertas. Crea una en Seguimiento antes de
             capturar contactos.
           </p>
         )}

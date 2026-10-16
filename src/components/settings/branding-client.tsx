@@ -103,7 +103,7 @@ export function BrandingClient() {
               ))}
             </select>
             <p className="text-xs text-text-3">
-              Es la única que el Pipeline suma. Los montos capturados en otra
+              Es la única que Seguimiento suma. Los montos capturados en otra
               moneda se muestran, pero quedan fuera del total de su columna.
             </p>
           </div>

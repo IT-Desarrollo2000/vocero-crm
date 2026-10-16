@@ -97,7 +97,7 @@ export function StageManager({
         className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-lg border bg-card p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 font-semibold">Etapas del pipeline</h3>
+        <h3 className="mb-4 font-semibold">Etapas de seguimiento</h3>
         <ul className="space-y-2">
           {sorted.map((s, i) => (
             <li key={s.id} className="flex items-center gap-2">

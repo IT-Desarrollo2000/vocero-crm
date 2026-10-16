@@ -133,9 +133,9 @@ export function AdsReportClient() {
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1">
             {sinMonto === 1 ? "1 venta" : `${formatCount(sinMonto)} ventas`} del rango sin
-            monto: captúralo en el{" "}
+            monto: captúralo en{" "}
             <Link href="/pipeline" className="font-medium underline underline-offset-2">
-              Pipeline
+              Seguimiento
             </Link>{" "}
             para que sume.
           </span>
