@@ -8,7 +8,12 @@ export async function GET() {
   if (guard) return guard;
   const state = getWaMockState();
   // 019 fase B: `uploads` va aparte para no alterar a quien cuenta el outbox.
-  return Response.json({ outbox: state.outbox, uploads: state.uploads });
+  // 020 fase C: `subscriptions`, lo que el CRM pidió a `subscribed_apps`.
+  return Response.json({
+    outbox: state.outbox,
+    uploads: state.uploads,
+    subscriptions: state.subscriptions,
+  });
 }
 
 export async function DELETE() {

@@ -7,7 +7,7 @@ import type { AnuncioDto } from "@/lib/types";
 import { descargaEnCurso, guardarCreativo } from "@/server/attribution/creativo";
 import { atribucionEnabled } from "@/server/attribution/flag";
 import {
-  anuncioDeWhatsapp,
+  imagenDeOrigen,
   sinIdentificadorDeClic,
   type AnuncioDeOrigen,
 } from "@/server/attribution/referral";
@@ -202,14 +202,15 @@ export function repararImagenSiFalta(organizationId: string, contactId: string):
     if (descargaEnCurso(organizationId, fila.sourceId)) return;
     if (!frenoDeReparacion.intentar(`${organizationId}:${fila.sourceId}`)) return;
 
-    // El `raw` conserva las claves de imagen (también el de las filas de 016).
-    const anuncio = anuncioDeWhatsapp(fila.raw);
-    if (!anuncio?.imageUrl) return;
+    // El `raw` conserva las claves de imagen (también el de las filas de 016
+    // y el de Messenger/Instagram, con su `ads_context_data` anidado).
+    const imageUrl = imagenDeOrigen(fila.raw);
+    if (!imageUrl) return;
     await guardarCreativo({
       organizationId,
       conversationId: fila.conversationId,
       sourceId: fila.sourceId,
-      imageUrl: anuncio.imageUrl,
+      imageUrl,
     });
   })().catch((err) =>
     console.warn(

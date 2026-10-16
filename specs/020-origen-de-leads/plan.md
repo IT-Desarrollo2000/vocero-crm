@@ -305,3 +305,70 @@ fase con autorización del dueño.
   (reseteada entre corridas): selftest 412/412 (módulos encendidos) y 231/231
   (CHANNELS, AGENDA y ATRIBUCION apagados); `e2e-metricas` 83/83.
 
+## 8.6 Fase C — Messenger e Instagram (2026-10-16)
+
+### Captura
+- `anuncioDeMeta(referral, canal)` en `src/server/attribution/referral.ts`:
+  UNA función para los dos canales (misma forma de Meta), en vez de
+  `anuncioDeMessenger`/`anuncioDeInstagram` que preveía §8.1. Solo es anuncio
+  si `source === "ADS"` o hay `ad_id` (un m.me/ig.me —`SHORTLINK`, el
+  `messaging_referral` de Instagram— no cuenta). `ad_id` → `sourceId`,
+  `ad_title` → `headline`, `photo_url ?? video_url` → miniatura
+  (`mediaType` video si hay `video_url`), `post_id` (regex `\d+(_\d+)?`) →
+  `https://www.facebook.com/<post_id>` solo en Messenger; Instagram sin
+  enlace. `sourceType` "ad", `ctwaClid` null siempre (CAPI de esas filas:
+  `skipped`). `raw` con lista blanca (`ref, ad_id, source, type,
+  referer_uri` + `ads_context_data` ANIDADO con `ad_title, photo_url,
+  video_url, post_id, product_id`; URLs solo http(s)) y cota total.
+- `imagenDeOrigen(raw)`: la reparación perezosa de la miniatura
+  (`repararImagenSiFalta`) lee el `raw` de WhatsApp y el de Meta.
+- Núcleo (`src/server/inbox/ingest.ts`): `normalizarReferral(referral,
+  canal)` despacha por el canal de la identidad y jamás lanza; el `referral`
+  de `ingestInboundMessage` acepta la forma de Meta. Los adaptadores pasan el
+  `message.referral` con el PRIMER mensaje del lote.
+- **Anuncio sin mensaje** (`registrarOrigenSinMensaje`): `postback.referral`
+  (botón «Empezar», el postback NO se ingiere como mensaje) y `referral`
+  suelto de un hilo existente. Decisión: registrar el origen en la
+  conversación del contacto y, si el CRM no lo conoce, **crear contacto y
+  conversación sin mensaje** (sin tabla de pendientes, a diferencia de lo que
+  decía §4.3: más simple, sin migración, y el primer mensaje cae en esa misma
+  conversación con el origen puesto; first-touch intacto). Sin tocar
+  `lastMessageAt`/no leídos/ventana, sin actividad de lead ni turno del
+  agente; solo `conversation.updated`. Coste aceptado: hasta que escriba, la
+  conversación aparece vacía en la Bandeja (ordenada por su alta).
+- Messenger: `toOriginOnly(m)` (puro) decide qué evento es solo-origen;
+  `toInboundMessage` no cambia. Instagram (ruta Meta; Zernio sin cambios):
+  mismo trato en el bucle. Todo dentro de try/catch: un fallo del origen no
+  impide los mensajes del lote ni tumba el webhook.
+
+### Suscripción
+- `PUT /api/settings/messenger` suscribe la Página a `messages`,
+  `messaging_referrals`, `messaging_postbacks`; si Meta rechaza, reintenta
+  solo `messages` y responde `subscribedFields` + `warning` (la pantalla ya
+  muestra el aviso). Una Página ya conectada se re-suscribe volviendo a
+  guardarla (no se automatiza). Texto de Ajustes → Messenger y
+  `docs/canales-instagram-messenger.md` actualizados.
+- **Acción del dueño:** marcar `messaging_referrals` y `messaging_postbacks`
+  en el webhook de Messenger de la app (panel de Meta) y re-guardar la Página.
+
+### Verificación
+- Unit `tests/unit/anuncio-origen-meta.test.ts` (24): Messenger
+  `message.referral`/postback/suelto, Instagram con video, ig.me y no-ADS →
+  null, payloads raros y topes, round-trip de `imagenDeOrigen`,
+  `referralDeEvento`, `normalizarReferral`, `toOriginOnly`.
+- Mock: `channel-inbound` acepta `referral` (va a `message.referral`) y `mid`
+  opcional (sin `mid`, solo `extraEvents`); `subscribed_apps` anota lo pedido
+  (`subscriptions` en `GET /api/dev/wa-mock/outbox`) y el token
+  `-sinreferrals` rechaza los campos nuevos.
+- E2E `origenDeAnuncioCanal` (en `canalesChecks`, ambos canales): DM con
+  referral → «De anuncio», filtro, tarjeta con titular/miniatura/tipo, enlace
+  (Messenger) o sin enlace (Instagram), fuente deducida; first-touch;
+  referral `"basura"` y `ads_context_data: 42` → los mensajes entran; referral
+  suelto en hilo existente → origen sin mensaje nuevo; Messenger: postback de
+  alguien nuevo → contacto+conversación sin mensaje y su primer mensaje cae
+  ahí. Suscripción: 3 campos afirmados contra el mock y el reintento parcial.
+- Gate verde (137 archivos, 1680 pruebas + 10 omitidas). E2E con BD aislada
+  reseteada: selftest 442/442 (encendido) y 231/231 (apagado).
+- Verificación real: imposible hasta App Review + un clic real en un anuncio
+  de Messenger/Instagram (§6).
+

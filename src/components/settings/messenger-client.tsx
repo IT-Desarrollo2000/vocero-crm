@@ -104,8 +104,12 @@ export function MessengerSettingsClient() {
           description={
             <>
               En tu app de Meta → Messenger → Webhooks, pega estos valores y
-              suscribe el campo <span className="text-foreground">messages</span>.
-              Al guardar la conexión, el CRM suscribe la Página a tu app.
+              suscribe los campos <span className="text-foreground">messages</span>,{" "}
+              <span className="text-foreground">messaging_referrals</span> y{" "}
+              <span className="text-foreground">messaging_postbacks</span> (los
+              dos últimos traen el anuncio del que llegó cada cliente). Al
+              guardar la conexión, el CRM suscribe la Página a tu app; si ya
+              estaba conectada, vuelve a guardarla para sumar los campos nuevos.
             </>
           }
           secretEnv="FB_APP_SECRET o META_APP_SECRET"

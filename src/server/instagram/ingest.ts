@@ -2,7 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { resolveChannelProfileName } from "@/server/channels/profile";
 import { IG_PREFIX } from "@/server/inbox/identity";
 import { fetchInstagramProfileName } from "@/server/instagram/send";
-import { ingestInboundBatch, ingestInboundMessage } from "@/server/inbox/ingest";
+import {
+  ingestInboundBatch,
+  ingestInboundMessage,
+  registrarOrigenSinMensaje,
+} from "@/server/inbox/ingest";
+import { anuncioDeMeta, referralDeEvento } from "@/server/attribution/referral";
 import { metaInboundItems } from "@/server/channels/meta-attachments";
 import {
   getInstagramCredentialsByAccountRef,
@@ -174,7 +179,11 @@ type MetaIgPayload = {
         is_echo?: boolean;
         /** 018: `{type, payload:{url?}}` — ver `metaInboundItems`. */
         attachments?: unknown;
+        /** 020 fase C: el anuncio Click-to-Instagram-Direct, si vino de uno. */
+        referral?: unknown;
       };
+      /** 020 fase C: `referral` suelto (sin mensaje); solo cuenta si es de anuncio. */
+      referral?: unknown;
     }>;
   }>;
 };
@@ -213,28 +222,62 @@ export async function processMetaInstagramPayload(
       if (m.message?.is_echo) continue;
 
       const igsid = m.sender?.id;
-      const mid = m.message?.mid;
-      if (!igsid || !mid || !m.message) continue;
-      // 018: texto y/o adjuntos; nada que ingerir → se ignora como antes.
-      const items = metaInboundItems(m.message);
-      if (items.length === 0) continue;
-
+      if (!igsid) continue;
       const identity = `${IG_PREFIX}${igsid}`;
       // Meta no manda nombre ni usuario en el webhook: se piden solo si aún
       // no los tenemos.
-      const profileName = await resolveChannelProfileName({
-        organizationId: creds.organizationId,
-        channel: "instagram",
-        identity,
-        fetchName: () => fetchInstagramProfileName({ credentials: creds, igsid }),
-      });
+      const nombre = () =>
+        resolveChannelProfileName({
+          organizationId: creds.organizationId,
+          channel: "instagram",
+          identity,
+          fetchName: () => fetchInstagramProfileName({ credentials: creds, igsid }),
+        });
+
+      const mid = m.message?.mid;
+      // 018: texto y/o adjuntos; nada que ingerir → se ignora como antes.
+      const items = m.message && mid ? metaInboundItems(m.message) : [];
+      if (!mid || items.length === 0) {
+        // 020 fase C: un anuncio sin mensaje que ingerir (mismo trato que en
+        // Messenger: `registrarOrigenSinMensaje`). El `messaging_referral` de
+        // un enlace ig.me no es un anuncio: `anuncioDeMeta` lo descarta.
+        try {
+          const anuncio = anuncioDeMeta(referralDeEvento(m), "instagram");
+          if (anuncio) {
+            await registrarOrigenSinMensaje({
+              organizationId: creds.organizationId,
+              identity: {
+                identity,
+                channel: "instagram",
+                phone: null,
+                waUserId: null,
+                profileName: await nombre(),
+              },
+              anuncio,
+            });
+          }
+        } catch (err) {
+          console.error("[020] no se pudo guardar el anuncio de origen (Instagram):", err);
+        }
+        continue;
+      }
+
+      const profileName = await nombre();
+      // 020 fase C: el anuncio (Click-to-Instagram-Direct) viaja con el primer
+      // mensaje del lote; la ingesta lo normaliza y jamás deja que un referral
+      // raro impida la entrada.
+      const ref = m.message?.referral;
+      const referral =
+        typeof ref === "object" && ref !== null && !Array.isArray(ref)
+          ? (ref as Record<string, unknown>)
+          : null;
       const timestamp = String(
         m.timestamp ? Math.floor(m.timestamp / 1000) : Math.floor(Date.now() / 1000)
       );
       // 018: un mensaje con varios adjuntos son varios mensajes en la BD y
       // UN solo turno del agente, disparado tras el último.
       await ingestInboundBatch(
-        items.map((item) => ({
+        items.map((item, i) => ({
           organizationId: creds.organizationId,
           identity: {
             identity,
@@ -250,6 +293,7 @@ export async function processMetaInstagramPayload(
           timestamp,
           media: item.media,
           threadRef: null,
+          referral: i === 0 ? referral : null,
         }))
       );
     }

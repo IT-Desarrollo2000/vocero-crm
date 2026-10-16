@@ -19,7 +19,11 @@ import {
 } from "@/server/inbox/identity";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { markHandoff } from "@/server/inbox/handoff";
-import { anuncioDeWhatsapp } from "@/server/attribution/referral";
+import {
+  anuncioDeMeta,
+  anuncioDeWhatsapp,
+  type AnuncioDeOrigen,
+} from "@/server/attribution/referral";
 import { registrarAnuncioDeOrigen } from "@/server/attribution/store";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
@@ -385,6 +389,70 @@ async function ingestManualEcho(
   });
 }
 
+/**
+ * 020 fase C — El `referral` de un webhook a anuncio de origen según el canal:
+ * WhatsApp manda `messages[].referral`; Messenger e Instagram, la forma de
+ * Messenger (`ad_id` + `ads_context_data`). Jamás lanza: un payload raro no
+ * puede tumbar la entrada del mensaje.
+ */
+export function normalizarReferral(
+  referral: unknown,
+  channel: Channel | undefined
+): AnuncioDeOrigen | null {
+  if (!referral) return null;
+  try {
+    return channel === "messenger" || channel === "instagram"
+      ? anuncioDeMeta(referral, channel)
+      : anuncioDeWhatsapp(referral);
+  } catch (err) {
+    console.warn("[020] referral ilegible, se ignora:", err);
+    return null;
+  }
+}
+
+/**
+ * 020 fase C — Un anuncio que llega SIN mensaje: el `referral` suelto de un
+ * hilo de Messenger que ya existía (campo `messaging_referrals`) o el botón
+ * "Empezar" de un hilo nuevo (`postback.referral`, campo
+ * `messaging_postbacks`, que el CRM no ingiere como mensaje).
+ *
+ * Decisión: se registra el origen sobre la conversación del contacto y, si el
+ * CRM aún no conoce a esa persona, se crean contacto y conversación SIN
+ * mensaje (no hay tabla de "pendientes"): su primer mensaje cae en esa misma
+ * conversación con el origen ya puesto, y el first-touch sigue intacto. Coste
+ * aceptado: mientras no escriba, la conversación aparece vacía en la Bandeja
+ * (ordenada por su alta).
+ *
+ * Nada más: sin mensaje, sin tocar `lastMessageAt`/no leídos/ventana de 24 h,
+ * sin actividad del lead y sin turno del agente.
+ */
+export async function registrarOrigenSinMensaje(input: {
+  organizationId: string;
+  identity: ResolvedIdentity;
+  anuncio: AnuncioDeOrigen;
+}): Promise<{ conversationId: string }> {
+  const { organizationId } = input;
+  const { contact } = await getOrCreateContactByIdentity(
+    organizationId,
+    input.identity
+  );
+  const conversation = await getOrCreateConversation(organizationId, contact.id, {
+    channel: contact.channel,
+  });
+  await registrarAnuncioDeOrigen({
+    organizationId,
+    contactId: contact.id,
+    conversationId: conversation.id,
+    anuncio: input.anuncio,
+  });
+  // La Bandeja repinta la fila (y su etiqueta de origen) por `?ids=`.
+  publish(organizationId, {
+    type: "conversation.updated",
+    data: { conversation: { id: conversation.id } },
+  });
+  return { conversationId: conversation.id };
+}
+
 /** Resultado de ingerir un entrante (para disparar el agente una sola vez). */
 export type IngestResult = {
   conversationId: string;
@@ -424,8 +492,12 @@ export async function ingestInboundMessage(input: {
   media?: MediaInput | null;
   /** 014: hilo en la plataforma de origen (Zernio); null en WhatsApp. */
   threadRef?: string | null;
-  /** 016: origen del anuncio, si el mensaje vino de uno. */
-  referral?: WebhookReferral | null;
+  /**
+   * 016: origen del anuncio, si el mensaje vino de uno. 020 fase C: en
+   * Messenger/Instagram es su `message.referral`, con otra forma; se
+   * normaliza según el canal de la identidad (`normalizarReferral`).
+   */
+  referral?: WebhookReferral | Record<string, unknown> | null;
   /**
    * 018: no disparar el turno del agente. Un mensaje de Messenger/Instagram
    * con varios adjuntos se ingiere como varios mensajes: quien llama dispara
@@ -457,7 +529,7 @@ export async function ingestInboundMessage(input: {
   // solo decide el `ctwa_clid` (columna y `raw`) y el reporte a Meta: una
   // instancia que no atribuye no guarda identificadores de clic (ADR-001).
   // Ver `anuncioParaGuardar` en `src/server/attribution/store.ts`.
-  const anuncio = input.referral ? anuncioDeWhatsapp(input.referral) : null;
+  const anuncio = normalizarReferral(input.referral, input.identity.channel);
   if (anuncio) {
     // Ahora corre en TODA instancia: un fallo al guardar el origen jamás
     // puede impedir que el mensaje del cliente entre.

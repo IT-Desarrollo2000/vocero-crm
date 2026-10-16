@@ -122,6 +122,19 @@ type WaMockState = {
   invalidMediaIds: Set<string>;
   /** Todos los ids subidos en este proceso (para `invalidate-media {all}`). */
   issuedUploadIds: string[];
+  /**
+   * 020 fase C — Cada `POST {id}/subscribed_apps` recibido (WABA o Página),
+   * con los campos pedidos y si se aceptó. Aparte del outbox, como `uploads`.
+   */
+  subscriptions: SubscriptionEntry[];
+};
+
+/** 020 fase C — Una suscripción `subscribed_apps` que el CRM pidió. */
+export type SubscriptionEntry = {
+  accountId: string;
+  fields: string[] | null;
+  accepted: boolean;
+  at: string;
 };
 
 const globalForMock = globalThis as unknown as { __waMockState?: WaMockState };
@@ -136,6 +149,7 @@ function freshState(prev?: WaMockState): WaMockState {
     uploads: [],
     invalidMediaIds: new Set(),
     issuedUploadIds: prev?.issuedUploadIds ?? [],
+    subscriptions: [],
   };
 }
 
@@ -149,6 +163,7 @@ export function getWaMockState(): WaMockState {
   state.uploads ??= [];
   state.invalidMediaIds ??= new Set();
   state.issuedUploadIds ??= [];
+  state.subscriptions ??= [];
   return state;
 }
 

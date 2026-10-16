@@ -21,7 +21,16 @@ const schema = z.object({
   /** IGSID o PSID de quien escribe. */
   senderId: z.string().min(1),
   text: z.string().optional(),
-  mid: z.string().min(1),
+  /**
+   * Id del mensaje. 020 fase C: sin `mid` NO se manda mensaje — solo los
+   * `extraEvents` (p. ej. un `referral` suelto de un hilo existente).
+   */
+  mid: z.string().min(1).optional(),
+  /**
+   * 020 fase C: `message.referral` tal cual (Click-to-Messenger /
+   * Click-to-Instagram-Direct). Cualquier valor, para probar uno malformado.
+   */
+  referral: z.unknown().optional(),
   /** ms epoch; por defecto, ahora. */
   timestamp: z.number().optional(),
   /** Simula el eco de un mensaje que mandó la propia cuenta. */
@@ -63,18 +72,23 @@ export async function POST(req: Request) {
         time: timestamp,
         messaging: [
           ...(d.extraEvents ?? []),
-          {
-            // En un eco el remitente es la cuenta y el destinatario el cliente.
-            sender: { id: d.echo ? d.accountId : d.senderId },
-            recipient: { id: d.echo ? d.senderId : d.accountId },
-            timestamp,
-            message: {
-              mid: d.mid,
-              ...(d.text !== undefined ? { text: d.text } : {}),
-              ...(attachments ? { attachments } : {}),
-              ...(d.echo ? { is_echo: true } : {}),
-            },
-          },
+          ...(d.mid
+            ? [
+                {
+                  // En un eco el remitente es la cuenta y el destinatario el cliente.
+                  sender: { id: d.echo ? d.accountId : d.senderId },
+                  recipient: { id: d.echo ? d.senderId : d.accountId },
+                  timestamp,
+                  message: {
+                    mid: d.mid,
+                    ...(d.text !== undefined ? { text: d.text } : {}),
+                    ...(attachments ? { attachments } : {}),
+                    ...(d.echo ? { is_echo: true } : {}),
+                    ...(d.referral !== undefined ? { referral: d.referral } : {}),
+                  },
+                },
+              ]
+            : []),
         ],
       },
     ],

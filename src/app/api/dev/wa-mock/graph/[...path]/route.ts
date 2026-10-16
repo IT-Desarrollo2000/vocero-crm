@@ -581,8 +581,24 @@ export async function POST(req: Request, ctx: Params) {
 
   // POST {wabaId}/subscribed_apps → suscripción (con o sin override)
   if (path.length === 2 && path[1] === "subscribed_apps") {
-    // Meta rechaza suscribir con un token sin acceso a la WABA.
-    if (token.includes("noasignado") || token.includes("nosuscribe")) {
+    // 020 fase C: se anota lo pedido para que el self-test lo afirme.
+    const fields = Array.isArray(body.subscribed_fields)
+      ? body.subscribed_fields.map(String)
+      : null;
+    // Meta rechaza suscribir con un token sin acceso a la WABA. Un token con
+    // "sinreferrals" imita a una Página que acepta `messages` pero rechaza
+    // los campos del origen de anuncios (020 fase C).
+    const rejected =
+      token.includes("noasignado") ||
+      token.includes("nosuscribe") ||
+      (token.includes("sinreferrals") && (fields ?? []).some((f) => f !== "messages"));
+    getWaMockState().subscriptions.push({
+      accountId: path[0]!,
+      fields,
+      accepted: !rejected,
+      at: new Date().toISOString(),
+    });
+    if (rejected) {
       return Response.json(
         { error: { message: "(#200) Permissions error", type: "OAuthException", code: 200 } },
         { status: 403 }

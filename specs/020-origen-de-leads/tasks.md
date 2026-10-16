@@ -87,5 +87,25 @@ Plan: [plan.md](plan.md). Rama `020-origen-de-leads` (worktree
 - [ ] Enlace por anuncio a la Bandeja (hoy la Bandeja filtra por tipo de
   origen, no por `source_id`).
 
-## Fase C — Messenger e Instagram
-- [ ] `anuncioDeMessenger` / `anuncioDeInstagram` + suscripciones.
+## Fase C — Messenger e Instagram (2026-10-16)
+- [x] `anuncioDeMeta(referral, canal)` en `referral.ts` (una función para los
+  dos canales, misma salida; `referralDeEvento`, `imagenDeOrigen`).
+- [x] Núcleo: `normalizarReferral` (por canal, jamás lanza) y
+  `registrarOrigenSinMensaje` en `src/server/inbox/ingest.ts`; la reparación
+  de miniatura lee también el `raw` de Meta.
+- [x] Messenger: `message.referral` con el mensaje; `postback.referral` y
+  `referral` suelto → origen sin mensaje (`toOriginOnly`).
+- [x] Instagram (Meta): `message.referral` con el DM; referral sin mensaje,
+  mismo trato. Zernio sin cambios; `instagram/send.ts` sin tocar.
+- [x] Suscripción de la Página a `messages`, `messaging_referrals`,
+  `messaging_postbacks`, con reintento solo `messages` y aviso.
+- [x] Texto en Ajustes → Messenger y `docs/canales-instagram-messenger.md`.
+- [x] Unit `tests/unit/anuncio-origen-meta.test.ts`; mock (`referral`, `mid`
+  opcional, `subscriptions`, token `-sinreferrals`); E2E
+  `origenDeAnuncioCanal` + suscripción en `canalesChecks`.
+- [x] Gate verde; E2E 442/442 (encendido) y 231/231 (apagado).
+- [ ] **Dueño:** marcar `messaging_referrals` y `messaging_postbacks` en el
+  webhook de Messenger de la app (panel de Meta) y volver a guardar la Página
+  en Ajustes → Messenger para re-suscribirla.
+- [ ] Verificación real con un clic en un anuncio de Messenger/Instagram
+  (requiere App Review aprobado; hoy solo mock).

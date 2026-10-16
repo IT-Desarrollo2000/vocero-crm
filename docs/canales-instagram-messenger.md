@@ -129,8 +129,13 @@ Para ambos canales:
 Antes de guardar, Vocero valida el token contra Meta y rechaza uno inválido o
 de otra cuenta. El token se guarda cifrado y en pantalla solo se ven sus
 últimos 4 caracteres. Al conectar Messenger, Vocero además suscribe la Página
-a la app (`subscribed_apps`); si el token no tiene `pages_manage_metadata`,
-la conexión se guarda y la pantalla avisa que falta ese permiso.
+a la app (`subscribed_apps`) con los campos `messages`, `messaging_referrals`
+y `messaging_postbacks`; si el token no tiene `pages_manage_metadata`, la
+conexión se guarda y la pantalla avisa que falta ese permiso. Si Meta acepta
+`messages` pero rechaza los otros dos, la Página queda suscrita solo a
+`messages` (los mensajes llegan) y la pantalla avisa que el origen de anuncios
+quedó incompleto. Una Página conectada antes de la 020 fase C se re-suscribe
+volviendo a guardar la conexión.
 
 ## 4. Webhooks
 
@@ -140,7 +145,30 @@ Tienen esta forma:
 | Canal | URL | Campos a suscribir |
 |---|---|---|
 | Instagram | `https://TU-DOMINIO/api/webhooks/ig/<META_WEBHOOK_VERIFY_TOKEN>` | `messages` |
-| Messenger | `https://TU-DOMINIO/api/webhooks/fb/<META_WEBHOOK_VERIFY_TOKEN>` | `messages` |
+| Messenger | `https://TU-DOMINIO/api/webhooks/fb/<META_WEBHOOK_VERIFY_TOKEN>` | `messages`, `messaging_referrals`, `messaging_postbacks` |
+
+### Anuncio de origen (020 fase C)
+
+Vocero guarda de qué anuncio llegó cada cliente (tarjeta del contacto,
+etiqueta y filtro «De anuncio» en la Bandeja, fuente deducida y Reportes →
+Anuncios), también en estos dos canales:
+
+- **Instagram** (Click-to-Instagram-Direct): el anuncio viene en el primer
+  DM (`message.referral`, campo `messages`, ya suscrito). Nada extra que
+  hacer. El `messaging_referral` de un enlace ig.me no es un anuncio y se
+  ignora.
+- **Messenger** (Click-to-Messenger): en un hilo nuevo viene con el primer
+  mensaje (`messages`) o con el botón «Empezar» (`messaging_postbacks`); si
+  la persona ya tenía hilo con la Página, llega un `referral` suelto
+  (`messaging_referrals`). **Suscribe esos dos campos también en el webhook
+  de Messenger de la app** (panel de Meta → Messenger → Webhooks), además de
+  la suscripción de la Página que hace Vocero.
+- Un anuncio sin mensaje (botón «Empezar» o `referral` suelto) se registra
+  sobre la conversación del contacto; si Vocero aún no conocía a esa persona,
+  crea el contacto y una conversación sin mensajes, y su primer mensaje cae
+  ahí con el origen ya puesto. El primer anuncio gana (first-touch).
+- Estos canales no mandan `ctwa_clid`: sus anuncios no se reportan a la
+  Conversions API (quedan `skipped`).
 
 - El token de verificación que pide Meta es el mismo `META_WEBHOOK_VERIFY_TOKEN`.
 - **Firma**: cada entrega se valida con `x-hub-signature-256`.

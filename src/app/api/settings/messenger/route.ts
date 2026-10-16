@@ -52,6 +52,37 @@ const putSchema = z.object({
   token: z.string().trim().min(1),
 });
 
+/**
+ * Campos de la suscripción de la Página. 020 fase C: `messaging_referrals`
+ * (anuncio en un hilo existente) y `messaging_postbacks` (botón "Empezar" de
+ * un anuncio) traen el origen de anuncios que no viene con un mensaje.
+ */
+const MESSENGER_SUBSCRIBED_FIELDS = [
+  "messages",
+  "messaging_referrals",
+  "messaging_postbacks",
+] as const;
+
+/** Suscribe la Página; devuelve los campos que quedaron (vacío si ninguno). */
+async function subscribePage(pageId: string, token: string): Promise<string[]> {
+  for (const fields of [MESSENGER_SUBSCRIBED_FIELDS, ["messages"] as const]) {
+    try {
+      await graphRequest(`${pageId}/subscribed_apps`, {
+        method: "POST",
+        token,
+        body: { subscribed_fields: [...fields] },
+      });
+      return [...fields];
+    } catch (err) {
+      console.warn(
+        `[fb] suscripción de la Página ${pageId} a ${fields.join(",")} falló:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+  return [];
+}
+
 type DebugTokenInfo = {
   is_valid?: boolean;
   type?: string;
@@ -129,27 +160,26 @@ export const PUT = withAuth(async (session, req: Request) => {
   // Sin esta suscripción Meta no entrega los mensajes de la Página aunque el
   // webhook de la app esté configurado. No bloquea el guardado: si falla (el
   // token no trae pages_manage_metadata) se le dice al operador qué falta.
-  let subscribed = true;
-  try {
-    await graphRequest(`${pageId}/subscribed_apps`, {
-      method: "POST",
-      token,
-      body: { subscribed_fields: ["messages"] },
-    });
-  } catch {
-    subscribed = false;
-  }
+  //
+  // 020 fase C: además de `messages`, los dos campos que traen el anuncio de
+  // origen sin mensaje (referral de un hilo existente y botón "Empezar"). Si
+  // Meta rechaza esos campos, se reintenta solo con `messages`: los mensajes
+  // siguen llegando y la pantalla avisa que el origen de anuncios quedó
+  // incompleto. Volver a guardar la Página re-suscribe una ya conectada.
+  const subscribedFields = await subscribePage(pageId, token);
+  const subscribed = subscribedFields.length > 0;
+  const warning = !subscribed
+    ? "La Página quedó guardada, pero no se pudo suscribir a la app: el token necesita el permiso pages_manage_metadata"
+    : subscribedFields.length < MESSENGER_SUBSCRIBED_FIELDS.length
+      ? "La Página quedó suscrita solo a messages: los mensajes llegan, pero el origen de anuncios en hilos existentes y del botón Empezar no (Meta rechazó messaging_referrals y messaging_postbacks)"
+      : null;
 
   return Response.json({
     ok: true,
     pageName: page.name ?? null,
     subscribed,
-    ...(subscribed
-      ? {}
-      : {
-          warning:
-            "La Página quedó guardada, pero no se pudo suscribir a la app: el token necesita el permiso pages_manage_metadata",
-        }),
+    subscribedFields,
+    ...(warning ? { warning } : {}),
   });
 }, { role: "owner" });
 

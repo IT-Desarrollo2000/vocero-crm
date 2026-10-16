@@ -9,8 +9,8 @@ import type { WebhookReferral } from "@/server/inbox/webhook";
  * hostiles, no solo las bonitas de la documentación de Meta: lista blanca de
  * claves, topes de tamaño y solo enlaces http(s).
  *
- * Solo WhatsApp por ahora (fase A). Messenger e Instagram (fase C) mandan otra
- * forma y tendrán su función al lado de esta, con la MISMA salida:
+ * WhatsApp (fase A, `anuncioDeWhatsapp`) y Messenger/Instagram (fase C,
+ * `anuncioDeMeta`) mandan formas distintas con la MISMA salida:
  *   `ad_id` → `sourceId`, `ads_context_data.ad_title` → `headline`,
  *   `ads_context_data.photo_url` → `imageUrl`, `video_url` → `mediaType:
  *   "video"`, `post_id` → `sourceUrl` cuando se pueda armar; `ref` y el resto
@@ -152,4 +152,111 @@ export function sinIdentificadorDeClic(anuncio: AnuncioDeOrigen): AnuncioDeOrige
   const raw = { ...anuncio.raw };
   delete raw.ctwa_clid;
   return { ...anuncio, ctwaClid: null, raw };
+}
+
+/* ------------------------------------------------------------------------
+ * 020 fase C — Messenger (Click-to-Messenger) e Instagram (Click-to-Direct)
+ * ---------------------------------------------------------------------- */
+
+/** Canales cuyo `referral` tiene la forma de Messenger. */
+export type CanalMeta = "messenger" | "instagram";
+
+/** Claves de primer nivel del referral de Messenger/Instagram que se guardan. */
+const CLAVES_META = ["ref", "ad_id", "source", "type", "referer_uri"] as const;
+/** Claves de `ads_context_data` que se guardan (anidadas, como las manda Meta). */
+const CLAVES_CONTEXTO = [
+  "ad_title",
+  "photo_url",
+  "video_url",
+  "post_id",
+  "product_id",
+] as const;
+
+/**
+ * `post_id` de Messenger: `<página>_<publicación>` o solo dígitos. Cualquier
+ * otra cosa no se pega en una URL.
+ */
+const POST_ID = /^\d+(?:_\d+)?$/;
+
+/**
+ * Messenger e Instagram: el `referral` de `message.referral`,
+ * `postback.referral` o el `referral` suelto de un hilo existente (misma forma
+ * en los tres):
+ *   `{ ref?, ad_id, source: "ADS", type: "OPEN_THREAD",
+ *      ads_context_data: { ad_title, photo_url?, video_url?, post_id?, product_id? } }`
+ *
+ * Solo es un anuncio si `source === "ADS"` o trae `ad_id`: un enlace m.me o
+ * ig.me (`SHORTLINK`, el `messaging_referral` de Instagram) no es un anuncio y
+ * no se guarda. Un postback de anuncio sin `ad_id` ni contexto se guarda
+ * igual: lo que se sabe —que llegó de un anuncio— ya sirve para la etiqueta y
+ * el filtro (sin miniatura: la copia necesita el id del anuncio).
+ *
+ * Ninguno trae `ctwa_clid`: la Conversions API de esas filas queda `skipped`.
+ * El `raw` conserva `ads_context_data` ANIDADO, como lo manda Meta: la
+ * reparación de la miniatura (`imagenDeOrigen`) lo vuelve a leer de ahí.
+ */
+export function anuncioDeMeta(referral: unknown, canal: CanalMeta): AnuncioDeOrigen | null {
+  if (!esObjeto(referral)) return null;
+  const sourceId = texto(referral.ad_id, COTAS.id);
+  const source = texto(referral.source, COTAS.id);
+  if (source?.toUpperCase() !== "ADS" && !sourceId) return null;
+
+  const contexto = esObjeto(referral.ads_context_data) ? referral.ads_context_data : {};
+  const headline = texto(contexto.ad_title, COTAS.titular);
+  const photo = url(contexto.photo_url);
+  // En Instagram `video_url` es la miniatura del video; en Messenger puede ser
+  // el video mismo (la copia lo rechaza por firma y tamaño: queda sin imagen).
+  const video = url(contexto.video_url);
+  const postId = texto(contexto.post_id, COTAS.id);
+  const sourceUrl =
+    canal === "messenger" && postId && POST_ID.test(postId)
+      ? `https://www.facebook.com/${postId}`
+      : null;
+
+  const raw: Record<string, unknown> = recortarCampos(referral, CLAVES_META);
+  const ctx = recortarCampos(contexto, CLAVES_CONTEXTO);
+  // Al `raw` solo llegan enlaces http(s) (la reparación los vuelve a leer).
+  if (photo) ctx.photo_url = photo;
+  else delete ctx.photo_url;
+  if (video) ctx.video_url = video;
+  else delete ctx.video_url;
+  if (Object.keys(ctx).length > 0) raw.ads_context_data = ctx;
+
+  return {
+    sourceId,
+    sourceType: "ad",
+    sourceUrl,
+    headline,
+    body: null,
+    mediaType: video ? "video" : photo ? "image" : null,
+    ctwaClid: null,
+    imageUrl: photo ?? video,
+    raw: acotarRaw(raw, { ad_id: sourceId, source, ads_context_data: { ad_title: headline } }),
+  };
+}
+
+/**
+ * El `referral` de un evento de `messaging[]` de Messenger/Instagram, venga
+ * con el mensaje (`message.referral`), con el botón "Empezar"
+ * (`postback.referral`) o suelto en un hilo existente (`referral`). Un eco no
+ * cuenta: lo mandó la propia cuenta. Puro y tolerante: cualquier forma rara
+ * devuelve undefined.
+ */
+export function referralDeEvento(evento: unknown): unknown {
+  if (!esObjeto(evento)) return undefined;
+  const message = esObjeto(evento.message) ? evento.message : null;
+  if (message?.is_echo) return undefined;
+  const postback = esObjeto(evento.postback) ? evento.postback : null;
+  return message?.referral ?? postback?.referral ?? evento.referral;
+}
+
+/**
+ * De dónde bajar otra vez la miniatura de una fila ya guardada, venga del
+ * canal que venga (su `raw` conserva las claves de imagen). Para la imagen el
+ * canal de Meta da igual.
+ */
+export function imagenDeOrigen(raw: unknown): string | null {
+  return (
+    anuncioDeWhatsapp(raw)?.imageUrl ?? anuncioDeMeta(raw, "instagram")?.imageUrl ?? null
+  );
 }

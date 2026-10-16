@@ -2780,6 +2780,205 @@ function canalesEncendidos() {
   );
 }
 
+/**
+ * 020 fase C — El anuncio de origen en Instagram (Click-to-Direct) y
+ * Messenger (Click-to-Messenger): `message.referral` con el DM, first-touch,
+ * referral malformado que no tumba el mensaje, `referral` suelto en un hilo
+ * existente (origen sin mensaje nuevo) y, en Messenger, el botón Empezar
+ * (`postback.referral`) de alguien que el CRM no conocía.
+ */
+async function origenDeAnuncioCanal({ c, inbound, SUF, pre, existente }) {
+  console.log(`\n== 020: ${c.label} — anuncio de origen ==`);
+  const AD = (n) => `1203${SUF}${c.channel === "instagram" ? 1 : 2}${n}`;
+  const thumb = (id) => `${BASE}/api/dev/wa-mock/cdn/anuncio-${id}.jpg`;
+  const esIg = c.channel === "instagram";
+  const referral = (n, titular) => ({
+    ref: `promo-${n}`,
+    ad_id: AD(n),
+    source: "ADS",
+    type: "OPEN_THREAD",
+    ads_context_data: {
+      ad_title: titular,
+      // Instagram manda la miniatura del video en `video_url`.
+      ...(esIg ? { video_url: thumb(AD(n)) } : { photo_url: thumb(AD(n)), post_id: `${c.accountId}_77${SUF}` }),
+    },
+  });
+  const lista = async () => (await api("/api/conversations")).json?.conversations ?? [];
+  const porTexto = async (t) => {
+    for (let i = 0; i < 20; i++) {
+      const x = (await lista()).find((cv) => cv.channel === c.channel && cv.preview?.includes(t));
+      if (x) return x;
+      await sleep(400);
+    }
+    return null;
+  };
+  const detalle = async (contactId) => (await api(`/api/contacts/${contactId}`)).json;
+  /** Espera hasta que el anuncio del contacto cumpla `cond` (miniatura en 2.º plano). */
+  const esperarAnuncio = async (contactId, cond) => {
+    let d = null;
+    for (let i = 0; i < 30; i++) {
+      d = await detalle(contactId);
+      if (cond(d?.anuncio)) break;
+      await sleep(400);
+    }
+    return d;
+  };
+  const mensajes = async (convId) =>
+    ((await api(`/api/conversations/${convId}/messages`)).json?.messages ?? []).filter(
+      (m) => m.direction === "in"
+    );
+
+  /* --- DM con message.referral --- */
+  const TIT = `Anuncio ${c.label} ${SUF}`;
+  const sA = `${pre}${SUF}ad1`;
+  const tA = `vengo del anuncio ${c.label} ${SUF}`;
+  const inA = await inbound({ senderId: sA, text: tA, mid: `mid.e2e.${c.channel}.${SUF}.ad1`, referral: referral(1, TIT) });
+  ok(`DM con referral entregado`, inA.res.ok, JSON.stringify(inA.json));
+  const cvA = await porTexto(tA);
+  ok(
+    `la conversación sale "De anuncio" con su titular`,
+    cvA?.anuncio?.headline === TIT && cvA?.anuncio?.sourceType === "ad",
+    JSON.stringify(cvA?.anuncio)
+  );
+  const deAnuncio =
+    (await api(`/api/conversations?origin=ad&channel=${c.channel}`)).json?.conversations ?? [];
+  ok(`el filtro Origen = De anuncio la incluye`, deAnuncio.some((x) => x.id === cvA?.id));
+  const dA = cvA ? await esperarAnuncio(cvA.contact.id, (a) => !!a?.imageUrl) : null;
+  const anA = dA?.anuncio;
+  ok(
+    `tarjeta: id del anuncio, titular, ${esIg ? "video" : "imagen"}, sin identificador de clic`,
+    anA?.sourceId === AD(1) &&
+      anA?.headline === TIT &&
+      anA?.mediaType === (esIg ? "video" : "image") &&
+      anA?.hasCtwaClid === false,
+    JSON.stringify(anA)
+  );
+  ok(
+    esIg
+      ? `Instagram: sin enlace a la publicación (no hay forma fiable)`
+      : `Messenger: enlace https a la publicación (post_id)`,
+    esIg
+      ? anA?.sourceUrl === null
+      : anA?.sourceUrl === `https://www.facebook.com/${c.accountId}_77${SUF}`,
+    JSON.stringify(anA?.sourceUrl)
+  );
+  ok(
+    `la miniatura se copió como adjunto propio y se sirve`,
+    /^\/api\/media\/[\w.-]+$/.test(anA?.imageUrl ?? "") &&
+      (await fetch(`${BASE}${anA.imageUrl}`, { headers: { cookie, origin: BASE } })).status === 200,
+    JSON.stringify(anA?.imageUrl)
+  );
+  ok(
+    `fuente deducida: Anuncio`,
+    dA?.contact?.source?.value === "anuncio" && dA?.contact?.source?.source === "deducida",
+    JSON.stringify(dA?.contact?.source)
+  );
+
+  /* --- first-touch --- */
+  await inbound({
+    senderId: sA,
+    text: `otro anuncio ${SUF}`,
+    mid: `mid.e2e.${c.channel}.${SUF}.ad1b`,
+    referral: referral(2, "No debe ganar"),
+  });
+  await sleep(1200);
+  const dA2 = cvA ? await detalle(cvA.contact.id) : null;
+  const filasA = cvA
+    ? (await api(`/api/dev/attribution?contact=${cvA.contact.id}`)).json?.rows ?? []
+    : [];
+  ok(
+    `first-touch: el segundo referral no pisa al primero`,
+    dA2?.anuncio?.sourceId === AD(1) && dA2?.anuncio?.headline === TIT && filasA.length === 1,
+    JSON.stringify({ a: dA2?.anuncio?.sourceId, filas: filasA.length })
+  );
+
+  /* --- referral malformado: el mensaje entra igual --- */
+  const tB = `referral raro ${c.label} ${SUF}`;
+  const inB = await inbound({ senderId: `${pre}${SUF}ad2`, text: tB, mid: `mid.e2e.${c.channel}.${SUF}.ad2`, referral: "basura" });
+  const tC = `contexto raro ${c.label} ${SUF}`;
+  const inC = await inbound({
+    senderId: `${pre}${SUF}ad3`,
+    text: tC,
+    mid: `mid.e2e.${c.channel}.${SUF}.ad3`,
+    referral: { source: "ADS", ad_id: { raro: true }, ads_context_data: 42 },
+  });
+  const cvB = await porTexto(tB);
+  const cvC = await porTexto(tC);
+  ok(
+    `referral malformado no rompe la ingesta: los dos mensajes entran`,
+    inB.res.ok && inC.res.ok && !!cvB && !!cvC,
+    JSON.stringify({ b: inB.res.status, c: inC.res.status, cvB: !!cvB, cvC: !!cvC })
+  );
+  ok(`un referral que no es objeto no deja origen`, cvB?.anuncio === null, JSON.stringify(cvB?.anuncio));
+  ok(
+    `uno de anuncio con datos rotos queda "De anuncio" sin titular ni id`,
+    cvC?.anuncio?.sourceType === "ad" && cvC?.anuncio?.headline === null,
+    JSON.stringify(cvC?.anuncio)
+  );
+
+  /* --- referral suelto en un hilo existente: origen sin mensaje nuevo --- */
+  const antes = existente ? (await mensajes(existente.id)).length : -1;
+  const TIT_S = `Anuncio de regreso ${c.label} ${SUF}`;
+  const suelto = await inbound({
+    senderId: `${pre}${SUF}1`,
+    extraEvents: [
+      {
+        sender: { id: `${pre}${SUF}1` },
+        recipient: { id: c.accountId },
+        timestamp: Date.now(),
+        referral: referral(3, TIT_S),
+      },
+    ],
+  });
+  ok(`referral suelto entregado`, suelto.res.ok, JSON.stringify(suelto.json));
+  const dS = existente
+    ? await esperarAnuncio(existente.contact.id, (a) => a?.headline === TIT_S)
+    : null;
+  const despues = existente ? (await mensajes(existente.id)).length : -2;
+  const mismasS = (await lista()).filter((x) => x.contact.id === existente?.contact.id);
+  ok(
+    `referral suelto en hilo existente: origen aplicado sin mensaje nuevo`,
+    dS?.anuncio?.sourceId === AD(3) && antes === despues && antes > 0 && mismasS.length === 1,
+    JSON.stringify({ a: dS?.anuncio?.sourceId, antes, despues, convs: mismasS.length })
+  );
+
+  /* --- Messenger: botón Empezar de alguien que el CRM no conocía --- */
+  if (!esIg) {
+    const conteo = async () =>
+      (await api(`/api/conversations/counts?channel=${c.channel}`)).json?.byChannel?.[c.channel] ?? -1;
+    const n0 = await conteo();
+    const sD = `${pre}${SUF}ad4`;
+    const TIT_P = `Anuncio con Empezar ${SUF}`;
+    const pb = await inbound({
+      senderId: sD,
+      extraEvents: [
+        {
+          sender: { id: sD },
+          recipient: { id: c.accountId },
+          timestamp: Date.now(),
+          postback: { title: "Empezar", payload: "GET_STARTED", referral: referral(4, TIT_P) },
+        },
+      ],
+    });
+    await sleep(1200);
+    const n1 = await conteo();
+    ok(
+      `postback.referral sin contacto previo: crea contacto y conversación sin mensaje`,
+      pb.res.ok && n1 === n0 + 1,
+      JSON.stringify({ n0, n1 })
+    );
+    const tD = `ya escribo tras Empezar ${SUF}`;
+    await inbound({ senderId: sD, text: tD, mid: `mid.e2e.${c.channel}.${SUF}.ad4` });
+    const cvD = await porTexto(tD);
+    const n2 = await conteo();
+    ok(
+      `su primer mensaje cae en esa conversación, con el origen ya puesto`,
+      cvD?.anuncio?.headline === TIT_P && n2 === n1 && (cvD ? (await mensajes(cvD.id)).length : 0) === 1,
+      JSON.stringify({ anuncio: cvD?.anuncio, n1, n2 })
+    );
+  }
+}
+
 async function canalesChecks() {
   const on = canalesEncendidos();
   const SUF = CANAL_SUF;
@@ -2834,6 +3033,39 @@ async function canalesChecks() {
 
     const good = await reconnect("tok-e2e-canal");
     ok(`conexión guardada`, good.res.ok, JSON.stringify(good.json));
+    if (c.channel === "messenger") {
+      // 020 fase C: la Página se suscribe también a los campos que traen el
+      // anuncio de origen sin mensaje (hilo existente y botón Empezar).
+      const subs = (await api("/api/dev/wa-mock/outbox")).json?.subscriptions ?? [];
+      const ultima = subs.filter((s) => s.accountId === c.accountId).at(-1);
+      ok(
+        `la Página se suscribe a messages, messaging_referrals y messaging_postbacks`,
+        JSON.stringify(ultima?.fields) ===
+          JSON.stringify(["messages", "messaging_referrals", "messaging_postbacks"]) &&
+          ultima?.accepted === true &&
+          JSON.stringify(good.json?.subscribedFields) === JSON.stringify(ultima?.fields) &&
+          !good.json?.warning,
+        JSON.stringify({ ultima, resp: good.json })
+      );
+      // Si Meta rechaza los campos nuevos, se reintenta solo con messages: la
+      // conexión no se rompe y la pantalla avisa.
+      const parcial = await reconnect("tok-e2e-sinreferrals");
+      const subs2 = (await api("/api/dev/wa-mock/outbox")).json?.subscriptions ?? [];
+      const ult2 = subs2.filter((s) => s.accountId === c.accountId).slice(-2);
+      ok(
+        `campos de anuncios rechazados → reintenta solo con messages y avisa`,
+        parcial.res.ok &&
+          parcial.json?.subscribed === true &&
+          JSON.stringify(parcial.json?.subscribedFields) === JSON.stringify(["messages"]) &&
+          /messaging_referrals/.test(parcial.json?.warning ?? "") &&
+          ult2[0]?.accepted === false &&
+          ult2[0]?.fields?.length === 3 &&
+          ult2[1]?.accepted === true &&
+          JSON.stringify(ult2[1]?.fields) === JSON.stringify(["messages"]),
+        JSON.stringify({ resp: parcial.json, ult2 })
+      );
+      await reconnect("tok-e2e-canal");
+    }
     const estado = (await api(c.settings)).json;
     ok(
       `el token nunca sale entero (solo sus últimos 4)`,
@@ -2928,6 +3160,8 @@ async function canalesChecks() {
       (x) => x.contact.id === cv?.contact.id
     );
     ok(`mismo remitente → mismo contacto y misma conversación`, mismas.length === 1, `${mismas.length}`);
+
+    await origenDeAnuncioCanal({ c, inbound, SUF, pre, existente: cv });
 
     /* ---------- responder ---------- */
     console.log(`\n== ${c.label}: responder ==`);
