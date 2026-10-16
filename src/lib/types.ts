@@ -60,6 +60,33 @@ export type ConversationDto = {
   sortAt: string;
   /** 06: etapa del lead del contacto (filtro `stage=<stageId>`), o null. */
   stageId: string | null;
+  /**
+   * 020: anuncio de origen de ESTA conversación (etiqueta "Anuncio · <titular>"
+   * de la fila y espejo del filtro Origen), o null si no vino de uno. Solo lo
+   * que pinta la fila: el detalle completo va en `GET /api/contacts/[id]`.
+   */
+  anuncio: { headline: string | null; sourceType: string | null } | null;
+};
+
+/**
+ * 020: anuncio de origen del CONTACTO (el primero que lo trajo, D1), tal como
+ * lo ve el equipo. El `ctwa_clid` NO viaja: solo si existe, y solo con la
+ * bandera `ATRIBUCION`.
+ */
+export type AnuncioDto = {
+  sourceId: string | null;
+  /** `post` = publicación, no anuncio (ver `src/lib/anuncios.ts`). */
+  sourceType: string | null;
+  /** Solo https (va a un href). */
+  sourceUrl: string | null;
+  headline: string | null;
+  body: string | null;
+  mediaType: string | null;
+  /** Miniatura servible (`/api/media/<assetId>`), o null si no se copió. */
+  imageUrl: string | null;
+  /** ISO del primer mensaje que llegó por el anuncio. */
+  capturedAt: string;
+  hasCtwaClid: boolean;
 };
 
 /**
@@ -78,6 +105,20 @@ export type AssignedFilter = "me" | "unassigned" | "all";
 export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned" | "closing";
 
 /**
+ * 020 (rediseño 4.4): VISTA de la Bandeja, excluyente — `?filter=`. Los
+ * valores viejos `unassigned`/`closing` del mismo parámetro siguen
+ * aceptándose: hoy son filtros combinables (`?unassigned=1`, `?closing=1`).
+ */
+export type InboxView = "all" | "unread" | "mine" | "human";
+
+/**
+ * 020: filtro Origen, `?origin=`. `ad` = la conversación llegó por un anuncio
+ * (una publicación —`source_type=post`— no cuenta); `none` = el resto.
+ * Ausente = todos.
+ */
+export type InboxOrigin = "ad" | "none";
+
+/**
  * 06: respuesta de `GET /api/conversations`. `nextCursor` es opaco (lo arma
  * el servidor); `null` = no hay más, o petición sin `limit` (lista completa,
  * D-06-1), o modos `ids`/`contact`/`since`.
@@ -89,11 +130,18 @@ export type ConversationsPage = {
 
 /**
  * 06: respuesta de `GET /api/conversations/counts`, siempre dentro de lo
- * visible para quien pide. Capas (ver dev-tasks/06, "Contrato 06-0"):
- * - base = visibilidad ∧ q ∧ stage ∧ assigned;
- * - `all`/`unread`/`human`/`mine`/`unassigned` = base ∧ channel ∧ pastilla;
- * - `byChannel` = base (sin channel ni pastilla);
+ * visible para quien pide.
+ *
+ * 020 — Contadores FACETADOS: cada número es lo que verías si eligieras esa
+ * opción dejando TODO lo demás como está (base = visibilidad ∧ q ∧ assigned;
+ * filtros = canal ∧ etapa ∧ origen ∧ sin asignar ∧ por cerrar):
+ * - `all`/`unread`/`human`/`mine` (vistas) = base ∧ filtros ∧ esa vista (la
+ *   vista activa no cuenta: se reemplaza);
+ * - `unassigned`/`closing` = base ∧ vista ∧ filtros ∧ ese filtro encendido;
+ * - `origin.ad`/`origin.none` = base ∧ vista ∧ filtros-sin-origen ∧ ese origen;
+ * - `byChannel[x]` = base ∧ vista ∧ filtros-sin-canal ∧ canal x;
  * - `unreadConversations`/`unreadMessages`/`teamMode` = solo visibilidad.
+ * Sin vista ni filtros nuevos coincide con el contrato 06-0.
  */
 export type ConversationCounts = {
   all: number;
@@ -104,6 +152,8 @@ export type ConversationCounts = {
   /** 05: «Ventana por cerrar» (misma capa que las demás pastillas). */
   closing: number;
   byChannel: Record<Channel, number>;
+  /** 020: filtro Origen (facetado, ver arriba). */
+  origin: Record<InboxOrigin, number>;
   /** Conversaciones con `unread_count > 0`: badge del menú/pestaña (D-05-1). */
   unreadConversations: number;
   /** Suma de `unread_count` (informativo; el badge NO lo usa). */
@@ -284,6 +334,8 @@ export type ContactDetailResponse = {
   stage: StageDto | null;
   lead: { id: string } | null;
   fichaFields: FichaFieldDef[] | null;
+  /** 020: de qué anuncio llegó (el primero, D1), o null. */
+  anuncio: AnuncioDto | null;
 };
 
 /** Cuerpo de `PATCH /api/contacts/[id]` (lo de ficha; el resto, igual que hoy). */
@@ -298,6 +350,11 @@ export type ContactPatchBody = {
    * Aplica a claves `humano` y legadas (con valor, sin meta); máx. 40.
    */
   fichaUnlock?: string[];
+  /**
+   * 020 (D3): fuente del prospecto a mano. `null` = volver a la deducida (por
+   * el anuncio de origen, o "sin identificar").
+   */
+  source?: SourceValue | null;
 };
 
 /** Una fila de la bitácora `ficha_event`. */

@@ -3,10 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { MessageSquareText, X } from "lucide-react";
-import type { FichaDto, FichaValue, PriorityValue, StageDto } from "@/lib/types";
+import type {
+  AnuncioDto,
+  FichaDto,
+  FichaValue,
+  PriorityValue,
+  StageDto,
+} from "@/lib/types";
 import { formatMoneyCents, parseMoneyToCents } from "@/lib/money";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
+import { AnuncioOrigen } from "@/components/anuncio-origen";
 import { FichaPanel } from "@/components/ficha-panel";
 import { applyHumanPatch, applyUnlock } from "@/components/ficha-view";
 import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
@@ -45,6 +52,8 @@ export function LeadDrawer({
   const [ficha, setFicha] = useState<FichaDto>({});
   const [fichaFields, setFichaFields] = useState<FichaFieldDef[] | null>(null);
   const [fichaMeta, setFichaMeta] = useState<FichaMeta>({});
+  // 020: de qué anuncio llegó (viene en el mismo detalle del contacto).
+  const [anuncio, setAnuncio] = useState<AnuncioDto | null>(null);
   const [monto, setMonto] = useState("");
   const [editandoMonto, setEditandoMonto] = useState(false);
 
@@ -58,6 +67,7 @@ export function LeadDrawer({
     setFicha(detail?.contact?.ficha ?? {});
     setFichaMeta(detail?.contact?.fichaMeta ?? {});
     setFichaFields(detail?.fichaFields ?? null);
+    setAnuncio(detail?.anuncio ?? null);
   }, [contactId]);
 
   useEffect(() => {
@@ -160,6 +170,16 @@ export function LeadDrawer({
               </p>
             )}
           </section>
+
+          {/* 020: de dónde llegó (solo si vino de un anuncio o publicación). */}
+          {anuncio && (
+            <section className="border-b p-4" aria-label="Anuncio de origen">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-3">
+                Origen
+              </p>
+              <AnuncioOrigen anuncio={anuncio} />
+            </section>
+          )}
 
           {/* Cuánto */}
           <section className="border-b p-4">

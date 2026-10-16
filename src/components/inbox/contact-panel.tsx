@@ -4,9 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, ChevronRight, Sparkles, UserRound } from "lucide-react";
 import type {
+  AnuncioDto,
   ConversationDto,
   FichaDto,
   FichaValue,
+  SourceDto,
+  SourceValue,
   StageDto,
 } from "@/lib/types";
 import { cn, formatPhone } from "@/lib/utils";
@@ -19,6 +22,50 @@ import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { handoffLabel } from "@/lib/handoff-labels";
 import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
+import { AnuncioOrigen } from "@/components/anuncio-origen";
+import { SOURCE_LABELS, SOURCE_VALUES } from "@/server/contact-source";
+
+/**
+ * 020 (D3) — Fuente del prospecto, editable. "Automática" = la deducida (el
+ * anuncio de origen, o "sin identificar"); elegir un valor la captura a mano
+ * y manda sobre la deducción.
+ */
+export function SourcePicker({
+  source,
+  onChange,
+}: {
+  source: SourceDto | null;
+  onChange: (value: SourceValue | null) => void;
+}) {
+  const captured = source?.source === "capturada";
+  const deducedLabel = SOURCE_LABELS[!captured && source ? source.value : "desconocida"];
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium">Fuente</p>
+        <p className="text-[11px] text-text-3" data-testid="source-kind">
+          {source ? (captured ? "Capturada a mano" : "Deducida") : "…"}
+        </p>
+      </div>
+      <select
+        aria-label="Fuente del contacto"
+        disabled={!source}
+        value={captured && source ? source.value : ""}
+        onChange={(e) => onChange((e.target.value || null) as SourceValue | null)}
+        className="min-w-0 max-w-[60%] truncate rounded-md border bg-background px-2 py-[5px] text-[12.5px]"
+      >
+        <option value="">
+          {captured ? "Automática" : `Automática · ${deducedLabel}`}
+        </option>
+        {SOURCE_VALUES.map((v) => (
+          <option key={v} value={v}>
+            {SOURCE_LABELS[v]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 export function ContactPanel({
   conversation,
@@ -51,6 +98,9 @@ export function ContactPanel({
   const [stages, setStages] = useState<StageDto[]>([]);
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
   const [leadId, setLeadId] = useState<string | null>(null);
+  // 020: anuncio de origen (null = no vino de uno) y fuente del prospecto.
+  const [anuncio, setAnuncio] = useState<AnuncioDto | null>(null);
+  const [source, setSource] = useState<SourceDto | null>(null);
   // Estado global del agente: sin esto, el toggle "Respondiendo" mentiría
   // cuando el agente aún no se ha configurado/encendido.
   const [agentEnabled, setAgentEnabled] = useState(false);
@@ -83,6 +133,8 @@ export function ContactPanel({
       setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
+      setAnuncio(detail.anuncio ?? null);
+      setSource(detail.contact?.source ?? null);
     }
     if (stagesRes) setStages(stagesRes.stages);
     setAgentEnabled(Boolean(agentRes?.profile?.enabled));
@@ -106,6 +158,10 @@ export function ContactPanel({
       setFichaFields(detail.fichaFields ?? null);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
+      // 020: la miniatura llega después (se copia en segundo plano): el
+      // evento de la Bandeja la trae sola.
+      setAnuncio(detail.anuncio ?? null);
+      setSource(detail.contact?.source ?? null);
     }
     if (agentRes) {
       setAgentEnabled(Boolean(agentRes.profile?.enabled));
@@ -157,6 +213,17 @@ export function ContactPanel({
       body: JSON.stringify({ fichaUnlock: [key] }),
     }).catch(() => null);
     void refreshLive();
+  }
+
+  /** 020 (D3): `null` vuelve a la fuente deducida. */
+  async function saveSource(value: SourceValue | null) {
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: value }),
+    }).catch(() => null);
+    const data = res?.ok ? await res.json().catch(() => null) : null;
+    if (data?.contact?.source) setSource(data.contact.source);
   }
 
   async function saveNotes() {
@@ -359,6 +426,17 @@ export function ContactPanel({
             </ol>
           </section>
         )}
+
+        {/* 020: de dónde llegó — tarjeta del anuncio de origen (si vino de
+            uno) y la fuente del prospecto, editable (D3). Entre la etapa y la
+            Ficha: es lo primero que se pregunta de un lead nuevo. */}
+        <section className="space-y-3 border-b p-4" aria-label="Origen del contacto">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-text-3">
+            Origen
+          </p>
+          {anuncio && <AnuncioOrigen anuncio={anuncio} />}
+          <SourcePicker source={source} onChange={(v) => void saveSource(v)} />
+        </section>
 
         {/* Ficha: lo que se SABE del lead. Va antes de Notas —lo que alguien
             OPINA— porque es lo que se consulta a mitad de una conversación. */}

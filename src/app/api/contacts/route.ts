@@ -7,6 +7,7 @@ import { scoped } from "@/lib/db/tenant";
 import { normalizeMx } from "@/lib/meta/client";
 import { nextOffset, parsePage } from "@/lib/pagination";
 import { serializeContact } from "@/server/contacts";
+import { contactosQueLlegaronPorAnuncio } from "@/server/attribution/store";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
 import { contactSearchSql } from "@/server/search";
 
@@ -80,11 +81,18 @@ export const GET = withAuth(async (session, req: Request) => {
   ]);
   const total = Number(totals[0]?.n ?? 0);
 
+  // 020 — Fuente deducida por el anuncio de origen, en UN lote sobre la
+  // página: la lista dice lo mismo que el detalle del contacto.
+  const porAnuncio = await contactosQueLlegaronPorAnuncio(
+    session.organizationId,
+    rows.map((c) => c.id)
+  );
   const contacts = rows.map((c) =>
     serializeContact(
       c,
       stageByContact.get(c.id) ?? null,
-      priorityByContact.get(c.id) ?? null
+      priorityByContact.get(c.id) ?? null,
+      porAnuncio.has(c.id)
     )
   );
   return Response.json({

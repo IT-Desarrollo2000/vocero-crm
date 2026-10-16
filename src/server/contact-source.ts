@@ -33,8 +33,17 @@ export function isSourceValue(v: unknown): v is SourceValue {
 /**
  * Un contacto que llegó solo por WhatsApp no dice de dónde salió, y el CRM no
  * lo inventa: queda "sin identificar" hasta que alguien lo capture.
+ *
+ * 020 — Salvo que Meta lo haya dicho: si el primer origen del contacto es un
+ * ANUNCIO (no una publicación, ver `cuentaComoAnuncio`), la fuente se DEDUCE
+ * "anuncio". Lo capturado a mano sigue mandando (D3), y borrar la captura
+ * (`PATCH source: null`) vuelve a esta deducción.
  */
-export function effectiveSource(stored: SourceValue | null): SourceDto {
+export function effectiveSource(
+  stored: SourceValue | null,
+  llegoPorAnuncio = false
+): SourceDto {
   if (stored) return { value: stored, source: "capturada" };
+  if (llegoPorAnuncio) return { value: "anuncio", source: "deducida" };
   return { value: "desconocida", source: "deducida" };
 }

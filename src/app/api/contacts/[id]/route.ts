@@ -3,6 +3,7 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import { cuentaComoAnuncio } from "@/lib/anuncios";
 import type { ContactDetailResponse } from "@/lib/types";
 import {
   getContactById,
@@ -11,6 +12,10 @@ import {
 } from "@/server/contacts";
 import { upsertFicha } from "@/server/bot/ficha";
 import { fichaFieldsOrNull } from "@/server/ficha-fields";
+import {
+  anuncioDelContacto,
+  repararImagenSiFalta,
+} from "@/server/attribution/store";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +25,20 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const contact = await getContactById(session.organizationId, id);
   if (!contact) return apiError(404, "not_found", "Contacto no encontrado");
-  const stageRow = await getContactStage(session.organizationId, id);
-  // 04 — La definición viaja aquí para que el Vendedor pinte el panel sin
-  // acceso a la pantalla de Agente.
-  const fichaFields = await fichaFieldsOrNull(session.organizationId);
+  const [stageRow, fichaFields, anuncio] = await Promise.all([
+    getContactStage(session.organizationId, id),
+    // 04 — La definición viaja aquí para que el Vendedor pinte el panel sin
+    // acceso a la pantalla de Agente.
+    fichaFieldsOrNull(session.organizationId),
+    // 020 — De qué anuncio llegó (el primero, D1). La tarjeta la ven todos los
+    // roles (D4).
+    anuncioDelContacto(session.organizationId, id),
+  ]);
+  // 020 — Si la miniatura no se copió al llegar, se reintenta ahora, en
+  // segundo plano y con freno: la tarjeta se pinta igual sin ella.
+  if (anuncio && !anuncio.imageUrl) repararImagenSiFalta(session.organizationId, id);
   const body: ContactDetailResponse = {
-    contact: serializeContact(contact),
+    contact: serializeContact(contact, null, null, cuentaComoAnuncio(anuncio)),
     stage: stageRow
       ? {
           id: stageRow.stage.id,
@@ -36,6 +49,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
       : null,
     lead: stageRow ? { id: stageRow.lead.id } : null,
     fichaFields,
+    anuncio,
   };
   return Response.json(body);
 });
@@ -54,6 +68,15 @@ const patchSchema = z.object({
   ficha: z.record(z.unknown()).optional(),
   /** 04 — "Dejar que el agente lo actualice": quita el candado, conserva el valor. */
   fichaUnlock: z.array(z.string().trim().min(1).max(60)).max(40).optional(),
+  /**
+   * 020 (D3) — Fuente del prospecto a mano: un valor del catálogo cerrado, o
+   * `null` para quitar la captura y volver a la deducida (anuncio de origen o
+   * "sin identificar"). "desconocida" no es capturable.
+   */
+  source: z
+    .enum(["anuncio", "organico", "referido", "conocido", "otro"])
+    .nullable()
+    .optional(),
 });
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
@@ -79,12 +102,15 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
 
   const updated = await updateContactFields(session.organizationId, id, body.data);
   if (!updated) return apiError(404, "not_found", "Contacto no encontrado");
-  return Response.json({ contact: serializeContact(updated) });
+  const anuncio = await anuncioDelContacto(session.organizationId, id);
+  return Response.json({
+    contact: serializeContact(updated, null, null, cuentaComoAnuncio(anuncio)),
+  });
 });
 
 /**
- * Nombre, notas y archivado. Separado de la puerta de la ficha a propósito:
- * este `update` no toca la calificación del lead (guardarraíl
+ * Nombre, notas, archivado y (020) fuente. Separado de la puerta de la ficha
+ * a propósito: este `update` no toca la calificación del lead (guardarraíl
  * `tests/unit/ficha-guard.test.ts`).
  */
 async function updateContactFields(
@@ -98,6 +124,7 @@ async function updateContactFields(
   if (data.archived !== undefined) {
     set.archivedAt = data.archived ? new Date() : null;
   }
+  if (data.source !== undefined) set.source = data.source;
   const db = getDb();
   const updated = await db
     .update(schema.contact)
