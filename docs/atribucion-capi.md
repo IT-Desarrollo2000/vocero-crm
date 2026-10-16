@@ -147,6 +147,12 @@ acuse y el registro en la actividad. Dos advertencias ganadas a golpes:
 el CRM no guarda el `ctwa_clid`, y sin él no hay nada que reportar. Tampoco se
 pierde gran cosa — la ventana de atribución de Meta se mide en días.
 
+**¿Y saber de qué anuncio llegó cada lead?** Eso no depende de la bandera
+(020): el anuncio de origen (ID, titular, texto y miniatura) se guarda
+siempre, y la Bandeja lo muestra en la ficha del contacto, en el lead del
+pipeline, como etiqueta en la lista y en el filtro **Origen**. La bandera solo
+decide si además se guarda el `ctwa_clid` y se le reporta a Meta.
+
 **¿Qué pasa si Meta está caído?** El lead se mueve igual. La conversión queda
 registrada como fallida con el motivo. Ninguna parte de tu operación depende de
 que Meta conteste.

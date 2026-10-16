@@ -25,7 +25,9 @@ Con `ATRIBUCION` ausente:
    responden **404** (no 403: aquí ese endpoint no existe).
 2. La pantalla `/settings/ads` responde 404 y Ajustes no la menciona.
 3. Un mensaje que **sí** viene de un anuncio se atiende como cualquier otro: la
-   conversación se crea, el mensaje se ve, y no se guarda ninguna atribución.
+   conversación se crea y el mensaje se ve. Desde 020 el **anuncio de origen**
+   se guarda igual (es dato del negocio), pero **sin `ctwa_clid`**, ni en la
+   columna ni en el `raw` — ver [us-origen-leads.md](us-origen-leads.md).
 
 Con `ATRIBUCION=on`, las mismas rutas responden con normalidad.
 
