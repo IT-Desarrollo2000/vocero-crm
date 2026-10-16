@@ -1173,11 +1173,17 @@ async function main() {
   await agendaChecks();
   await recordatoriosChecks();
   await atribucionChecks();
+  // 020 fase B: el reporte de anuncios (con la bandera en cualquier posición).
+  await reporteAnunciosChecks();
   await canalesChecks();
+  const antesDelLab = await reporteAnuncios("range=7d");
   await labChecks();
+  await reporteAnunciosLabChecks(antesDelLab);
   await asignacionChecks();
   // 018: AL FINAL — su último paso (la purga de 30 días) expira TODO adjunto.
   await adjuntosChecks();
+  // 020 fase B: AL FINAL — da de alta un Vendedor (cambia la forma del equipo).
+  await reporteAnunciosVendedorChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -2016,6 +2022,353 @@ async function anuncioOrigenChecks(encendida) {
     });
     ok("una fuente fuera del catálogo → 422", malo.res.status === 422, `status=${malo.res.status}`);
   }
+}
+
+/* ============================================================
+ * 020 fase B — Reportes → Anuncios (GET /api/reports/ads, solo Propietario).
+ *
+ * Siembra por los flujos reales (wa-mock): 3 leads del anuncio X (con
+ * miniatura), 2 del anuncio Y, 1 de una publicación y 2 orgánicos; mueve
+ * algunos a Ganado con y sin monto (uno en USD) y compara el reporte como
+ * DELTA contra una línea base (la BD de E2E trae datos de los demás checks y
+ * el guion corre en serie). Por anuncio se cuadra exacto por los `source_id`
+ * únicos de la corrida. No depende de ATRIBUCION: el origen se captura siempre.
+ * ============================================================ */
+
+function reporteAnuncios(qs = "range=7d") {
+  return api(`/api/reports/ads?${qs}`);
+}
+
+const fuenteDe = (rep, value) =>
+  rep?.json?.bySource?.ok ? rep.json.bySource.data.rows.find((r) => r.value === value) : null;
+const otraMoneda = (amount, cur) =>
+  amount?.otherCurrencies?.find((o) => o.currency === cur)?.amountCents ?? 0;
+
+async function reporteAnunciosChecks() {
+  console.log("\n== 020 fase B: Reportes → Anuncios ==");
+  const SUF = String(Date.now()).slice(-6);
+  const tel = (n) => `52177${SUF}${n}`;
+  const AD_X = `1203${SUF}01`;
+  const AD_Y = `1203${SUF}02`;
+  const POST = `1203${SUF}03`;
+  const TIT_X = `Promo X ${SUF}`;
+  const TIT_Y = `Promo Y ${SUF}`;
+  const thumb = (id) => `${BASE}/api/dev/wa-mock/cdn/anuncio-${id}.jpg`;
+  const inbound = (body) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({ phoneNumberId: PN, ...body }),
+    });
+
+  const base = await reporteAnuncios();
+  ok(
+    "GET /api/reports/ads (owner) → 200 con los tres bloques ok",
+    base.res.status === 200 &&
+      base.json?.summary?.ok === true &&
+      base.json?.bySource?.ok === true &&
+      base.json?.byAd?.ok === true,
+    `${base.res.status} ${JSON.stringify(base.json)?.slice(0, 300)}`
+  );
+  ok(
+    "por fuente: las seis fuentes en su orden",
+    JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value)) ===
+      JSON.stringify(["anuncio", "organico", "referido", "conocido", "otro", "desconocida"]),
+    JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value))
+  );
+
+  const leads = [
+    { k: "x1", ad: AD_X, tit: TIT_X, img: true, media: "video" },
+    { k: "x2", ad: AD_X, tit: TIT_X, img: true, media: "video" },
+    { k: "x3", ad: AD_X, tit: TIT_X, img: true, media: "video" },
+    { k: "y1", ad: AD_Y, tit: TIT_Y },
+    { k: "y2", ad: AD_Y, tit: TIT_Y },
+    { k: "p1", ad: POST, tit: `Mi post ${SUF}`, type: "post" },
+    { k: "o1" },
+    { k: "o2" },
+  ];
+  const nombre = (k) => `Rep anuncios ${k} ${SUF}`;
+  for (const [i, l] of leads.entries()) {
+    await inbound({
+      from: tel(String(i + 1)),
+      name: nombre(l.k),
+      text: "hola, quiero info",
+      ...(l.ad
+        ? {
+            adSourceId: l.ad,
+            ...(l.tit ? { adHeadline: l.tit } : {}),
+            ...(l.type ? { adSourceType: l.type } : {}),
+            ...(l.media ? { adMediaType: l.media } : {}),
+            ...(l.img ? { adThumbnailUrl: thumb(l.ad) } : {}),
+          }
+        : {}),
+      waMessageId: `wamid.e2e.020b.${SUF}.${l.k}`,
+    });
+  }
+
+  // Los leads nacen con el primer mensaje.
+  let board = null;
+  for (let i = 0; i < 30; i++) {
+    board = (await api("/api/pipeline/board")).json;
+    const n = leads.filter((l) => board?.leads?.some((x) => x.contact?.name === nombre(l.k))).length;
+    if (n === leads.length) break;
+    await sleep(400);
+  }
+  const leadDe = (k) => board?.leads?.find((x) => x.contact?.name === nombre(k));
+  const ganado = board?.stages?.find((s) => s.kind === "won");
+  ok(
+    "(setup) los 8 leads existen y hay etapa Ganado",
+    leads.every((l) => leadDe(l.k)) && !!ganado,
+    `leads=${leads.filter((l) => leadDe(l.k)).length} won=${ganado?.id}`
+  );
+  const gana = async (k, extra = {}) => {
+    const lead = leadDe(k);
+    if (!lead || !ganado) return false;
+    const r = await api(`/api/pipeline/leads/${lead.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ stageId: ganado.id, ...extra }),
+    });
+    return r.res.ok;
+  };
+  const movidos = [
+    await gana("x1", { amountCents: 150000 }), // MXN (la del negocio)
+    await gana("x2"), // ganado SIN monto
+    await gana("y1", { amountCents: 5000, currency: "USD" }), // otra moneda
+    await gana("p1", { amountCents: 30000 }),
+    await gana("o1", { amountCents: 10000 }),
+  ];
+  ok("(setup) 5 leads movidos a Ganado", movidos.every(Boolean), JSON.stringify(movidos));
+
+  // La miniatura de X se copia en segundo plano: se espera a que aparezca.
+  let rep = null;
+  let filaX = null;
+  for (let i = 0; i < 30; i++) {
+    rep = await reporteAnuncios();
+    filaX = rep.json?.byAd?.data?.rows?.find((r) => r.sourceId === AD_X);
+    if (filaX?.imageUrl) break;
+    await sleep(400);
+  }
+  const filas = rep?.json?.byAd?.data?.rows ?? [];
+  const filaY = filas.find((r) => r.sourceId === AD_Y);
+  const filaP = filas.find((r) => r.sourceId === POST);
+
+  /* ---------- Por anuncio (exacto) ---------- */
+  ok(
+    "anuncio X: 3 leads, 2 ventas, 67 % de cierre, titular y tipo",
+    filaX?.leads === 3 &&
+      filaX?.won === 2 &&
+      Math.abs((filaX?.winRate ?? 0) - 2 / 3) < 1e-9 &&
+      filaX?.title === TIT_X &&
+      filaX?.sourceType === "ad" &&
+      filaX?.mediaType === "video",
+    JSON.stringify(filaX)
+  );
+  ok(
+    "anuncio X: monto 1,500.00 MXN y 1 venta sin monto (cuenta, no suma)",
+    filaX?.wonAmount?.currency === "MXN" &&
+      filaX?.wonAmount?.amountCents === 150000 &&
+      filaX?.wonAmount?.wonWithoutAmount === 1 &&
+      filaX?.wonAmount?.otherCurrencies?.length === 0,
+    JSON.stringify(filaX?.wonAmount)
+  );
+  ok(
+    "anuncio X: miniatura servible por la ruta de medios",
+    /^\/api\/media\/[\w.-]+$/.test(filaX?.imageUrl ?? ""),
+    JSON.stringify(filaX?.imageUrl)
+  );
+  if (filaX?.imageUrl) {
+    const img = await fetch(`${BASE}${filaX.imageUrl}`, { headers: { cookie, origin: BASE } });
+    ok(
+      "y la miniatura se sirve como imagen",
+      img.status === 200 && /^image\//.test(img.headers.get("content-type") ?? ""),
+      `${img.status} ${img.headers.get("content-type")}`
+    );
+  }
+  ok(
+    "anuncio Y: 2 leads, 1 venta; el monto en USD va APARTE (no se suma a MXN)",
+    filaY?.leads === 2 &&
+      filaY?.won === 1 &&
+      filaY?.wonAmount?.amountCents === 0 &&
+      otraMoneda(filaY?.wonAmount, "USD") === 5000 &&
+      filaY?.imageUrl === null,
+    JSON.stringify(filaY)
+  );
+  ok(
+    "publicación: su propia fila, tipo post, con su titular, 1 venta de 300.00",
+    filaP?.sourceType === "post" &&
+      filaP?.title === `Mi post ${SUF}` &&
+      filaP?.leads === 1 &&
+      filaP?.won === 1 &&
+      filaP?.wonAmount?.amountCents === 30000,
+    JSON.stringify(filaP)
+  );
+  const orden = filas.map((r) => r.sourceId);
+  ok(
+    "ordenado por leads: X antes que Y antes que la publicación",
+    orden.indexOf(AD_X) < orden.indexOf(AD_Y) && orden.indexOf(AD_Y) < orden.indexOf(POST),
+    JSON.stringify(orden)
+  );
+  ok(
+    "una sola fila por source_id (agrupa) y total ≥ filas ≤ 50",
+    [AD_X, AD_Y, POST].every((id) => filas.filter((r) => r.sourceId === id).length === 1) &&
+      (rep?.json?.byAd?.data?.total ?? 0) >= filas.length &&
+      filas.length <= 50,
+    `total=${rep?.json?.byAd?.data?.total} filas=${filas.length}`
+  );
+
+  /* ---------- Por fuente (delta) ---------- */
+  const d = (value, campo) => (fuenteDe(rep, value)?.[campo] ?? NaN) - (fuenteDe(base, value)?.[campo] ?? NaN);
+  const dMonto = (value) =>
+    (fuenteDe(rep, value)?.wonAmount?.amountCents ?? NaN) -
+    (fuenteDe(base, value)?.wonAmount?.amountCents ?? NaN);
+  const dSinMonto = (value) =>
+    (fuenteDe(rep, value)?.wonAmount?.wonWithoutAmount ?? NaN) -
+    (fuenteDe(base, value)?.wonAmount?.wonWithoutAmount ?? NaN);
+  const resumen = (value) =>
+    JSON.stringify({
+      conv: d(value, "conversations"),
+      leads: d(value, "leads"),
+      won: d(value, "won"),
+      monto: dMonto(value),
+      sinMonto: dSinMonto(value),
+    });
+  ok(
+    "por fuente · Anuncio: +5 conversaciones, +5 leads, +3 ventas, +1,500.00 MXN, +1 sin monto",
+    resumen("anuncio") === JSON.stringify({ conv: 5, leads: 5, won: 3, monto: 150000, sinMonto: 1 }),
+    resumen("anuncio")
+  );
+  ok(
+    "por fuente · Anuncio: +50.00 USD aparte",
+    otraMoneda(fuenteDe(rep, "anuncio")?.wonAmount, "USD") -
+      otraMoneda(fuenteDe(base, "anuncio")?.wonAmount, "USD") ===
+      5000
+  );
+  ok(
+    "por fuente · Contenido orgánico (la publicación): +1, +1, +1, +300.00",
+    resumen("organico") === JSON.stringify({ conv: 1, leads: 1, won: 1, monto: 30000, sinMonto: 0 }),
+    resumen("organico")
+  );
+  ok(
+    "por fuente · Sin identificar (orgánicos): +2, +2, +1, +100.00",
+    resumen("desconocida") === JSON.stringify({ conv: 2, leads: 2, won: 1, monto: 10000, sinMonto: 0 }),
+    resumen("desconocida")
+  );
+  ok(
+    "por fuente · Referido/Conocido/Otro sin cambios",
+    ["referido", "conocido", "otro"].every((v) => d(v, "leads") === 0 && d(v, "conversations") === 0)
+  );
+
+  /* ---------- Resumen (delta y coherencia) ---------- */
+  const s0 = base.json?.summary?.data;
+  const s1 = rep?.json?.summary?.data;
+  const dS = {
+    conv: (s1?.conversations ?? NaN) - (s0?.conversations ?? NaN),
+    adConv: (s1?.adConversations ?? NaN) - (s0?.adConversations ?? NaN),
+    leads: (s1?.adLeads ?? NaN) - (s0?.adLeads ?? NaN),
+    won: (s1?.adWon ?? NaN) - (s0?.adWon ?? NaN),
+    monto: (s1?.adWonAmount?.amountCents ?? NaN) - (s0?.adWonAmount?.amountCents ?? NaN),
+  };
+  ok(
+    "resumen: +8 conversaciones, +5 de anuncio, +5 leads, +3 ventas, +1,500.00 MXN",
+    JSON.stringify(dS) === JSON.stringify({ conv: 8, adConv: 5, leads: 5, won: 3, monto: 150000 }),
+    JSON.stringify(dS)
+  );
+  const anuncio = fuenteDe(rep, "anuncio");
+  const totalConv = (rep?.json?.bySource?.data?.rows ?? []).reduce((a, r) => a + r.conversations, 0);
+  ok(
+    "resumen = fila Anuncio de Por fuente, y el % de anuncio = de anuncio / total",
+    s1?.adLeads === anuncio?.leads &&
+      s1?.adWon === anuncio?.won &&
+      s1?.adWonAmount?.amountCents === anuncio?.wonAmount?.amountCents &&
+      s1?.conversations === totalConv &&
+      Math.abs((s1?.adShare ?? -1) - s1?.adConversations / s1?.conversations) < 1e-9,
+    JSON.stringify({ s1, anuncio })
+  );
+  ok(
+    "resumen trae el rango previo del mismo largo",
+    !!s1?.previous && typeof s1.previous.conversations === "number" && s1.previous.to < rep.json.range.from,
+    JSON.stringify(s1?.previous)
+  );
+
+  /* ---------- Camino infeliz y rango vacío ---------- */
+  const vacio = await reporteAnuncios("range=custom&from=2020-01-01&to=2020-01-07");
+  const vb = vacio.json;
+  ok(
+    "rango sin datos → 200, bloques ok y vacíos (sin error)",
+    vacio.res.status === 200 &&
+      vb?.summary?.ok &&
+      vb.summary.data.conversations === 0 &&
+      vb.summary.data.adShare === null &&
+      vb?.bySource?.ok &&
+      vb.bySource.data.rows.every((r) => r.conversations === 0 && r.leads === 0 && r.winRate === null) &&
+      vb?.byAd?.ok &&
+      vb.byAd.data.rows.length === 0 &&
+      vb.byAd.data.total === 0,
+    JSON.stringify(vb)?.slice(0, 400)
+  );
+  const malo = await reporteAnuncios("range=custom&from=2026-02-10&to=2026-01-01");
+  ok(
+    "rango inválido → 422 invalid_range",
+    malo.res.status === 422 && malo.json?.error?.code === "invalid_range",
+    `${malo.res.status} ${JSON.stringify(malo.json)}`
+  );
+  const page = await fetch(`${BASE}/reports/ads`, { headers: { cookie } });
+  const html = await page.text();
+  ok(
+    "la pantalla /reports/ads existe y la pestaña Anuncios es un enlace real",
+    page.status === 200 && html.includes('href="/reports/ads') && !html.includes(">Anuncios<span"),
+    `status=${page.status}`
+  );
+}
+
+/** El Laboratorio no mueve el reporte de anuncios. */
+async function reporteAnunciosLabChecks(antes) {
+  console.log("\n== 020 fase B: el Laboratorio no cuenta en Reportes → Anuncios ==");
+  const despues = await reporteAnuncios("range=7d");
+  ok(
+    "tras correr el Laboratorio, Por fuente y el resumen no cambian",
+    antes?.json?.bySource?.ok &&
+      JSON.stringify(antes.json.bySource.data) === JSON.stringify(despues.json?.bySource?.data) &&
+      antes.json.summary?.data?.conversations === despues.json?.summary?.data?.conversations,
+    JSON.stringify({
+      antes: antes?.json?.summary?.data?.conversations,
+      despues: despues?.json?.summary?.data?.conversations,
+    })
+  );
+}
+
+/** Solo Propietario (D4): el Vendedor recibe 403 en la API y 404 en la página. */
+async function reporteAnunciosVendedorChecks() {
+  console.log("\n== 020 fase B: Reportes → Anuncios solo para el Propietario ==");
+  const SUF = String(Date.now()).slice(-6);
+  const email = `vend.ads.${SUF}@vocero.test`;
+  const password = "password-vend-ads-123";
+  const alta = await api("/api/settings/team", {
+    method: "POST",
+    body: JSON.stringify({ name: "Vendedor Anuncios", email, password }),
+  });
+  ok("(setup) alta del vendedor", alta.res.ok, `${alta.res.status} ${JSON.stringify(alta.json)}`);
+  // Su propio cookie jar: el `cookie` global es la sesión del Propietario.
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email, password }),
+  });
+  const sellerCookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  ok("(setup) el vendedor inicia sesión", login.ok && !!sellerCookie, String(login.status));
+  const r = await fetch(`${BASE}/api/reports/ads?range=7d`, {
+    headers: { cookie: sellerCookie, origin: BASE },
+  });
+  const j = await r.json().catch(() => null);
+  ok(
+    "GET /api/reports/ads como Vendedor → 403 forbidden",
+    r.status === 403 && j?.error?.code === "forbidden",
+    `${r.status} ${JSON.stringify(j)}`
+  );
+  const p = await fetch(`${BASE}/reports/ads`, {
+    headers: { cookie: sellerCookie },
+    redirect: "manual",
+  });
+  ok("/reports/ads para el Vendedor → 404", p.status === 404, String(p.status));
 }
 
 async function atribucionChecks() {
