@@ -322,7 +322,9 @@ export function ConversationList({
   /** 06: reintenta la primera página tras un error. */
   onRetry?: () => void;
 }) {
-  const [query, setQuery] = useState("");
+  // 020: arranca con la búsqueda de la URL (los filtros viven ahí).
+  const [query, setQuery] = useState(filters.q);
+  const initialQ = useRef(filters.q);
   const inputRef = useRef<HTMLInputElement>(null);
   const viewer = useViewer();
   const viewerOwner = isOwner(viewer);
@@ -377,7 +379,8 @@ export function ConversationList({
    */
   useEffect(() => {
     const typed = inputRef.current?.value ?? "";
-    if (typed) pushQuery(typed, true);
+    // 020: la caja ya trae la búsqueda de la URL; solo cuenta lo que cambió.
+    if (typed !== initialQ.current) pushQuery(typed, true);
   }, []);
 
   // 05: reloj de la cuenta regresiva «Cierra en …» (desde `lastInboundAt`,
@@ -567,7 +570,7 @@ export function ConversationList({
             ref={inputRef}
             placeholder="Buscar por nombre o teléfono…"
             aria-label="Buscar conversación"
-            defaultValue=""
+            defaultValue={filters.q}
             onChange={(e) => pushQuery(e.target.value)}
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-3"
           />
@@ -711,7 +714,7 @@ export function ConversationList({
                     onChange={(e) => selectStage(e.target.value)}
                     aria-label="Filtrar por etapa del embudo"
                     className={cn(
-                      "w-full truncate rounded-md border px-2 py-[6px] text-[13px] transition-colors",
+                      "w-full truncate rounded-md border px-2 py-[6px] text-base transition-colors md:text-[13px]",
                       stage === "all"
                         ? "bg-background text-text-2"
                         : "border-brand bg-brand-veil text-foreground"
@@ -870,8 +873,14 @@ export function ConversationList({
                           </span>
                         )}
                       </span>
-                      <span className="mt-1.5 flex min-w-0 items-center gap-1.5">
-                        {c.anuncio && <EtiquetaDeOrigen anuncio={c.anuncio} />}
+                      {/* 020: de qué anuncio llegó, en su propia línea: el
+                          titular necesita ancho y no debe apretar a la etapa. */}
+                      {c.anuncio && (
+                        <span className="mt-1.5 flex min-w-0">
+                          <EtiquetaDeOrigen anuncio={c.anuncio} />
+                        </span>
+                      )}
+                      <span className="mt-1.5 flex items-center gap-1.5">
                         {c.stageName && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-2">
                             <span
