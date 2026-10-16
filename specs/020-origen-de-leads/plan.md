@@ -114,7 +114,8 @@ el encabezado. Nuevo diseño (elegido por el dueño):
   `postback.referral` (botón "Empezar", campo `messaging_postbacks`).
   - Un `referral` suelto se asocia a la conversación existente **sin crear
     mensaje**; si el contacto no existe aún, se guarda pendiente y se aplica
-    con su primer mensaje.
+    con su primer mensaje. *(Implementado distinto: se crean contacto y
+    conversación sin mensaje, sin tabla de pendientes — ver §8.6.)*
   - Suscripción a nivel Página: el CRM pasa a pedir `messages`,
     `messaging_referrals` y `messaging_postbacks` al conectar; se re-suscribe
     la Página ya conectada.
@@ -335,7 +336,12 @@ fase con autorización del dueño.
   conversación con el origen puesto; first-touch intacto). Sin tocar
   `lastMessageAt`/no leídos/ventana, sin actividad de lead ni turno del
   agente; solo `conversation.updated`. Coste aceptado: hasta que escriba, la
-  conversación aparece vacía en la Bandeja (ordenada por su alta).
+  conversación aparece vacía en la Bandeja (ordenada por su alta), y no
+  tiene fila `lead` hasta su primer mensaje (`onLeadActivity` no corre): en
+  Reportes → Anuncios cuenta como conversación con origen, no como lead,
+  hasta que escriba.
+- Instagram «referral sin mensaje»: implementado por simetría y defensivo;
+  Meta no documenta referrals de anuncio en hilos de Instagram existentes.
 - Messenger: `toOriginOnly(m)` (puro) decide qué evento es solo-origen;
   `toInboundMessage` no cambia. Instagram (ruta Meta; Zernio sin cambios):
   mismo trato en el bucle. Todo dentro de try/catch: un fallo del origen no
