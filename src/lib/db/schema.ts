@@ -1352,6 +1352,16 @@ export const adAttribution = pgTable(
      * nada se pierde y un fork puede pintar el creativo sin migrar nada.
      */
     raw: jsonb("raw").notNull(),
+    /**
+     * 020 — Miniatura del creativo, copiada del CDN de Meta al llegar (su URL
+     * caduca en días). UNA por `source_id`: las conversaciones del mismo
+     * anuncio comparten el asset. `set null`: borrar el adjunto deja la
+     * tarjeta sin imagen, no apuntando a nada. La purga de 30 días no toca un
+     * asset referenciado aquí (`src/server/media/purge.ts`).
+     */
+    imageAssetId: text("image_asset_id").references(() => mediaAsset.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -1360,6 +1370,8 @@ export const adAttribution = pgTable(
       t.conversationId
     ),
     index("ad_attribution_org_contact_idx").on(t.organizationId, t.contactId),
+    // 020: la miniatura se busca por anuncio (una por source_id).
+    index("ad_attribution_org_source_idx").on(t.organizationId, t.sourceId),
   ]
 );
 
