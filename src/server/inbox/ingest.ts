@@ -459,12 +459,18 @@ export async function ingestInboundMessage(input: {
   // Ver `anuncioParaGuardar` en `src/server/attribution/store.ts`.
   const anuncio = input.referral ? anuncioDeWhatsapp(input.referral) : null;
   if (anuncio) {
-    await registrarAnuncioDeOrigen({
-      organizationId,
-      contactId: contact.id,
-      conversationId: conversation.id,
-      anuncio,
-    });
+    // Ahora corre en TODA instancia: un fallo al guardar el origen jamás
+    // puede impedir que el mensaje del cliente entre.
+    try {
+      await registrarAnuncioDeOrigen({
+        organizationId,
+        contactId: contact.id,
+        conversationId: conversation.id,
+        anuncio,
+      });
+    } catch (err) {
+      console.error("[020] no se pudo guardar el anuncio de origen:", err);
+    }
   }
 
   const waTimestamp = toDate(input.timestamp);
