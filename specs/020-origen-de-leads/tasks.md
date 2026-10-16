@@ -73,8 +73,19 @@ Plan: [plan.md](plan.md). Rama `020-origen-de-leads` (worktree
 - [ ] Verificación real con un clic de anuncio CTWA (no hay eventos de prueba).
 - [ ] Desplegar (con autorización del dueño).
 
-## Fase B — Reportes → Anuncios
-- [ ] Por fuente y por anuncio (leads, ganados, %, monto), solo Propietario.
+## Fase B — Reportes → Anuncios (2026-10-16)
+- [x] `GET /api/reports/ads` (owner, rango y zona como los demás; clasificada en
+  `permissions.ts`); sin bandera `ATRIBUCION`.
+- [x] `src/server/reports/ads.ts`: bloques `summary` (con rango previo),
+  `bySource`, `byAd`; semántica en plan §8.5 y en la ayuda de la UI.
+- [x] DTOs en `src/lib/reports.ts`; `previousRange` en `range.ts`.
+- [x] UI: pestaña «Anuncios» real, KPIs, tabla por fuente, tabla por anuncio
+  con miniatura (tarjetas en móvil), aviso de ventas sin monto, enlace a la
+  Bandeja filtrada por «De anuncio».
+- [x] Unit `tests/unit/ads-report.test.ts`; E2E en `e2e-selftest.mjs`.
+- [x] Gate y E2E verdes (412/412 y 231/231; `e2e-metricas` 83/83).
+- [ ] Enlace por anuncio a la Bandeja (hoy la Bandeja filtra por tipo de
+  origen, no por `source_id`).
 
 ## Fase C — Messenger e Instagram
 - [ ] `anuncioDeMessenger` / `anuncioDeInstagram` + suscripciones.

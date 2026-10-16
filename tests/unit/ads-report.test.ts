@@ -284,7 +284,7 @@ describe("formato", () => {
     const n = wonAmountNote(
       amount({ otherCurrencies: [{ currency: "USD", amountCents: 2000, won: 1 }], wonWithoutAmount: 2 })
     );
-    expect(n).toContain("USD aparte");
+    expect(n).toMatch(/USD.*20\.00 aparte/);
     expect(n).toContain("2 ventas sin monto");
     expect(formatWonAmount(amount({ amountCents: 1250050 }))).toContain("12,500.50");
   });

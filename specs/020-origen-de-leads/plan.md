@@ -7,7 +7,8 @@
 > **Fase A: implementada y verificada (2026-10-16)** en la rama
 > `020-origen-de-leads` — sin desplegar, esperando revisión/merge del dueño.
 > Detalle, decisiones de implementación y resultados en la sección 8 y en
-> [tasks.md](tasks.md). Fases B y C: pendientes.
+> [tasks.md](tasks.md). **Fase B (Reportes → Anuncios): implementada y
+> verificada (2026-10-16)** en la misma rama, sección 8.5. Fase C: pendiente.
 
 ## 1. Objetivo
 
@@ -231,3 +232,76 @@ fase con autorización del dueño.
   102/102; `e2e-responsive` 54/54; `e2e-alertas` 53/53.
 - Verificación real: imposible hasta que llegue un clic real de un anuncio
   CTWA (sección 6).
+
+## 8.5 Fase B — Reportes → Anuncios (2026-10-16)
+
+### Superficie
+- `GET /api/reports/ads` (Propietario; Vendedor → 403, página → 404 por el
+  layout de `(owner)`), clasificada en `src/lib/permissions.ts`. Mismos
+  parámetros de rango y zona que Agente/Citas; 422 `invalid_range`, 503
+  `report_timeout`. **No va detrás de `ATRIBUCION`**: desde la fase A el
+  anuncio de origen se captura siempre; la pestaña «Anuncios» dejó de ser
+  «Próximamente» y ya no depende de la bandera (desviación consciente del
+  comentario viejo de 016/07).
+- Servidor `src/server/reports/ads.ts` (tres bloques independientes con
+  `runBlocks`/`runReadOnly`: `summary`, `bySource`, `byAd`), DTOs en
+  `src/lib/reports.ts`, UI `src/components/reports/ads-report-client.tsx` +
+  `ads-report-format.ts` (puro), página `(owner)/reports/ads`. Miniatura
+  compacta `MiniaturaDeAnuncio` en `src/components/anuncio-origen.tsx`.
+
+### Semántica exacta (la misma en los tres bloques)
+- **Lead en el rango** (uno por contacto): su **fecha de llegada** cae en
+  `[fromUtc, toUtc)`. Fecha de llegada = `created_at` de su **primer** anuncio
+  de origen (D1: `ad_attribution` del contacto ordenada `created_at asc, id
+  asc`, igual que la ficha) si tiene; si no, el alta del lead. Así un contacto
+  viejo que vuelve hoy por un anuncio cuenta para ese anuncio hoy, y la suma
+  de la tabla por anuncio = leads de la cohorte con origen.
+- **Ganado** = de esos leads, los que **hoy** están en una etapa `kind='won'`.
+  Un ganado movido después a otra etapa fue una corrección y deja de contar
+  (no se usa «alguna vez tuvo evento a won»).
+- **Monto ganado** = suma de `lead.amount_cents` de los ganados **por moneda**
+  (`currency` NULL = la del negocio, regla de `sumable`). La principal es la
+  moneda del negocio (Ajustes → Marca); otras monedas van aparte
+  (`otherCurrencies`) y nunca se suman. Un ganado sin monto cuenta como venta
+  y no suma: `wonWithoutAmount` (la UI avisa «N ventas sin monto: captúralo
+  en el Pipeline»).
+- **Conversaciones** = conversaciones reales (`is_test = false`) creadas en el
+  rango, por la fuente efectiva de su contacto.
+- **Fuente efectiva**: no se reimplementa en SQL. Las consultas devuelven
+  grupos crudos (fuente capturada, ¿tiene origen?, `source_type` del primer
+  origen) y se pliegan en TypeScript con `tipoDeOrigen` + `effectiveSource`
+  (las mismas de la ficha). Equivalencia probada en unit para las 6×5
+  combinaciones.
+- **Resumen** = la fila «Anuncio» de Por fuente + total de conversaciones;
+  «% de anuncio» = conversaciones de fuente Anuncio / conversaciones. Trae el
+  **rango previo** del mismo número de días locales inmediatamente antes
+  (`previousRange` en `range.ts`, calculado en Node) y la UI muestra la
+  variación («+25 %», «nuevo», «igual»). No había patrón previo en los
+  reportes: es nuevo de este bloque.
+- **Por anuncio** (D2): llave `coalesce(source_id, id de la fila)`; incluye
+  publicaciones (tipo «Publicación»); orden leads desc, ventas desc, llegada
+  más reciente; máximo 50 filas + `total` de orígenes distintos. Miniatura =
+  cualquier `image_asset_id` del mismo `source_id`. Titular con
+  `titularDeOrigen`.
+- **Laboratorio fuera**: conversaciones `is_test` y contactos cuya única
+  conversación es de prueba (un contacto real con una conversación de prueba
+  sigue contando; uno sin conversaciones —alta manual— también). La selección
+  del primer origen NO filtra `is_test` (la ficha tampoco).
+- Por fuente siempre lista las seis fuentes (también en cero).
+- Por qué un resumen ≠ suma de la tabla por anuncio en casos raros: una fuente
+  capturada a mano manda sobre el anuncio (D3), y las publicaciones caen en
+  «Contenido orgánico».
+
+### Verificación
+- Unit: `tests/unit/ads-report.test.ts` (46: reglas del SQL renderizado,
+  ≡ `effectiveSource`, plegado por fuente con monedas y sin monto, forma por
+  anuncio, rango previo, bloque que falla sin tumbar a los otros, formato).
+- E2E en `scripts/e2e-selftest.mjs` (`reporteAnunciosChecks`,
+  `reporteAnunciosLabChecks`, `reporteAnunciosVendedorChecks`): 2 anuncios
+  (uno con miniatura) + 1 publicación + 2 orgánicos, ganados con monto MXN,
+  sin monto y en USD; por anuncio exacto, por fuente y resumen por delta,
+  rango vacío, 422, pestaña real, Laboratorio sin efecto y Vendedor 403/404.
+- Gate verde (136 archivos, 1655 pruebas + 10 omitidas). E2E con BD aislada
+  (reseteada entre corridas): selftest 412/412 (módulos encendidos) y 231/231
+  (CHANNELS, AGENDA y ATRIBUCION apagados); `e2e-metricas` 83/83.
+

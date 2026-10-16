@@ -88,7 +88,7 @@ export function formatWonAmount(a: WonAmountDto): string {
 export function wonAmountNote(a: WonAmountDto): string | null {
   const parts: string[] = [];
   for (const o of a.otherCurrencies) {
-    parts.push(`${formatMoneyCents(o.amountCents, o.currency) ?? o.currency} en ${o.currency} aparte`);
+    parts.push(`${formatMoneyCents(o.amountCents, o.currency) ?? o.currency} aparte`);
   }
   if (a.wonWithoutAmount > 0) {
     parts.push(
