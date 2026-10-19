@@ -2381,6 +2381,295 @@ async function reporteAnunciosVendedorChecks() {
  * bandera en cualquier posición; el recorrido completo (UI, alerta, métricas,
  * agente, rotación, 429) vive en scripts/e2e-leads-externos.mjs.
  * ============================================================ */
+/* ============================================================
+ * 021b — Resumen y Ventas con leads externos (011): «Por origen» (anuncio /
+ * Sitio web / FastApp / sin origen), KPI «Leads nuevos», «Leads del
+ * formulario y FastApp» y «Ventas por origen» (fuente efectiva).
+ *
+ * Con LEADS_EXTERNOS encendida siembra cuatro leads por POST /api/intake/lead:
+ *   e1 sitio web → luego escribe por WhatsApp → el asesor le contesta → GANADO
+ *   e2 FastApp   → el asesor le manda una plantilla (ventana cerrada) → GANADO
+ *   e3 sitio web → nadie lo contacta
+ *   e4 llegó ANTES por un anuncio y luego dejó sus datos en el sitio web →
+ *      su origen sigue siendo el anuncio (primer toque); su tarjeta sí cuenta
+ *      en «Leads del formulario» (recibidos)
+ * Apagada: el endpoint es 404 y el Resumen trae el bloque en ceros, sin romper.
+ * Devuelve si la bandera está encendida (lo usan los checks de impresión).
+ * ============================================================ */
+async function leadsExternos021bChecks(SUF, inbound) {
+  const encendida = /^(on|1|true|si|sí|yes)$/i.test((process.env.LEADS_EXTERNOS ?? "").trim());
+  console.log(`\n== 021b: leads externos en Resumen y Ventas (LEADS_EXTERNOS ${encendida ? "on" : "off"}) ==`);
+  const intake = async (key, payload) => {
+    const res = await fetch(`${BASE}/api/intake/lead`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(key ? { "x-api-key": key } : {}) },
+      body: JSON.stringify(payload),
+    });
+    return { res, json: await res.json().catch(() => null) };
+  };
+  // 10 dígitos (la entrada guarda 52 + 10): 56 + SUF(6) + 0 + n.
+  const tel10 = (n) => `56${SUF}0${n}`;
+  const nombre = (n) => `Ext 021b-${n} ${SUF}`;
+  const payload = (n, origin) => ({
+    lead_id: crypto.randomUUID(),
+    origin,
+    first_name: "Ext",
+    last_name: `021b-${n} ${SUF}`,
+    phone: tel10(n),
+    email: `ext${n}.${SUF}@example.com`,
+  });
+  const R0 = (await reporte021("summary")).json;
+  const V0 = (await reporte021("sales")).json;
+
+  if (!encendida) {
+    const r = await intake("x".repeat(43), payload(1, "website"));
+    ok("021b apagada: POST /api/intake/lead → 404", r.res.status === 404, String(r.res.status));
+    const ext = R0?.external;
+    ok(
+      "021b apagada: el Resumen trae «Leads del formulario y FastApp» ok y en ceros, con la bandera apagada",
+      R0?.intakeEnabled === false &&
+        ext?.ok === true &&
+        ext.data.rows.length === 2 &&
+        ext.data.rows.every((x) => x.received === 0 && x.contacted === 0 && x.notContacted === 0),
+      JSON.stringify({ intakeEnabled: R0?.intakeEnabled, ext })
+    );
+    const o = R0?.byOrigin?.data;
+    ok(
+      "021b apagada: «Por origen» con Sitio web y FastApp en cero; total de leads = leads del KPI",
+      R0?.byOrigin?.ok === true &&
+        o.website.leads === 0 &&
+        o.fastApp.leads === 0 &&
+        o.totals.leads === R0?.attention?.data?.leads,
+      JSON.stringify({ web: o?.website?.leads, fast: o?.fastApp?.leads, total: o?.totals?.leads, kpi: R0?.attention?.data?.leads })
+    );
+    return false;
+  }
+
+  /* ---------- Siembra ---------- */
+  const gen = await api("/api/settings/intake", { method: "PUT" });
+  const key = gen.json?.key;
+  ok("021b (setup) clave de la entrada de leads", gen.res.ok && typeof key === "string", String(gen.res.status));
+
+  // e4: primero por anuncio (WhatsApp), luego deja sus datos en el sitio web.
+  const AD_E = `1214${SUF}02`;
+  const TIT_E = `Anuncio externo ${SUF}`;
+  await inbound({
+    from: `52${tel10(4)}`,
+    name: nombre(4),
+    text: "hola, vi su anuncio",
+    adSourceId: AD_E,
+    adHeadline: TIT_E,
+    waMessageId: `wamid.e2e.021b.${SUF}.e4`,
+  });
+  await sleep(800);
+  const altas = [];
+  altas.push(await intake(key, payload(4, "website")));
+  altas.push(await intake(key, payload(1, "website")));
+  altas.push(await intake(key, payload(2, "fast_app")));
+  altas.push(await intake(key, payload(3, "website")));
+  ok(
+    "021b (setup) cuatro leads por POST /api/intake/lead → 201",
+    altas.every((a) => a.res.status === 201 && a.json?.conversationId),
+    JSON.stringify(altas.map((a) => a.res.status))
+  );
+  const [c4, c1, c2] = altas.map((a) => a.json?.conversationId);
+  ok(
+    "021b (setup) el lead del anuncio cae en SU conversación (mismo contacto)",
+    altas[0].json?.created === false,
+    JSON.stringify(altas[0].json)
+  );
+
+  // e1 escribe por WhatsApp DESPUÉS de su tarjeta y el asesor le contesta.
+  await sleep(300);
+  await inbound({
+    from: `52${tel10(1)}`,
+    name: nombre(1),
+    text: "hola, llené el formulario",
+    waMessageId: `wamid.e2e.021b.${SUF}.e1`,
+  });
+  let escribio = false;
+  for (let i = 0; i < 30 && !escribio; i++) {
+    const ms = (await api(`/api/conversations/${c1}/messages`)).json?.messages ?? [];
+    escribio = ms.some((x) => x.direction === "in" && x.type !== "lead_intake");
+    if (!escribio) await sleep(300);
+  }
+  ok("021b (setup) e1 escribió por WhatsApp en la conversación de su tarjeta", escribio);
+  const resp = await api(`/api/conversations/${c1}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "Hola, gracias por escribir. Te atiendo yo." }),
+  });
+  ok("021b (setup) el asesor contesta a e1", resp.res.ok, `${resp.res.status} ${JSON.stringify(resp.json)}`);
+
+  // e2: ventana cerrada → el asesor solo puede mandar una plantilla.
+  const texto = await api(`/api/conversations/${c2}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "Hola" }),
+  });
+  ok("021b: a un lead externo sin chat no se le puede escribir texto libre (409)", texto.res.status === 409, String(texto.res.status));
+  const tplName = `seguimiento_021b_${SUF}`;
+  const alta = await api("/api/templates", {
+    method: "POST",
+    body: JSON.stringify({
+      name: tplName,
+      language: "es_MX",
+      category: "UTILITY",
+      body: "Hola, gracias por tu interés. ¿Te puedo ayudar con tu cotización?",
+    }),
+  });
+  await api("/api/dev/wa-mock/template-status", {
+    method: "POST",
+    body: JSON.stringify({ wabaId: "WABA-E2E", name: tplName, language: "es_MX", event: "APPROVED", notify: false }),
+  });
+  await api("/api/templates/sync", { method: "POST" });
+  const tpl = ((await api("/api/templates")).json?.templates ?? []).find((t) => t.name === tplName);
+  ok("021b (setup) plantilla aprobada", alta.res.ok && tpl?.status === "approved", `${alta.res.status} ${tpl?.status}`);
+  const envio = await api(`/api/conversations/${c2}/messages/template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId: tpl?.id }),
+  });
+  ok("021b (setup) el asesor manda la plantilla a e2", envio.res.ok, `${envio.res.status} ${JSON.stringify(envio.json)}`);
+
+  // Ganan e1 (sitio web) y e2 (FastApp).
+  let board = null;
+  for (let i = 0; i < 20; i++) {
+    board = (await api("/api/pipeline/board")).json;
+    if ([1, 2].every((n) => board?.leads?.some((x) => x.contact?.name === nombre(n)))) break;
+    await sleep(300);
+  }
+  const ganado = board?.stages?.find((s) => s.kind === "won");
+  const leadDe = (n) => board?.leads?.find((x) => x.contact?.name === nombre(n));
+  const gana = async (n, amountCents) => {
+    const l = leadDe(n);
+    if (!l) return false;
+    const r = await api(`/api/pipeline/leads/${l.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ stageId: ganado?.id, amountCents }),
+    });
+    return r.res.ok;
+  };
+  const ganados = [await gana(1, 300000), await gana(2, 150000)];
+  ok("021b (setup) e1 y e2 pasan a Ganado con monto", ganados.every(Boolean), JSON.stringify(ganados));
+  await sleep(500);
+  void c4;
+
+  /* ---------- Resumen ---------- */
+  const r = await reporte021("summary");
+  const R1 = r.json;
+  ok(
+    "021b: /api/reports/summary 200 con los ocho bloques ok y la bandera encendida",
+    r.res.status === 200 && todosOk(R1, SUMMARY_BLOCKS_021) && R1?.intakeEnabled === true,
+    `${r.res.status} caídos=${bloquesCaidos(R1, SUMMARY_BLOCKS_021)}`
+  );
+  const campos = ["leads", "newLeads", "wrote", "inbound", "contacted", "attendedByAdvisor", "won"];
+  const delta = (a, b) => Object.fromEntries(campos.map((k) => [k, (b?.[k] ?? 0) - (a?.[k] ?? 0)]));
+  const O0 = R0?.byOrigin?.data;
+  const O1 = R1?.byOrigin?.data;
+  const dWeb = { ...delta(O0?.website, O1?.website), monto: (O1?.website?.wonAmount?.amountCents ?? 0) - (O0?.website?.wonAmount?.amountCents ?? 0) };
+  ok(
+    "021b por origen «Sitio web»: +2 leads (2 nuevos), 1 escribió, 1 mensaje, 1 contactado y atendido, 1 venta de 3,000.00",
+    JSON.stringify(dWeb) ===
+      JSON.stringify({ leads: 2, newLeads: 2, wrote: 1, inbound: 1, contacted: 1, attendedByAdvisor: 1, won: 1, monto: 300000 }),
+    JSON.stringify(dWeb)
+  );
+  const dFast = { ...delta(O0?.fastApp, O1?.fastApp), monto: (O1?.fastApp?.wonAmount?.amountCents ?? 0) - (O0?.fastApp?.wonAmount?.amountCents ?? 0) };
+  ok(
+    "021b por origen «FastApp»: +1 lead nuevo, no escribió, contactado por plantilla (no atendido por asesor), 1 venta de 1,500.00",
+    JSON.stringify(dFast) ===
+      JSON.stringify({ leads: 1, newLeads: 1, wrote: 0, inbound: 0, contacted: 1, attendedByAdvisor: 0, won: 1, monto: 150000 }),
+    JSON.stringify(dFast)
+  );
+  const filaAd = O1?.rows?.find((x) => x.sourceId === AD_E);
+  ok(
+    "021b por origen: el lead que llegó por anuncio y luego por el sitio web sigue en SU anuncio (primer toque)",
+    filaAd?.title === TIT_E && filaAd?.leads === 1 && filaAd?.newLeads === 1 && filaAd?.wrote === 1 && filaAd?.contacted === 0,
+    JSON.stringify(filaAd)
+  );
+  ok(
+    "021b por origen: «Sin origen identificado» no cambia",
+    (O1?.unidentified?.leads ?? -1) - (O0?.unidentified?.leads ?? 0) === 0,
+    JSON.stringify({ antes: O0?.unidentified?.leads, despues: O1?.unidentified?.leads })
+  );
+  const A0 = R0?.attention?.data;
+  const A1 = R1?.attention?.data;
+  ok(
+    "021b KPI «Leads nuevos» +4 (y leads +4 = total de «Por origen»); personas que escribieron +2",
+    A1?.newLeads - A0?.newLeads === 4 &&
+      A1?.leads - A0?.leads === 4 &&
+      O1?.totals?.leads === A1?.leads &&
+      A1?.persons - A0?.persons === 2 &&
+      A1?.inbound - A0?.inbound === 2,
+    JSON.stringify({ newLeads: A1?.newLeads - A0?.newLeads, leads: A1?.leads - A0?.leads, total: O1?.totals?.leads, kpi: A1?.leads, persons: A1?.persons - A0?.persons })
+  );
+  ok(
+    "021b por origen: el total de ventas = el resumen de ventas",
+    O1?.totals?.won === R1?.sales?.data?.won && O1?.totals?.wonAmount?.amountCents === R1?.sales?.data?.wonAmount?.amountCents,
+    JSON.stringify({ origen: O1?.totals?.won, ventas: R1?.sales?.data?.won })
+  );
+  const ext = (json, origin) => json?.external?.data?.rows?.find((x) => x.origin === origin);
+  const dExt = (origin) => {
+    const a = ext(R0, origin);
+    const b = ext(R1, origin);
+    return {
+      recibidos: (b?.received ?? 0) - (a?.received ?? 0),
+      contactados: (b?.contacted ?? 0) - (a?.contacted ?? 0),
+      sinContactar: (b?.notContacted ?? 0) - (a?.notContacted ?? 0),
+      respondieron: (b?.replied ?? 0) - (a?.replied ?? 0),
+    };
+  };
+  ok(
+    "021b leads externos «Sitio web»: +3 recibidos (incluido el del anuncio), 1 contactado, 2 sin contactar, 1 respondió",
+    JSON.stringify(dExt("website")) === JSON.stringify({ recibidos: 3, contactados: 1, sinContactar: 2, respondieron: 1 }),
+    JSON.stringify(dExt("website"))
+  );
+  ok(
+    "021b leads externos «FastApp»: +1 recibido, contactado por plantilla, 0 sin contactar, no respondió",
+    JSON.stringify(dExt("fast_app")) === JSON.stringify({ recibidos: 1, contactados: 1, sinContactar: 0, respondieron: 0 }),
+    JSON.stringify(dExt("fast_app"))
+  );
+  const t = (o) => ext(R1, o)?.firstContact;
+  ok(
+    "021b tiempo hasta el primer contacto: mediana y p90 en segundos ≥ 0 en ambos orígenes",
+    ["website", "fast_app"].every((o) => typeof t(o)?.p50Seconds === "number" && t(o).p50Seconds >= 0 && t(o).p90Seconds >= t(o).p50Seconds),
+    JSON.stringify({ web: t("website"), fast: t("fast_app") })
+  );
+  ok(
+    "021b pendientes: +2 (el del sitio web sin contactar y el del anuncio, cuya tarjeta quedó sin respuesta)",
+    R1?.pending?.data?.total - R0?.pending?.data?.total === 2,
+    String(R1?.pending?.data?.total - R0?.pending?.data?.total)
+  );
+
+  /* ---------- Ventas ---------- */
+  const v = await reporte021("sales");
+  const V1 = v.json;
+  ok(
+    "021b: /api/reports/sales 200 con los siete bloques ok",
+    v.res.status === 200 && todosOk(V1, SALES_BLOCKS_021),
+    `${v.res.status} caídos=${bloquesCaidos(V1, SALES_BLOCKS_021)}`
+  );
+  const fuente = (json, value) => json?.bySource?.data?.rows?.find((x) => x.value === value);
+  const dFuente = (value) => ({
+    won: (fuente(V1, value)?.won ?? 0) - (fuente(V0, value)?.won ?? 0),
+    monto: (fuente(V1, value)?.wonAmount?.amountCents ?? 0) - (fuente(V0, value)?.wonAmount?.amountCents ?? 0),
+  });
+  ok(
+    "021b ventas por origen: gana uno de cada fuente — «Sitio web» +1 (3,000.00) y «Promotor» +1 (1,500.00)",
+    JSON.stringify({ web: dFuente("web"), promotor: dFuente("promotor") }) ===
+      JSON.stringify({ web: { won: 1, monto: 300000 }, promotor: { won: 1, monto: 150000 } }) &&
+      fuente(V1, "web")?.label === "Sitio web" &&
+      fuente(V1, "promotor")?.label === "Promotor",
+    JSON.stringify({ web: dFuente("web"), promotor: dFuente("promotor") })
+  );
+  const sumaFuentes = (V1?.bySource?.data?.rows ?? []).reduce((a, x) => a + x.won, 0);
+  ok(
+    "021b ventas por origen: las filas suman las ventas del resumen",
+    sumaFuentes === V1?.summary?.data?.won,
+    JSON.stringify({ suma: sumaFuentes, won: V1?.summary?.data?.won })
+  );
+
+  await api("/api/settings/intake", { method: "DELETE" });
+  return true;
+}
+
 async function leadsExternosChecks() {
   const encendida = /^(on|1|true|si|sí|yes)$/i.test(
     (process.env.LEADS_EXTERNOS ?? "").trim()
@@ -4046,8 +4335,8 @@ function reporte021(kind, qs = "range=7d") {
   return api(`/api/reports/${kind}?${qs}`);
 }
 
-const SALES_BLOCKS_021 = ["summary", "byAdvisor", "lossReasons", "funnel", "timeToClose", "byDay"];
-const SUMMARY_BLOCKS_021 = ["attention", "byAd", "byChannel", "byHour", "pending", "sales", "responseTimes"];
+const SALES_BLOCKS_021 = ["summary", "byAdvisor", "lossReasons", "funnel", "timeToClose", "byDay", "bySource"];
+const SUMMARY_BLOCKS_021 = ["attention", "byOrigin", "external", "byChannel", "byHour", "pending", "sales", "responseTimes"];
 const todosOk = (json, blocks) => blocks.every((b) => json?.[b]?.ok === true);
 const bloquesCaidos = (json, blocks) => blocks.filter((b) => json?.[b]?.ok !== true).join(",");
 
@@ -4074,12 +4363,12 @@ async function reportesVentasResumenChecks() {
   const v0 = await reporte021("sales");
   const r0 = await reporte021("summary");
   ok(
-    "GET /api/reports/sales (owner) → 200 con los seis bloques ok",
+    "GET /api/reports/sales (owner) → 200 con los siete bloques ok",
     v0.res.status === 200 && todosOk(v0.json, SALES_BLOCKS_021),
     `${v0.res.status} caídos=${bloquesCaidos(v0.json, SALES_BLOCKS_021)}`
   );
   ok(
-    "GET /api/reports/summary (owner) → 200 con los siete bloques ok",
+    "GET /api/reports/summary (owner) → 200 con los ocho bloques ok",
     r0.res.status === 200 && todosOk(r0.json, SUMMARY_BLOCKS_021),
     `${r0.res.status} caídos=${bloquesCaidos(r0.json, SUMMARY_BLOCKS_021)}`
   );
@@ -4328,10 +4617,10 @@ async function reportesVentasResumenChecks() {
     typeof A1?.advisorFirstReply?.p50Seconds === "number" && A1.advisorFirstReply.p50Seconds >= 0,
     JSON.stringify(A1?.advisorFirstReply)
   );
-  const adRow = r1.json?.byAd?.data?.rows?.find((r) => r.sourceId === AD_V);
+  const adRow = r1.json?.byOrigin?.data?.rows?.find((r) => r.sourceId === AD_V);
   ok(
-    "resumen por anuncio: el anuncio sembrado con 2 personas, 2 ventas (incluida la del bot) y 2,500.00",
-    adRow?.title === TIT_V && adRow?.persons === 2 && adRow?.won === 2 && adRow?.wonAmount?.amountCents === 250000,
+    "resumen por origen: el anuncio sembrado con 2 leads que escribieron, 2 ventas (incluida la del bot) y 2,500.00",
+    adRow?.title === TIT_V && adRow?.leads === 2 && adRow?.wrote === 2 && adRow?.won === 2 && adRow?.wonAmount?.amountCents === 250000,
     JSON.stringify(adRow)
   );
   ok(
@@ -4347,6 +4636,9 @@ async function reportesVentasResumenChecks() {
     horas.length === 24 && horas.reduce((a, r) => a + r.inbound, 0) === A1?.inbound,
     `filas=${horas.length}`
   );
+
+  // 021b: leads externos (formulario web y FastApp) en Resumen y Ventas.
+  const intakeOn = await leadsExternos021bChecks(SUF, inbound);
 
   /* ---------- Rango «Hoy», inválido, Vendedor ---------- */
   for (const kind of ["sales", "summary"]) {
@@ -4437,6 +4729,28 @@ async function reportesVentasResumenChecks() {
       );
       const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
       ok(`impresión ${ruta}: page.pdf() genera un PDF (> 20 KB)`, pdf.length > 20_000, `${pdf.length} bytes`);
+      if (ruta.startsWith("/reports/summary")) {
+        // 021b: con la bandera de la 011 apagada (y sin datos) la UI no menciona el formulario ni FastApp.
+        const tabla = await page.getByTestId("summary-by-origin").count();
+        const web = await page.locator('[data-testid="summary-by-origin"] [data-origin="website"]').count();
+        const fast = await page.locator('[data-testid="summary-by-origin"] [data-origin="fast_app"]').count();
+        const ext = await page.getByTestId("summary-external").count();
+        ok(
+          `impresión resumen: tabla «Por origen» ${intakeOn ? "con Sitio web, FastApp y la sección de leads externos" : "sin filas ni sección de leads externos (bandera apagada)"}`,
+          tabla === 1 && (intakeOn ? web === 1 && fast === 1 && ext === 1 : web === 0 && fast === 0 && ext === 0),
+          JSON.stringify({ tabla, web, fast, ext })
+        );
+      }
+      if (intakeOn && ruta.startsWith("/reports/sales")) {
+        const fuentes = await page.locator('[data-testid="sales-by-source"] [data-source]').evaluateAll((els) =>
+          els.map((e) => e.getAttribute("data-source"))
+        );
+        ok(
+          `impresión ventas: «Ventas por origen» ${intakeOn ? "con Sitio web y Promotor" : "sin Sitio web ni Promotor"}`,
+          fuentes.includes("web") && fuentes.includes("promotor"),
+          JSON.stringify(fuentes)
+        );
+      }
       await page.close();
     }
   } catch (err) {

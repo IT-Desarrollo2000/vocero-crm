@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * 021 — Reportes → Resumen para dirección. Solo Propietario (403
- * `forbidden` al Vendedor). Atención, origen por anuncio, canal, hora,
+ * `forbidden` al Vendedor). Atención, origen (anuncio, sitio web, FastApp),
+ * leads del formulario y FastApp (021b), canal, hora,
  * pendientes, ventas (las de `/api/reports/sales`) y tiempos de primera
  * respuesta (los de `/api/reports/agent`); semántica en
  * `src/server/reports/summary.ts`.

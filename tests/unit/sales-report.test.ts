@@ -10,6 +10,7 @@ import {
   salesSummaryOf,
   shapeByAdvisor,
   shapeByDay,
+  shapeBySource,
   shapeFunnel,
   shapeLossReasons,
   shapeSalesFigures,
@@ -19,6 +20,7 @@ import {
 import { parseReportRange } from "@/server/reports/range";
 import type { ReportExec } from "@/server/reports/run";
 import { LOSS_REASON_LABEL } from "@/lib/types";
+import { ADS_SOURCE_ORDER } from "@/server/reports/ads";
 
 /**
  * 021 — Reportes → Ventas: una venta se fecha por su ÚLTIMO evento `won`
@@ -120,6 +122,18 @@ describe("SQL", () => {
     expect(q.sql).toContain("percentile_cont(0.75)");
     expect(q.sql).toContain("filter (where not approximate)");
     expect(q.sql).toContain("greatest(0, extract(epoch from closed_at - arrived_at))");
+  });
+
+  it("021b por origen: grupos crudos de fuente (capturada, ¿origen?, tipo), sin reimplementar la deducción en SQL", () => {
+    const q = all.find(([n]) => n === "bySourceSql")![1];
+    expect(q.sql).toContain("ct.source as stored_source");
+    expect(q.sql).toContain("(closed.attribution_id is not null) as has_origin");
+    expect(q.sql).toContain("closed.source_type as origin_type");
+    expect(q.sql).toMatch(/join "contact" ct on ct\.id = closed\.contact_id and ct\.organization_id = \$\d+/);
+    expect(q.sql).toContain("group by 1, 2, 3, 4, 5, 6");
+    // Sin CASE de fuentes: la deducción vive en effectiveSource (Node).
+    expect(q.sql).not.toContain("'anuncio'");
+    expect(q.sql).not.toContain("'web'");
   });
 
   it("por día: la zona es un parámetro ligado, no texto interpolado", () => {
@@ -250,6 +264,41 @@ describe("forma: asesor, motivos, embudo, tiempos, días", () => {
       { day: "2026-10-03", won: 2, amountCents: 0 },
     ]);
   });
+
+  it("021b por origen: la fuente efectiva de Anuncios (capturada manda; si no, la deducida)", () => {
+    const g = (o: Record<string, unknown>) => ({
+      stored_source: null, has_origin: false, origin_type: null, kind: "won",
+      currency: null, has_amount: true, n: 1, cents: 0, ...o,
+    });
+    const dto = shapeBySource(
+      [
+        // Capturada «web» aunque llegó por anuncio: manda la captura.
+        g({ stored_source: "web", has_origin: true, origin_type: "ad", cents: 100000 }),
+        g({ stored_source: "promotor", currency: "USD", cents: 5000 }),
+        g({ stored_source: "promotor", kind: "lost", currency: null, has_amount: false, n: 2 }),
+        // Sin captura: deducida del primer origen.
+        g({ has_origin: true, origin_type: "ad", n: 2, cents: 40000 }),
+        g({ has_origin: true, origin_type: "post", kind: "lost", has_amount: false }),
+        g({ has_amount: false }),
+        // Fuera del catálogo → como no capturada.
+        g({ stored_source: "fax", kind: "lost", has_amount: false }),
+      ],
+      "MXN"
+    );
+    expect(dto.rows.map((r) => r.value)).toEqual([...ADS_SOURCE_ORDER]);
+    const row = (v: string) => dto.rows.find((r) => r.value === v)!;
+    expect(row("web")).toMatchObject({ label: "Sitio web", won: 1, lost: 0, closeRate: 1 });
+    expect(row("web").wonAmount.amountCents).toBe(100000);
+    expect(row("promotor")).toMatchObject({ label: "Promotor", won: 1, lost: 2 });
+    expect(row("promotor").closeRate).toBeCloseTo(1 / 3);
+    expect(row("promotor").wonAmount).toMatchObject({ amountCents: 0, otherCurrencies: [{ currency: "USD", amountCents: 5000, won: 1 }] });
+    expect(row("anuncio")).toMatchObject({ won: 2, lost: 0 });
+    expect(row("anuncio").wonAmount.amountCents).toBe(40000);
+    expect(row("organico")).toMatchObject({ won: 0, lost: 1, closeRate: 0 });
+    expect(row("desconocida")).toMatchObject({ label: "Sin identificar", won: 1, lost: 1 });
+    expect(row("desconocida").wonAmount.wonWithoutAmount).toBe(1);
+    expect(row("referido")).toMatchObject({ won: 0, lost: 0, closeRate: null });
+  });
 });
 
 describe("ejecución", () => {
@@ -289,6 +338,7 @@ describe("ejecución", () => {
     expect(dto.funnel.ok && dto.funnel.data.currency).toBe("MXN");
     expect(dto.byAdvisor.ok).toBe(true);
     expect(dto.lossReasons.ok).toBe(true);
+    expect(dto.bySource.ok && dto.bySource.data.rows.map((r) => r.value)).toEqual([...ADS_SOURCE_ORDER]);
     expect(dto.range.days).toHaveLength(7);
   });
 });

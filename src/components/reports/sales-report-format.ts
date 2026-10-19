@@ -5,7 +5,7 @@
  */
 
 import { formatMoneyCents } from "@/lib/money";
-import type { SalesReportDto, SalesSummaryDto } from "@/lib/reports";
+import type { SalesReportDto, SalesSourceRowDto, SalesSummaryDto } from "@/lib/reports";
 import { formatChange } from "./ads-report-format";
 import { dayBarStep } from "./chart";
 import { EMPTY_VALUE, formatCount, formatDayRange } from "./format";
@@ -18,7 +18,16 @@ export const SALES_BLOCKS = [
   "funnel",
   "timeToClose",
   "byDay",
+  "bySource",
 ] as const satisfies readonly (keyof SalesReportDto)[];
+
+/**
+ * 021b — Filas de «Ventas por origen» que se enseñan: solo las fuentes con
+ * cierres en el rango, en el orden fijo del servidor (el de Anuncios).
+ */
+export function salesSourceRows(rows: readonly SalesSourceRowDto[]): SalesSourceRowDto[] {
+  return rows.filter((r) => r.won + r.lost > 0);
+}
 
 /**
  * ¿No hubo cierres en el rango? Solo se afirma con el resumen; el embudo es

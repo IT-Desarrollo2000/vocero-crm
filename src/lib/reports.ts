@@ -487,6 +487,25 @@ export type SalesDayRowDto = {
 /** Ventas por día local: una fila por cada día del rango, también en cero. */
 export type SalesByDayDto = { currency: string; rows: SalesDayRowDto[] };
 
+/**
+ * 021b — Una fila de «Ventas por origen»: la FUENTE EFECTIVA del contacto (la
+ * misma de Anuncios → Por fuente: la capturada manda; si no, la deducida),
+ * con la regla de Ventas (D1) para ganadas y perdidas.
+ */
+export type SalesSourceRowDto = {
+  value: AdSourceKey;
+  /** `SOURCE_LABELS` («Sitio web», «Promotor», «Sin identificar»…). */
+  label: string;
+  won: number;
+  lost: number;
+  /** `won / (won + lost)`; null sin cierres. */
+  closeRate: number | null;
+  wonAmount: WonAmountDto;
+};
+
+/** Todas las fuentes en el orden fijo de Anuncios (también en cero). */
+export type SalesBySourceDto = { rows: SalesSourceRowDto[] };
+
 /** Respuesta 200 de `GET /api/reports/sales` (solo Propietario). */
 export type SalesReportDto = {
   range: ReportRangeDto;
@@ -496,6 +515,8 @@ export type SalesReportDto = {
   funnel: ReportBlock<SalesFunnelDto>;
   timeToClose: ReportBlock<SalesTimeToCloseDto>;
   byDay: ReportBlock<SalesByDayDto>;
+  /** 021b — Ventas por fuente efectiva del contacto. */
+  bySource: ReportBlock<SalesBySourceDto>;
 };
 
 // ── Reportes → Resumen para dirección (021) ─────────────────────────────
@@ -515,6 +536,9 @@ export type SalesReportDto = {
  *  - Las TARJETAS de leads externos (011, `type = 'lead_intake'`) no son
  *    mensajes del cliente: no hacen persona ni son entrantes, y no arrancan
  *    el reloj del asesor; sí cuentan en PENDIENTES.
+ *  - 021b — LEAD del rango = contacto que escribió O recibió una tarjeta en
+ *    el rango; agrupado «Por origen» por su primer toque histórico (anuncio,
+ *    sitio web, FastApp o sin origen). Ver plan 021 §6.
  */
 
 export type SummaryAttentionFiguresDto = {
@@ -542,26 +566,42 @@ export type SummaryAttentionFiguresDto = {
    * respondió antes que la IA). Segundos; null sin personas.
    */
   advisorFirstReply: { persons: number; p50Seconds: number | null; p90Seconds: number | null };
+  /**
+   * 021b — LEADS del rango: contactos (no Laboratorio) que en el rango
+   * escribieron O recibieron una tarjeta de lead externo (011).
+   */
+  leads: number;
+  /** 021b — «Leads nuevos»: de esos, los de un contacto creado en el rango. */
+  newLeads: number;
 };
 
 export type SummaryAttentionDto = SummaryAttentionFiguresDto & {
   previous: (SummaryAttentionFiguresDto & { from: string; to: string }) | null;
 };
 
-/** Columnas de una fila por anuncio. */
-export type SummaryAdFiguresDto = {
-  persons: number;
-  newPersons: number;
-  /** Mensajes entrantes de esas personas en el rango. */
+/**
+ * 021b — Columnas de una fila de «Por origen». Unidad = LEAD del rango
+ * (contacto que escribió o recibió una tarjeta en el rango); su PRIMER TOQUE
+ * del rango = su primer entrante o tarjeta del rango.
+ */
+export type SummaryOriginFiguresDto = {
+  leads: number;
+  /** Leads cuyo contacto se creó en el rango. */
+  newLeads: number;
+  /** Personas (conversaciones con un mensaje del cliente en el rango). */
+  wrote: number;
+  /** Mensajes del cliente en el rango (sin tarjetas). */
   inbound: number;
-  answered: number;
+  /** Leads con un saliente no fallido posterior a su primer toque del rango. */
+  contacted: number;
+  /** Leads con un saliente de asesor (`operator` | `manual`) tras su primer toque. */
   attendedByAdvisor: number;
-  /** Ventas del periodo (regla de Ventas) cuyo lead llegó por este anuncio. */
+  /** Ventas del periodo (regla de Ventas) cuyo lead tiene este origen. */
   won: number;
   wonAmount: WonAmountDto;
 };
 
-export type SummaryAdRowDto = SummaryAdFiguresDto & {
+export type SummaryAdOriginRowDto = SummaryOriginFiguresDto & {
   /** `source_id`, o el id de la fila de atribución si Meta no mandó ninguno. */
   key: string;
   sourceId: string | null;
@@ -571,17 +611,61 @@ export type SummaryAdRowDto = SummaryAdFiguresDto & {
   title: string;
 };
 
-export type SummaryByAdDto = {
+/**
+ * 021b — «Por origen» = el PRIMER TOQUE histórico del contacto (D1 de la
+ * 020): el más antiguo entre su primer anuncio y su primera tarjeta de lead
+ * externo (empate → el anuncio). La tarjeta da «Sitio web» o «FastApp» por su
+ * cabecera.
+ */
+export type SummaryByOriginDto = {
   /**
-   * Por el PRIMER anuncio del contacto (un anuncio con ventas del periodo y
-   * sin personas también sale); orden personas desc; ≤ `ADS_REPORT_MAX_ROWS`.
+   * Una fila por anuncio (`source_id`); un anuncio con ventas del periodo y
+   * sin leads también sale; orden leads desc; ≤ `ADS_REPORT_MAX_ROWS`.
    */
-  rows: SummaryAdRowDto[];
+  rows: SummaryAdOriginRowDto[];
   /** Anuncios distintos (puede pasar de las filas). */
   total: number;
-  /** «Sin anuncio identificado»: orgánico, clientes previos, IG/Messenger sin dato. */
-  unidentified: SummaryAdFiguresDto;
+  /** Primer toque = tarjeta del formulario del sitio web. */
+  website: SummaryOriginFiguresDto;
+  /** Primer toque = tarjeta de FastApp (promotores). */
+  fastApp: SummaryOriginFiguresDto;
+  /** «Sin origen identificado»: orgánico, clientes previos, IG/Messenger sin dato. */
+  unidentified: SummaryOriginFiguresDto;
+  /** Suma de TODOS los grupos (también los anuncios fuera del tope de filas). */
+  totals: SummaryOriginFiguresDto;
 };
+
+/**
+ * 021b — Leads externos de un origen (Sitio web o FastApp) cuya tarjeta llegó
+ * en el rango. Unidad = contacto distinto; reloj desde su PRIMERA tarjeta
+ * del rango de ese origen.
+ */
+export type SummaryExternalOriginDto = {
+  origin: "website" | "fast_app";
+  label: string;
+  /** Contactos distintos con tarjeta de este origen en el rango. */
+  received: number;
+  /** Con un saliente no fallido (asesor, IA o plantilla) posterior a la tarjeta. */
+  contacted: number;
+  /** `received - contacted`, al momento de generar el reporte. */
+  notContacted: number;
+  /** El cliente escribió (entrante que no es tarjeta) después de la tarjeta. */
+  replied: number;
+  /** Tarjeta → primer saliente no fallido, en segundos; null sin contactados. */
+  firstContact: { measured: number; p50Seconds: number | null; p90Seconds: number | null };
+};
+
+/** Siempre las dos filas (Sitio web, FastApp), también en cero. */
+export type SummaryExternalLeadsDto = { rows: SummaryExternalOriginDto[] };
+
+/** 021b — Rótulos de los orígenes externos (claves de `LEAD_INTAKE_HEADER`). */
+export const LEAD_ORIGIN_LABEL: Record<SummaryExternalOriginDto["origin"], string> = {
+  website: "Sitio web",
+  fast_app: "FastApp (promotores)",
+};
+
+/** 021b — Fila de «Por origen» sin anuncio ni tarjeta. */
+export const NO_ORIGIN_LABEL = "Sin origen identificado";
 
 export type SummaryChannelRowDto = {
   channel: Channel;
@@ -621,8 +705,16 @@ export const SUMMARY_PENDING_MAX_ROWS = 20;
 /** Respuesta 200 de `GET /api/reports/summary` (solo Propietario). */
 export type SummaryReportDto = {
   range: ReportRangeDto;
+  /**
+   * 021b — ¿Esta instancia recibe leads externos (bandera `LEADS_EXTERNOS`)?
+   * Apagada y sin datos, la UI no menciona el formulario ni FastApp.
+   */
+  intakeEnabled: boolean;
   attention: ReportBlock<SummaryAttentionDto>;
-  byAd: ReportBlock<SummaryByAdDto>;
+  /** 021b — antes `byAd` («Por anuncio»). */
+  byOrigin: ReportBlock<SummaryByOriginDto>;
+  /** 021b — «Leads del formulario y FastApp». */
+  external: ReportBlock<SummaryExternalLeadsDto>;
   byChannel: ReportBlock<SummaryByChannelDto>;
   byHour: ReportBlock<SummaryByHourDto>;
   pending: ReportBlock<SummaryPendingDto>;

@@ -3,10 +3,13 @@ import { schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import {
   ratio,
+  type AdSourceKey,
   type ReportRangeDto,
   type SalesAdvisorRowDto,
   type SalesByAdvisorDto,
   type SalesByDayDto,
+  type SalesBySourceDto,
+  type SalesSourceRowDto,
   type SalesFiguresDto,
   type SalesFunnelDto,
   type SalesFunnelStageDto,
@@ -17,6 +20,8 @@ import {
   type WonAmountDto,
 } from "@/lib/reports";
 import { LOSS_REASON_LABEL, type LossReason } from "@/lib/types";
+import { SOURCE_LABELS } from "@/server/contact-source";
+import { ADS_SOURCE_ORDER, sourceOfGroup } from "./ads";
 import {
   addWon,
   emptyAmount,
@@ -37,7 +42,7 @@ import { runBlocks, runReadOnly, type ReportExec, type RunBlocksOptions } from "
 /**
  * 021 — Reportes → Ventas (solo Propietario). Mismo marco que Anuncios:
  * `parseReportRange` + `reportTimezone` en la ruta, y aquí `runBlocks` +
- * `runReadOnly` con seis bloques independientes.
+ * `runReadOnly` con siete bloques independientes.
  *
  * Semántica (plan 021 §3.1; documentada también en `src/lib/reports.ts`):
  *  - VENTA = lead HOY en una etapa `won`, fechada por el `occurred_at` de su
@@ -54,6 +59,9 @@ import { runBlocks, runReadOnly, type ReportExec, type RunBlocksOptions } from "
  *  - Fechas `approximate = true` (sembradas por 0013) cuentan para totales y
  *    se reportan en `approximateCount`, pero NO entran a los tiempos.
  *  - Laboratorio fuera (`notLabContact`, la misma regla que Anuncios).
+ *  - 021b POR ORIGEN = la FUENTE EFECTIVA del contacto, la misma de Anuncios →
+ *    Por fuente (la capturada manda; si no, la deducida del primer anuncio).
+ *    No se reimplementa en SQL: grupos crudos plegados con `sourceOfGroup`.
  *
  * Reglas que TODAS las consultas cumplen (un unit test las vigila sobre el
  * SQL renderizado): tenant por `scoped`, límites como texto `::timestamp`,
@@ -73,6 +81,7 @@ const S = schema.pipelineStage;
 const E = schema.leadStageEvent;
 const C = schema.conversation;
 const U = schema.user;
+const CT = schema.contact;
 
 /** Motivo de una perdida sembrada sin `loss_reason` (la CHECK lo permite). */
 export const NO_LOSS_REASON = "sin_motivo";
@@ -226,6 +235,27 @@ where kind = 'won' and ${closedInRange(p)}
 group by 1, 2, 3`;
 }
 
+/**
+ * 021b — Cierres del rango por grupo crudo de fuente (fuente capturada,
+ * ¿tiene origen?, `source_type` del primer origen) × tipo × moneda. La
+ * fuente efectiva se pliega en Node con `sourceOfGroup` (como Anuncios).
+ */
+export function bySourceSql(p: SalesReportParams): SQL {
+  return sql`with ${firstOriginCte(p)}, ${closedCte(p)}
+select ct.source as stored_source,
+  (closed.attribution_id is not null) as has_origin,
+  closed.source_type as origin_type,
+  closed.kind,
+  case when closed.kind = 'won' then closed.currency end as currency,
+  (closed.kind = 'won' and closed.amount_cents is not null) as has_amount,
+  count(*)::int as n,
+  coalesce(sum(case when closed.kind = 'won' then closed.amount_cents end), 0)::bigint as cents
+from closed
+join ${CT} ct on ct.id = closed.contact_id and ct.organization_id = ${p.organizationId}
+where ${closedInRange(p)}
+group by 1, 2, 3, 4, 5, 6`;
+}
+
 /** Los builders con rango (el test de vigilancia recorre esta lista). */
 export const SALES_REPORT_SQL = {
   salesSummarySql,
@@ -233,6 +263,7 @@ export const SALES_REPORT_SQL = {
   lossReasonsSql,
   timeToCloseSql,
   byDaySql,
+  bySourceSql,
 } as const;
 
 // ── Forma (filas crudas → DTO) ───────────────────────────────────────────
@@ -403,6 +434,46 @@ export function shapeByDay(rows: Row[], dayList: string[], currency: string): Sa
   };
 }
 
+/**
+ * 021b — Las fuentes en el orden fijo de Anuncios, también en cero (la UI
+ * decide cuáles enseñar). Fuente efectiva = `sourceOfGroup`, la de Anuncios.
+ */
+export function shapeBySource(rows: Row[], currency: string): SalesBySourceDto {
+  const by = new Map<AdSourceKey, SalesSourceRowDto>(
+    ADS_SOURCE_ORDER.map((value) => [
+      value,
+      {
+        value,
+        label: SOURCE_LABELS[value],
+        won: 0,
+        lost: 0,
+        closeRate: null,
+        wonAmount: emptyAmount(currency),
+      },
+    ])
+  );
+  for (const r of rows) {
+    const row = by.get(sourceOfGroup(r))!;
+    const n = num(r.n);
+    if (r.kind === "won") {
+      row.won += n;
+      addWon(row.wonAmount, wonGroup(r));
+    } else if (r.kind === "lost") {
+      row.lost += n;
+    }
+  }
+  return {
+    rows: ADS_SOURCE_ORDER.map((k) => {
+      const row = by.get(k)!;
+      return {
+        ...row,
+        closeRate: ratio(row.won, row.won + row.lost),
+        wonAmount: sortOthers(row.wonAmount),
+      };
+    }),
+  };
+}
+
 // ── Ejecución ────────────────────────────────────────────────────────────
 
 export type SalesReportDeps = {
@@ -451,7 +522,7 @@ export async function salesSummaryOf(
 }
 
 /**
- * Los seis bloques del reporte de ventas. `currency` = moneda del negocio
+ * Los siete bloques del reporte de ventas. `currency` = moneda del negocio
  * (Ajustes → Marca): la principal de los montos. Cada bloque en su
  * transacción; uno caído vuelve `{ ok: false }` y los demás se pintan.
  */
@@ -475,6 +546,8 @@ export async function salesReport(
       timeToClose: () => run(async (exec) => shapeTimeToClose(await exec(timeToCloseSql(p)))),
       byDay: () =>
         run(async (exec) => shapeByDay(await exec(byDaySql(p)), range.days, currency)),
+      bySource: () =>
+        run(async (exec) => shapeBySource(await exec(bySourceSql(p)), currency)),
     },
     deps.blocks
   );

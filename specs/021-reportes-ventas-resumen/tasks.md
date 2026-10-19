@@ -32,3 +32,10 @@ e2e-metricas, role-matrix). Las páginas nuevas copian `reports/ads/page.tsx`.
 - [x] D1. Gate `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
 - [x] D2. E2E en `scripts/e2e-selftest.mjs` (BD :5433): ventas/resumen 200 + números, vendedor 403/404, pestañas reales, 422, impresión + `page.pdf()` por pestaña. Modo apagado (AGENDA/ATRIBUCION/CHANNELS off) también verde.
 - [x] D3. Contraste con datos reales (solo lectura en prod) del 16-oct. `summaryReport` 7/7 bloques ok. Por hora 00–15 idéntico al reporte manual; personas 193 = suma por anuncio (80+52+28+33). Tiempo hasta asesor: al corte 16:10 p50 17.2 min con n=109 (= manual); día completo p50 142 min (48 personas esperaron > 12 h). Ventas en 0: prod no tiene leads en «Cliente» (solo 2 eventos won, ambos reabiertos) ni montos (0/678).
+
+## Fase E — 021b leads externos (rama `021b-reportes-por-origen`)
+- [x] E1. Resumen «Por origen» (anuncios + Sitio web + FastApp + sin origen) + KPI «Leads nuevos»; DTO, SQL y unit.
+- [x] E2. Resumen «Leads del formulario y FastApp» (recibidos, contactados, sin contactar, respondieron, tiempo a primer contacto) + viñeta.
+- [x] E3. Ventas «Ventas por origen» por fuente efectiva; notas «Cómo se cuenta».
+- [x] E4. Gate + E2E (selftest con tarjetas de lead por `POST /api/intake/lead` con la bandera de la 011 encendida y apagada) en BD/puerto PROPIOS. Selftest on 513/513, off (LEADS_EXTERNOS/AGENDA/ATRIBUCION/CHANNELS off) 279/279, e2e-metricas 83/83; PDFs de Resumen y Ventas revisados (la sección de leads externos va junta en papel).
+- [x] E5. Contraste con prod (solo lectura, 19-oct): 16-oct sin regresión (193 leads = 193 personas, filas de anuncio 80/52/28, sin origen 33); hoy Sitio web 10 y FastApp 7 recibidos, 0 contactados (= consulta directa); todos los bloques ok.

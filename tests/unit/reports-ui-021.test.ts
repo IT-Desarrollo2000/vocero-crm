@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type {
   ReportRangeDto,
   SalesReportDto,
+  SalesSourceRowDto,
   SalesSummaryDto,
-  SummaryAdFiguresDto,
-  SummaryAdRowDto,
+  SummaryAdOriginRowDto,
+  SummaryExternalOriginDto,
+  SummaryOriginFiguresDto,
   SummaryReportDto,
   WonAmountDto,
 } from "@/lib/reports";
@@ -18,15 +20,17 @@ import {
   formatTicket,
   salesCaveats,
   salesDayGeometry,
+  salesSourceRows,
 } from "@/components/reports/sales-report-format";
 import {
   SUMMARY_BLOCKS,
   adRowLabels,
-  adTotals,
   currentHourIfToday,
   isSummaryReportEmpty,
   nowInZone,
+  originTotals,
   rateDetail,
+  showExternalOrigins,
   summaryHighlights,
 } from "@/components/reports/summary-report-format";
 
@@ -48,18 +52,33 @@ const money = (amountCents: number, extra: Partial<WonAmountDto> = {}): WonAmoun
   ...extra,
 });
 
-const figures = (o: Partial<SummaryAdFiguresDto> = {}): SummaryAdFiguresDto => ({
-  persons: 0,
-  newPersons: 0,
+const figures = (o: Partial<SummaryOriginFiguresDto> = {}): SummaryOriginFiguresDto => ({
+  leads: 0,
+  newLeads: 0,
+  wrote: 0,
   inbound: 0,
-  answered: 0,
+  contacted: 0,
   attendedByAdvisor: 0,
   won: 0,
   wonAmount: money(0),
   ...o,
 });
 
-const adRow = (key: string, title: string, o: Partial<SummaryAdRowDto> = {}): SummaryAdRowDto => ({
+const extRow = (
+  origin: SummaryExternalOriginDto["origin"],
+  o: Partial<SummaryExternalOriginDto> = {}
+): SummaryExternalOriginDto => ({
+  origin,
+  label: origin === "website" ? "Sitio web" : "FastApp (promotores)",
+  received: 0,
+  contacted: 0,
+  notContacted: 0,
+  replied: 0,
+  firstContact: { measured: 0, p50Seconds: null, p90Seconds: null },
+  ...o,
+});
+
+const adRow = (key: string, title: string, o: Partial<SummaryAdOriginRowDto> = {}): SummaryAdOriginRowDto => ({
   ...figures(),
   key,
   sourceId: key,
@@ -83,6 +102,7 @@ const salesSummary = (o: Partial<SalesSummaryDto> = {}): SalesSummaryDto => ({
 function summaryReport(o: Partial<SummaryReportDto> = {}): SummaryReportDto {
   return {
     range: RANGE,
+    intakeEnabled: true,
     attention: {
       ok: true,
       data: {
@@ -97,15 +117,30 @@ function summaryReport(o: Partial<SummaryReportDto> = {}): SummaryReportDto {
         attendedByAdvisorRate: 0.4,
         handedOff: 3,
         advisorFirstReply: { persons: 4, p50Seconds: 1020, p90Seconds: 3600 },
+        leads: 12,
+        newLeads: 7,
         previous: null,
       },
     },
-    byAd: {
+    byOrigin: {
       ok: true,
       data: {
-        rows: [adRow("a1", "Promo", { persons: 4, won: 1 }), adRow("a2", "Promo", { persons: 2 })],
+        // 5 anuncios en el rango; solo 2 en las filas (las otras 3 suman 0).
+        rows: [adRow("a1", "Promo", { leads: 4, won: 1 }), adRow("a2", "Promo", { leads: 2 })],
         total: 5,
-        unidentified: figures({ persons: 3 }),
+        website: figures({ leads: 2, contacted: 1 }),
+        fastApp: figures({ leads: 1 }),
+        unidentified: figures({ leads: 3 }),
+        totals: figures({ leads: 12, won: 2, wonAmount: money(150000) }),
+      },
+    },
+    external: {
+      ok: true,
+      data: {
+        rows: [
+          extRow("website", { received: 3, contacted: 1, notContacted: 2 }),
+          extRow("fast_app", { received: 1, contacted: 1 }),
+        ],
       },
     },
     byChannel: { ok: true, data: { rows: [] } },
@@ -199,6 +234,16 @@ describe("021 — Ventas: formato", () => {
     expect(ninety.plotWidth).toBe(90 * ninety.step);
   });
 
+  it("021b: ventas por origen enseña solo las fuentes con cierres, en su orden", () => {
+    const row = (value: SalesSourceRowDto["value"], won: number, lost: number): SalesSourceRowDto => ({
+      value, label: value, won, lost, closeRate: null, wonAmount: money(0),
+    });
+    expect(
+      salesSourceRows([row("anuncio", 0, 0), row("web", 1, 0), row("promotor", 0, 2), row("desconocida", 1, 1)]).map((r) => r.value)
+    ).toEqual(["web", "promotor", "desconocida"]);
+    expect(SALES_BLOCKS).toContain("bySource");
+  });
+
   it("«Cómo se cuenta» explica sin fecha / aproximadas solo si las hay", () => {
     expect(salesCaveats(salesSummary())).toEqual([]);
     const notes = salesCaveats(salesSummary({ withoutDate: 2, approximateCount: 1 }));
@@ -234,23 +279,41 @@ describe("021 — Resumen: cifras", () => {
     expect(labels.get("p1")?.subtitle).toBeNull();
   });
 
-  it("el total por anuncio sale de atención y ventas, no de sumar filas cortadas", () => {
-    const t = adTotals(summaryReport());
-    expect(t?.partial).toBe(false);
-    // Filas visibles suman 4 + 2 + 3 = 9, pero hay 10 personas en el rango.
-    expect(t?.figures.persons).toBe(10);
-    expect(t?.figures.won).toBe(2);
-    const sinAtencion = adTotals(summaryReport({ attention: { ok: false, error: "timeout" } }));
-    expect(sinAtencion?.partial).toBe(true);
-    expect(sinAtencion?.figures.persons).toBe(9);
+  it("021b: el total por origen es el del servidor, no la suma de filas cortadas", () => {
+    // Las filas visibles no se suman (los anuncios vienen cortados): el total viene aparte.
+    const t = originTotals(summaryReport());
+    expect(t?.leads).toBe(12);
+    expect(t?.won).toBe(2);
+    expect(originTotals(summaryReport({ byOrigin: { ok: false, error: "timeout" } }))).toBeNull();
+  });
+
+  it("021b: con la bandera apagada y sin datos, la UI no menciona el formulario ni FastApp", () => {
+    expect(showExternalOrigins(summaryReport())).toBe(true);
+    const apagadaVacia = summaryReport({
+      intakeEnabled: false,
+      byOrigin: {
+        ok: true,
+        data: { rows: [], total: 0, website: figures(), fastApp: figures(), unidentified: figures({ leads: 2 }), totals: figures({ leads: 2 }) },
+      },
+      external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app")] } },
+    });
+    expect(showExternalOrigins(apagadaVacia)).toBe(false);
+    // Apagada pero con leads de cuando estuvo encendida: se enseñan.
+    expect(showExternalOrigins(summaryReport({ intakeEnabled: false }))).toBe(true);
+    // Un bloque caído no la enciende.
+    expect(
+      showExternalOrigins({ ...apagadaVacia, byOrigin: { ok: false, error: "x" }, external: { ok: false, error: "x" } })
+    ).toBe(false);
   });
 
   it("lectura rápida desde los datos; un bloque caído no inventa frases", () => {
     const h = summaryHighlights(summaryReport());
     const byKey = Object.fromEntries(h.map((x) => [x.key, x]));
-    // 10 personas − 3 sin anuncio = 7 por anuncio.
-    expect(byKey.ads?.text).toContain("70 %");
-    expect(byKey.ads?.text).toContain("7 de 10");
+    // 12 leads − 2 sitio web − 1 FastApp − 3 sin origen = 6 por anuncio.
+    expect(byKey.ads?.text).toBe(
+      "50 % de los leads del rango llegaron por un anuncio (6 de 12); 2 por el sitio web y 1 por FastApp."
+    );
+    expect(byKey.external?.text).toBe("2 leads del formulario y FastApp siguen sin contactar (2 del sitio web).");
     // El asesor sale de advisorFirstReply (17 min), NO de M4 (10 min).
     expect(byKey.response?.text).toBe(
       "Primera respuesta (mediana): IA 4 s · un asesor atendió en 17 min (mediana, 4 personas)."
@@ -267,7 +330,16 @@ describe("021 — Resumen: cifras", () => {
         responseTimes: { ok: false, error: "unavailable" },
       })
     );
-    expect(caido.map((x) => x.key)).toEqual(["pending", "sales"]);
+    expect(caido.map((x) => x.key)).toEqual(["ads", "external", "pending", "sales"]);
+    const sinOrigen = summaryHighlights(
+      summaryReport({ byOrigin: { ok: false, error: "timeout" }, external: { ok: false, error: "timeout" } })
+    );
+    expect(sinOrigen.map((x) => x.key)).not.toContain("ads");
+    expect(sinOrigen.map((x) => x.key)).not.toContain("external");
+    const unoSolo = summaryHighlights(
+      summaryReport({ external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app", { received: 1, notContacted: 1 })] } } })
+    ).find((x) => x.key === "external");
+    expect(unoSolo?.text).toBe("1 lead del formulario y FastApp sigue sin contactar (1 de FastApp).");
 
     const soloAsesor = summaryHighlights(
       summaryReport({ responseTimes: { ok: false, error: "unavailable" } })
@@ -277,8 +349,17 @@ describe("021 — Resumen: cifras", () => {
     );
   });
 
-  it("vacío solo si se sabe que nadie escribió", () => {
+  it("vacío solo si se sabe que nadie escribió ni llegó ningún lead", () => {
     expect(isSummaryReportEmpty(summaryReport())).toBe(false);
+    const base = summaryReport().attention;
+    if (!base.ok) throw new Error("fixture");
+    const att = (leads: number): SummaryReportDto["attention"] => ({
+      ok: true,
+      data: { ...base.data, persons: 0, inbound: 0, leads },
+    });
+    expect(isSummaryReportEmpty(summaryReport({ attention: att(0) }))).toBe(true);
+    // Solo tarjetas de leads externos: NO está vacío.
+    expect(isSummaryReportEmpty(summaryReport({ attention: att(2) }))).toBe(false);
     expect(isSummaryReportEmpty(summaryReport({ attention: { ok: false, error: "x" } }))).toBe(false);
   });
 });

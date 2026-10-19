@@ -2,22 +2,23 @@
  * 021 — Reportes → Resumen para dirección: cómo la pantalla arma sus cifras
  * y la «lectura rápida» a partir de `GET /api/reports/summary`. Lógica pura
  * (sin React) para probarla en unit. Semántica en `src/lib/reports.ts`
- * (plan 021 §3.2).
+ * (plan 021 §3.2 y §6, extensión 021b).
  */
 
 import type {
   ReportRangeDto,
-  SummaryAdFiguresDto,
-  SummaryAdRowDto,
+  SummaryAdOriginRowDto,
+  SummaryOriginFiguresDto,
   SummaryReportDto,
 } from "@/lib/reports";
-import { formatWonAmount } from "./ads-report-format";
 import { formatCount, formatDuration, formatPercent, ratio } from "./format";
+import { formatWonAmount } from "./ads-report-format";
 
 /** Bloques que un 200 de `/api/reports/summary` debe traer. */
 export const SUMMARY_BLOCKS = [
   "attention",
-  "byAd",
+  "byOrigin",
+  "external",
   "byChannel",
   "byHour",
   "pending",
@@ -25,10 +26,28 @@ export const SUMMARY_BLOCKS = [
   "responseTimes",
 ] as const satisfies readonly (keyof SummaryReportDto)[];
 
-/** ¿Nadie escribió en el rango? Solo se afirma si el bloque de atención llegó. */
+/**
+ * ¿Nadie escribió ni llegó ningún lead en el rango? Solo se afirma si el
+ * bloque de atención llegó (un rango con solo tarjetas de leads externos NO
+ * está vacío).
+ */
 export function isSummaryReportEmpty(report: SummaryReportDto): boolean {
   if (!report.attention.ok) return false;
-  return report.attention.data.persons === 0 && report.attention.data.inbound === 0;
+  const a = report.attention.data;
+  return a.persons === 0 && a.inbound === 0 && a.leads === 0;
+}
+
+/**
+ * ¿Se enseñan las filas/secciones de leads externos (Sitio web, FastApp)?
+ * Con la bandera encendida, siempre; apagada, solo si hay datos (de cuando
+ * estuvo encendida). Apagada y sin datos, la UI no los menciona (ADR-001).
+ */
+export function showExternalOrigins(report: SummaryReportDto): boolean {
+  if (report.intakeEnabled) return true;
+  const o = report.byOrigin.ok ? report.byOrigin.data : null;
+  const has = (f: SummaryOriginFiguresDto | undefined) => !!f && (f.leads > 0 || f.won > 0);
+  const ext = report.external.ok ? report.external.data.rows : [];
+  return has(o?.website) || has(o?.fastApp) || ext.some((r) => r.received > 0);
 }
 
 /** «8 de 10 · antes 70 %»: una tasa se compara con la tasa, nunca en «+25 %». */
@@ -82,7 +101,7 @@ export type AdRowLabel = { title: string; subtitle: string | null };
  * campaña, y varios anuncios pueden compartirlo: en ese caso debajo va
  * «anuncio <id>» para distinguirlos.
  */
-export function adRowLabels(rows: readonly SummaryAdRowDto[]): Map<string, AdRowLabel> {
+export function adRowLabels(rows: readonly SummaryAdOriginRowDto[]): Map<string, AdRowLabel> {
   const count = new Map<string, number>();
   for (const r of rows) count.set(r.title, (count.get(r.title) ?? 0) + 1);
   const out = new Map<string, AdRowLabel>();
@@ -98,37 +117,20 @@ export function adRowLabels(rows: readonly SummaryAdRowDto[]): Map<string, AdRow
 }
 
 /**
- * Fila «Total» de la tabla por anuncio. Las filas se cortan en 50, así que
- * NO se suman: las personas salen del bloque de atención y las ventas del de
- * ventas, que cubren todo el rango. Solo si esos bloques fallaron se cae a la
- * suma de lo que hay en pantalla (y se marca como parcial).
+ * Fila «Total» de «Por origen». Los anuncios se cortan en 50, así que NO se
+ * suman las filas visibles: el servidor manda `totals`, la suma de TODOS los
+ * grupos del rango (cada lead está en exactamente un origen).
  */
-export function adTotals(report: SummaryReportDto): {
-  figures: Omit<SummaryAdFiguresDto, "wonAmount"> & { amount: string | null };
-  partial: boolean;
-} | null {
-  if (!report.byAd.ok) return null;
-  const { rows, unidentified } = report.byAd.data;
-  const all = [...rows, unidentified];
-  const sum = (k: "persons" | "newPersons" | "inbound" | "answered" | "attendedByAdvisor" | "won") =>
-    all.reduce((a, r) => a + r[k], 0);
-  const att = report.attention.ok ? report.attention.data : null;
-  const sales = report.sales.ok ? report.sales.data : null;
-  return {
-    figures: {
-      persons: att ? att.persons : sum("persons"),
-      newPersons: att ? att.newPersons : sum("newPersons"),
-      inbound: att ? att.inbound : sum("inbound"),
-      answered: att ? att.answered : sum("answered"),
-      attendedByAdvisor: att ? att.attendedByAdvisor : sum("attendedByAdvisor"),
-      won: sales ? sales.won : sum("won"),
-      amount: sales ? formatWonAmount(sales.wonAmount) : null,
-    },
-    partial: !att || !sales,
-  };
+export function originTotals(report: SummaryReportDto): SummaryOriginFiguresDto | null {
+  return report.byOrigin.ok ? report.byOrigin.data.totals : null;
 }
 
 export type Highlight = { key: string; text: string; agentLink?: boolean };
+
+/** «3 leads» / «1 lead». */
+function leadsText(n: number): string {
+  return n === 1 ? "1 lead" : `${formatCount(n)} leads`;
+}
 
 /**
  * «Lectura rápida»: las 3–5 frases que dirección lee antes que las tablas.
@@ -138,12 +140,34 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
   const out: Highlight[] = [];
   const att = report.attention.ok ? report.attention.data : null;
 
-  if (att && report.byAd.ok && att.persons > 0) {
-    const fromAds = Math.max(0, att.persons - report.byAd.data.unidentified.persons);
+  if (report.byOrigin.ok && report.byOrigin.data.totals.leads > 0) {
+    // Los anuncios = todo lo que no es sitio web, FastApp ni sin origen (las
+    // filas de anuncio vienen cortadas en 50; `totals` no).
+    const o = report.byOrigin.data;
+    const total = o.totals.leads;
+    const fromAds = Math.max(0, total - o.website.leads - o.fastApp.leads - o.unidentified.leads);
+    const ext = [
+      o.website.leads > 0 ? `${formatCount(o.website.leads)} por el sitio web` : null,
+      o.fastApp.leads > 0 ? `${formatCount(o.fastApp.leads)} por FastApp` : null,
+    ].filter(Boolean);
     out.push({
       key: "ads",
-      text: `${formatPercent(ratio(fromAds, att.persons))} de las personas que escribieron llegaron por un anuncio (${formatCount(fromAds)} de ${formatCount(att.persons)}).`,
+      text: `${formatPercent(ratio(fromAds, total))} de los leads del rango llegaron por un anuncio (${formatCount(fromAds)} de ${formatCount(total)})${ext.length ? `; ${ext.join(" y ")}` : ""}.`,
     });
+  }
+
+  if (report.external.ok) {
+    const rows = report.external.data.rows;
+    const pending = rows.reduce((a, r) => a + r.notContacted, 0);
+    if (pending > 0) {
+      const parts = rows
+        .filter((r) => r.notContacted > 0)
+        .map((r) => `${formatCount(r.notContacted)} ${r.origin === "website" ? "del sitio web" : "de FastApp"}`);
+      out.push({
+        key: "external",
+        text: `${leadsText(pending)} del formulario y FastApp ${pending === 1 ? "sigue" : "siguen"} sin contactar (${parts.join(", ")}).`,
+      });
+    }
   }
 
   // La IA sale de M4 de Agente (por sesión); el asesor, de `advisorFirstReply`:

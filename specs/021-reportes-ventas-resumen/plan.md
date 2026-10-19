@@ -173,3 +173,54 @@ summary de Ventas), `responseTimes` (reutiliza Agente).
   `page.pdf()` genera un PDF de cada pestaña (evidencia).
 - Prueba con datos reales: leer la BD de producción en solo lectura y comparar
   Resumen de un día contra el reporte manual del 16-oct.
+
+## 6. Extensión 021b — leads externos (formulario web y FastApp)
+
+Rama `021b-reportes-por-origen` desde `main` 535d343 (ya trae la 011). Sin
+migración. Decisiones del dueño (2026-10-19): aprobados E1–E3; desglose por
+promotor / campaña UTM / sucursal queda para un segundo paso (requiere guardar
+esos campos estructurados, coordinado con la 011); «contactado» = cualquier
+saliente no fallido (asesor, IA o plantilla) posterior a la tarjeta.
+
+Contexto 011: el lead externo entra como TARJETA = mensaje `direction='in'`,
+`type='lead_intake'` (`LEAD_INTAKE_TYPE`), `wa_message_id = intake:<lead_id>`,
+primera línea del texto = `LEAD_INTAKE_HEADER.website` («Lead del sitio web»)
+o `.fast_app` («Lead de promotor (FastApp)»); `contact.source` = `web` /
+`promotor` si nadie la capturó. Agente y Resumen ya excluyen la tarjeta de
+mensajes/personas/tiempos; Pendientes la incluye. Anuncios → «Por fuente» ya
+muestra «Sitio web» y «Promotor».
+
+### E1. Resumen: «Por anuncio» → «Por origen»
+- **Lead del rango** = contacto no-Laboratorio que en el rango escribió
+  (persona, como hoy) O recibió una tarjeta. **Primer toque** del rango = su
+  primer entrante o tarjeta del rango.
+- **Origen** (primer toque histórico del contacto, D1 de la 020): el más
+  antiguo entre su primer anuncio (`ad_attribution`) y su primera tarjeta; la
+  tarjeta da «Sitio web» o «FastApp (promotores)» por su cabecera. Filas: un
+  anuncio por `source_id` (como hoy) · Sitio web · FastApp · «Sin origen
+  identificado» (orgánico, clientes previos, Instagram/Messenger sin dato).
+- Columnas: **Leads** · **Nuevos** (contacto creado en el rango) ·
+  **Escribieron** (personas) · **Mensajes** recibidos · **Contactados**
+  (saliente no fallido tras el primer toque del rango; para quien escribió =
+  contestada) · **Atendidos por asesor** (operator/manual tras el primer
+  toque) · **Ventas** del periodo (regla D1 de Ventas, por el origen del lead)
+  · **Monto**. Total = suma de leads del rango (no de filas recortadas).
+- KPI nuevo **«Leads nuevos»** (contactos creados en el rango que son leads
+  del rango) con periodo anterior. Los KPIs de atención (mensajes, personas,
+  contestadas, atendidas) NO cambian: siguen siendo de quien escribió.
+
+### E2. Resumen: «Leads del formulario y FastApp»
+- Por origen externo (Sitio web, FastApp): **recibidos** (tarjetas en el
+  rango, contactos distintos), **contactados**, **sin contactar** (al generar
+  el reporte), **respondieron** (entrante no-tarjeta posterior a la tarjeta),
+  **tiempo hasta el primer contacto** (p50/p90 desde la tarjeta hasta el
+  primer saliente no fallido). Viñeta en «Lectura rápida» si hay sin
+  contactar. Nota: el primer mensaje suele requerir plantilla (ventana 24 h).
+
+### E3. Ventas: «Ventas por origen»
+- Ventas, perdidas, tasa de cierre y monto (moneda principal; otras aparte)
+  por **fuente efectiva** del contacto (`effectiveSource`, la misma de
+  Anuncios → Por fuente: la capturada manda; si no, la deducida — anuncio,
+  orgánico, sitio web, promotor…), con la regla D1 de Ventas.
+- «Cómo se cuenta» de Resumen y Ventas actualizado (Resumen = por dónde
+  llegó; Ventas = fuente del contacto).

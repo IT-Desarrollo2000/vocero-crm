@@ -11,6 +11,7 @@ import type {
   SalesFunnelDto,
   SalesLossReasonsDto,
   SalesReportDto,
+  SalesSourceRowDto,
   SalesSummaryDto,
   SalesTimeToCloseDto,
 } from "@/lib/reports";
@@ -34,6 +35,7 @@ import {
   isSalesReportEmpty,
   salesCaveats,
   salesDayGeometry,
+  salesSourceRows,
 } from "./sales-report-format";
 import { useBlocksReport } from "./use-blocks-report";
 
@@ -105,6 +107,15 @@ export function SalesReportClient() {
             loading={loading}
           >
             {(data) => <AdvisorTable rows={data.rows} />}
+          </ReportSection>
+
+          <ReportSection
+            title="Ventas por origen"
+            description="Por la fuente del contacto: la que se capturó en su ficha o, si no, la que el sistema dedujo (la misma de Anuncios → Por fuente)."
+            block={report?.bySource}
+            loading={loading}
+          >
+            {(data) => <SourceTable rows={data.rows} />}
           </ReportSection>
 
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
@@ -419,6 +430,77 @@ function AdvisorTable({ rows }: { rows: SalesAdvisorRowDto[] }) {
   );
 }
 
+/**
+ * 021b — Ventas por fuente efectiva. Solo las fuentes con cierres en el
+ * rango (las seis en cero ensucian el PDF); «Sin identificar» al final.
+ */
+function SourceTable({ rows: all }: { rows: SalesSourceRowDto[] }) {
+  const rows = salesSourceRows(all);
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground">Sin cierres en este rango.</p>;
+  }
+  const amount = (r: SalesSourceRowDto) => (r.won === 0 ? EMPTY_VALUE : formatWonAmount(r.wonAmount));
+  return (
+    <>
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Ventas por origen">
+        {rows.map((r) => (
+          <li key={r.value} className="rounded-md border bg-subtle p-3">
+            <p className={`text-sm font-medium ${r.value === "desconocida" ? "text-text-3" : ""}`}>
+              {r.label}
+            </p>
+            <dl className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
+              <MobileStat label="Ganadas" value={formatCount(r.won)} />
+              <MobileStat label="Perdidas" value={formatCount(r.lost)} />
+              <MobileStat label="Cierre" value={formatPercent(r.closeRate)} />
+              <MobileStat label="Monto" value={amount(r)} />
+            </dl>
+            {wonAmountNote(r.wonAmount) && (
+              <p className="mt-1 text-[11px] text-warning-text">{wonAmountNote(r.wonAmount)}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <table
+        className="hidden w-full text-sm sm:table print:table"
+        aria-label="Ventas por origen"
+        data-testid="sales-by-source"
+      >
+        <thead>
+          <tr className="text-left text-xs text-muted-foreground">
+            <th scope="col" className="pb-2 pr-3 font-medium">Origen</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Ganadas</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Perdidas</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Cierre</th>
+            <th scope="col" className="pb-2 text-right font-medium">Monto ganado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const note = wonAmountNote(r.wonAmount);
+            return (
+              <tr
+                key={r.value}
+                data-source={r.value}
+                className={`border-t align-top ${r.value === "desconocida" ? "text-text-3" : ""}`}
+              >
+                <th scope="row" className="py-2.5 pr-3 text-left font-medium">{r.label}</th>
+                <td className="py-2.5 pr-3 text-right font-semibold tabular-nums">{formatCount(r.won)}</td>
+                <td className="py-2.5 pr-3 text-right tabular-nums">{formatCount(r.lost)}</td>
+                <td className="py-2.5 pr-3 text-right tabular-nums">{formatPercent(r.closeRate)}</td>
+                <td className="py-2.5 text-right">
+                  <span className="block font-medium tabular-nums">{amount(r)}</span>
+                  {note && <span className="block text-[11px] text-warning-text">{note}</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 function MobileStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -589,6 +671,12 @@ function HowCounted({ summary, tz }: { summary: SalesSummaryDto | null; tz: stri
         <li>
           El asesor es quien movió el lead a Ganado (o a Perdido). Si lo movió el asistente, se
           atribuye al asesor asignado a la conversación; si no hay, «Sin asesor».
+        </li>
+        <li>
+          Ventas por origen usa la fuente del contacto: la que se capturó en su ficha manda; si no
+          hay, la que dedujo el sistema (anuncio, orgánico, sitio web, promotor…), igual que
+          Anuncios → Por fuente. El Resumen, en cambio, agrupa por dónde llegó el lead la primera
+          vez, así que un mismo lead puede aparecer en filas distintas en las dos pestañas.
         </li>
         <li>Los montos nunca suman monedas distintas. Excluye el Laboratorio. Días en {tz}.</li>
         {caveats.map((c) => (

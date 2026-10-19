@@ -4,10 +4,11 @@ import type { SQL } from "drizzle-orm";
 import {
   SUMMARY_REPORT_SQL,
   shapeAttentionFigures,
+  shapeExternalLeads,
   shapePending,
-  shapeSummaryByAd,
   shapeSummaryByChannel,
   shapeSummaryByHour,
+  shapeSummaryByOrigin,
   summaryReport,
   type SummaryReportParams,
 } from "@/server/reports/summary";
@@ -15,6 +16,7 @@ import { responseTimesSql } from "@/server/reports/agent";
 import { parseReportRange } from "@/server/reports/range";
 import type { ReportExec } from "@/server/reports/run";
 import { ADS_REPORT_MAX_ROWS, SUMMARY_PENDING_MAX_ROWS } from "@/lib/reports";
+import { LEAD_INTAKE_HEADER } from "@/lib/lead-intake";
 
 /**
  * 021 — Reportes → Resumen para dirección: persona = conversación real con
@@ -50,11 +52,11 @@ describe("SQL", () => {
   });
 
   it("Laboratorio fuera: conversaciones is_test (y la regla de contacto en ventas)", () => {
-    for (const [name, query] of all.filter(([n]) => n !== "salesByAdSql")) {
+    for (const [name, query] of all) {
       expect(query.sql, name).toContain(`"c"."is_test" = false`);
     }
-    expect(q("salesByAdSql").sql).toContain("lab.is_test = true");
-    expect(q("salesByAdSql").sql).toContain("real_conv.is_test = false");
+    expect(q("salesByOriginSql").sql).toContain("lab.is_test = true");
+    expect(q("salesByOriginSql").sql).toContain("real_conv.is_test = false");
   });
 
   it("persona = conversación con entrantes del rango; contestada/atendida tras el PRIMER entrante", () => {
@@ -93,15 +95,71 @@ describe("SQL", () => {
     expect(s).not.toContain("handoff_at");
   });
 
-  it("por anuncio: primer anuncio del contacto y ventas por el primer anuncio del lead", () => {
-    expect(q("personsByAdSql").sql).toContain("coalesce(fa.source_id, fa.attribution_id) as ad_key");
-    expect(q("personsByAdSql").sql).toContain(
-      `order by "ad_attribution"."contact_id", "ad_attribution"."created_at" asc, "ad_attribution"."id" asc`
-    );
-    const sales = q("salesByAdSql").sql;
-    expect(sales).toContain("coalesce(closed.source_id, closed.attribution_id) as ad_key");
+  it("021b por origen: primer anuncio y primera tarjeta del contacto; ventas por el origen del lead", () => {
+    for (const name of ["leadsByOriginSql", "salesByOriginSql"] as const) {
+      const s = q(name).sql;
+      expect(s, name).toContain("case when origin = 'ad' then coalesce(source_id, attribution_id) end as ad_key");
+      expect(s, name).toContain(
+        `order by "ad_attribution"."contact_id", "ad_attribution"."created_at" asc, "ad_attribution"."id" asc`
+      );
+      // Primera tarjeta histórica (sin límites de rango), mismo orden que `fa`.
+      const start = s.indexOf("fc as (");
+      const fc = s.slice(start, s.indexOf(`"m"."id" asc`, start) + `"m"."id" asc`.length);
+      expect(fc, name).toContain(`"m"."type" = 'lead_intake'`);
+      expect(fc, name).toContain(`order by "c"."contact_id", "m"."created_at" asc, "m"."id" asc`);
+      expect(fc, name).not.toContain("::timestamp");
+      // Empate entre anuncio y tarjeta → el anuncio.
+      expect(s, name).toContain("(fc.first_card_at is null or fa.arrived_at <= fc.first_card_at) then 'ad'");
+      expect(s, name).toContain("when fc.first_card_at is not null then fc.card_origin");
+    }
+    const sales = q("salesByOriginSql").sql;
     expect(sales).toContain("closed.kind = 'won'");
     expect(sales).toContain("order by ev1.occurred_at desc, ev1.id desc");
+  });
+
+  it("021b: la cabecera de la tarjeta viaja como parámetro ligado, nunca como texto", () => {
+    for (const name of ["leadsByOriginSql", "salesByOriginSql", "externalLeadsSql"] as const) {
+      const query = q(name);
+      for (const [key, header] of Object.entries(LEAD_INTAKE_HEADER)) {
+        expect(query.params, name).toContain(header);
+        expect(query.sql, name).not.toContain(header);
+        expect(query.sql, name).toMatch(new RegExp(`when \\$\\d+ then '${key}'`));
+      }
+      expect(query.sql, name).toContain("btrim(split_part(replace(");
+    }
+  });
+
+  it("021b lead = escribió O recibió tarjeta en el rango; contactado tras su PRIMER toque, a nivel contacto", () => {
+    const s = q("leadsByOriginSql").sql;
+    const lt = s.slice(s.indexOf("lt as ("), s.indexOf("), leads as ("));
+    // Las tarjetas SÍ hacen lead: el WHERE no las excluye, solo el conteo de mensajes.
+    expect(lt).toContain(`"m"."direction" = 'in'`);
+    expect(lt).toContain(`(count(*) filter (where "m"."type" <> 'lead_intake'))::int as inbound`);
+    expect(lt.slice(lt.indexOf("\n  where"))).not.toContain("lead_intake");
+    expect(s).toContain("min(lt.first_at) as first_at");
+    expect(s).toContain("(count(*) filter (where lt.inbound > 0))::int as wrote");
+    // Contacto: cualquier conversación REAL del contacto, salientes no fallidos.
+    expect(s).toContain("rc.contact_id = leads.contact_id and rc.is_test = false");
+    expect(s).toContain("rr.direction = 'out' and rr.status <> 'failed'");
+    expect(s).toContain("rr.created_at > leads.first_at");
+    expect(s).toContain("rr.origin in ('operator', 'manual')");
+    // KPI «Leads nuevos»: la misma unidad.
+    expect(q("leadsSql").sql).toContain("(count(*) filter (where is_new))::int as new_leads");
+  });
+
+  it("021b leads externos: primera tarjeta del rango por contacto y origen; respondió = entrante no tarjeta posterior", () => {
+    const s = q("externalLeadsSql").sql;
+    expect(s).toContain(`"m"."type" = 'lead_intake'`);
+    expect(s).toContain("distinct on (contact_id, origin)");
+    expect(s).toContain("order by contact_id, origin, card_at asc, id asc");
+    expect(s).toContain("where origin is not null");
+    expect(s).toContain("rr.direction = 'in'");
+    expect(s).toContain("rr.type <> 'lead_intake'");
+    expect(s).toContain("rr.created_at > cards.card_at");
+    expect(s).toContain("count(first_out_at)::int as contacted");
+    expect(s).toContain(
+      "percentile_cont(0.9) within group (order by extract(epoch from (first_out_at - card_at))) filter (where first_out_at is not null)"
+    );
   });
 
   it("por hora: la zona es un parámetro ligado, nunca texto interpolado", () => {
@@ -131,7 +189,6 @@ describe("SQL", () => {
     "byHourSql",
     "advisorFirstReplySql",
     "byChannelSql",
-    "personsByAdSql",
   ] as const)("011: %s deja fuera las tarjetas de leads externos", (name) => {
     expect(q(name).sql).toContain(NOT_INTAKE);
   });
@@ -175,9 +232,16 @@ describe("forma", () => {
       attendedByAdvisorRate: 0.5,
       handedOff: 1,
       advisorFirstReply: { persons: 0, p50Seconds: null, p90Seconds: null },
+      leads: 0,
+      newLeads: 0,
     });
     const empty = shapeAttentionFigures([], [], []);
     expect(empty).toMatchObject({ persons: 0, answeredRate: null, attendedByAdvisorRate: null, handedOff: 0 });
+  });
+
+  it("021b: KPI «Leads nuevos» con el total de leads", () => {
+    const f = shapeAttentionFigures([], [], [], [], [{ leads: "7", new_leads: 3 }]);
+    expect(f).toMatchObject({ leads: 7, newLeads: 3, persons: 0 });
   });
 
   it("021: tiempo hasta que atiende un asesor, null sin personas atendidas", () => {
@@ -187,25 +251,41 @@ describe("forma", () => {
     expect(none.advisorFirstReply).toEqual({ persons: 0, p50Seconds: null, p90Seconds: null });
   });
 
-  it("por anuncio: une personas y ventas, sin anuncio aparte, monedas nunca sumadas", () => {
-    const dto = shapeSummaryByAd(
+  const lead = (o: Record<string, unknown>) => ({
+    origin: null, ad_key: null, source_id: null, source_type: null, headline: null,
+    leads: 0, new_leads: 0, wrote: 0, inbound: 0, contacted: 0, by_advisor: 0, ...o,
+  });
+  const sale = (o: Record<string, unknown>) => ({
+    origin: null, ad_key: null, source_id: null, source_type: null, headline: null,
+    currency: null, has_amount: true, n: 1, cents: 0, ...o,
+  });
+
+  it("021b por origen: anuncios, sitio web, FastApp y sin origen; monedas nunca sumadas", () => {
+    const dto = shapeSummaryByOrigin(
       [
-        { ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", persons: 3, new_persons: 2, inbound: 9, answered: 3, by_advisor: 1 },
-        { ad_key: null, source_id: null, source_type: null, headline: null, persons: "5", new_persons: 0, inbound: 6, answered: 4, by_advisor: 0 },
-        { ad_key: "at_x", source_id: null, source_type: "post", headline: null, persons: 1, new_persons: 1, inbound: 1, answered: 0, by_advisor: 0 },
+        lead({ origin: "ad", ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", leads: 3, new_leads: 2, wrote: 3, inbound: 9, contacted: 3, by_advisor: 1 }),
+        lead({ leads: "5", wrote: 5, inbound: 6, contacted: 4 }),
+        lead({ origin: "ad", ad_key: "at_x", source_type: "post", leads: 1, new_leads: 1, wrote: 1, inbound: 1 }),
+        lead({ origin: "website", leads: 4, new_leads: 4, wrote: 1, inbound: 2, contacted: 2, by_advisor: 1 }),
+        lead({ origin: "fast_app", leads: 2, new_leads: 1, contacted: 1 }),
+        // Cabecera desconocida o un 'ad' sin clave → sin origen.
+        lead({ origin: "otro", leads: 1 }),
+        lead({ origin: "ad", ad_key: null, leads: 1 }),
       ],
       [
-        { ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", currency: "MXN", has_amount: true, n: 1, cents: 50000 },
-        { ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", currency: "USD", has_amount: true, n: 1, cents: 900 },
-        // Venta de un anuncio sin personas en el rango: también sale.
-        { ad_key: "AD9", source_id: "AD9", source_type: "ad", headline: null, currency: null, has_amount: false, n: 2, cents: 0 },
-        { ad_key: null, source_id: null, source_type: null, headline: null, currency: null, has_amount: true, n: 1, cents: 1000 },
+        sale({ origin: "ad", ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", currency: "MXN", cents: 50000 }),
+        sale({ origin: "ad", ad_key: "AD1", source_id: "AD1", source_type: "ad", headline: "Kit", currency: "USD", cents: 900 }),
+        // Venta de un anuncio sin leads en el rango: también sale.
+        sale({ origin: "ad", ad_key: "AD9", source_id: "AD9", source_type: "ad", has_amount: false, n: 2 }),
+        sale({ cents: 1000 }),
+        sale({ origin: "website", currency: "MXN", cents: 30000 }),
+        sale({ origin: "fast_app", has_amount: false }),
       ],
       "MXN"
     );
     expect(dto.total).toBe(3);
     expect(dto.rows.map((r) => r.key)).toEqual(["AD1", "at_x", "AD9"]);
-    expect(dto.rows[0]).toMatchObject({ title: "Kit", persons: 3, newPersons: 2, inbound: 9, won: 2 });
+    expect(dto.rows[0]).toMatchObject({ title: "Kit", leads: 3, newLeads: 2, wrote: 3, inbound: 9, contacted: 3, won: 2 });
     expect(dto.rows[0]!.wonAmount).toEqual({
       currency: "MXN",
       amountCents: 50000,
@@ -213,19 +293,49 @@ describe("forma", () => {
       wonWithoutAmount: 0,
     });
     expect(dto.rows[1]!.title).toBe("Publicación sin título");
-    expect(dto.rows[2]).toMatchObject({ title: "Anuncio sin título", persons: 0, won: 2 });
-    expect(dto.unidentified).toMatchObject({ persons: 5, inbound: 6, answered: 4, won: 1 });
+    expect(dto.rows[2]).toMatchObject({ title: "Anuncio sin título", leads: 0, won: 2 });
+    expect(dto.website).toMatchObject({ leads: 4, newLeads: 4, wrote: 1, contacted: 2, attendedByAdvisor: 1, won: 1 });
+    expect(dto.website.wonAmount.amountCents).toBe(30000);
+    expect(dto.fastApp).toMatchObject({ leads: 2, contacted: 1, won: 1 });
+    expect(dto.fastApp.wonAmount.wonWithoutAmount).toBe(1);
+    expect(dto.unidentified).toMatchObject({ leads: 7, wrote: 5, inbound: 6, contacted: 4, won: 1 });
     expect(dto.unidentified.wonAmount.amountCents).toBe(1000);
+    // Total = TODOS los grupos.
+    expect(dto.totals).toMatchObject({ leads: 17, newLeads: 8, wrote: 10, inbound: 18, contacted: 10, attendedByAdvisor: 2, won: 7 });
+    expect(dto.totals.wonAmount).toEqual({
+      currency: "MXN",
+      amountCents: 81000,
+      otherCurrencies: [{ currency: "USD", amountCents: 900, won: 1 }],
+      wonWithoutAmount: 3,
+    });
   });
 
-  it("por anuncio: tope de filas, total completo", () => {
-    const rows = Array.from({ length: ADS_REPORT_MAX_ROWS + 5 }, (_, i) => ({
-      ad_key: `AD${i}`, source_id: `AD${i}`, persons: i + 1, new_persons: 0, inbound: 1, answered: 0, by_advisor: 0,
-    }));
-    const dto = shapeSummaryByAd(rows, [], "MXN");
+  it("021b por origen: tope de filas de anuncios, total y totales completos", () => {
+    const rows = Array.from({ length: ADS_REPORT_MAX_ROWS + 5 }, (_, i) =>
+      lead({ origin: "ad", ad_key: `AD${i}`, source_id: `AD${i}`, leads: i + 1, inbound: 1 })
+    );
+    const dto = shapeSummaryByOrigin(rows, [], "MXN");
     expect(dto.rows).toHaveLength(ADS_REPORT_MAX_ROWS);
     expect(dto.total).toBe(ADS_REPORT_MAX_ROWS + 5);
-    expect(dto.rows[0]!.persons).toBe(ADS_REPORT_MAX_ROWS + 5);
+    expect(dto.rows[0]!.leads).toBe(ADS_REPORT_MAX_ROWS + 5);
+    const n = ADS_REPORT_MAX_ROWS + 5;
+    expect(dto.totals.leads).toBe((n * (n + 1)) / 2);
+    expect(dto.totals.inbound).toBe(n);
+  });
+
+  it("021b leads externos: siempre Sitio web y FastApp; sin contactar = recibidos − contactados", () => {
+    expect(shapeExternalLeads([]).rows).toEqual([
+      { origin: "website", label: "Sitio web", received: 0, contacted: 0, notContacted: 0, replied: 0, firstContact: { measured: 0, p50Seconds: null, p90Seconds: null } },
+      { origin: "fast_app", label: "FastApp (promotores)", received: 0, contacted: 0, notContacted: 0, replied: 0, firstContact: { measured: 0, p50Seconds: null, p90Seconds: null } },
+    ]);
+    const dto = shapeExternalLeads([
+      { origin: "fast_app", received: "3", contacted: 1, replied: 0, p50_s: "120.5", p90_s: 300 },
+      { origin: "website", received: 4, contacted: 0, replied: 1, p50_s: null, p90_s: null },
+      { origin: "otro", received: 9, contacted: 9 },
+    ]);
+    expect(dto.rows.map((r) => r.origin)).toEqual(["website", "fast_app"]);
+    expect(dto.rows[0]).toMatchObject({ received: 4, contacted: 0, notContacted: 4, replied: 1, firstContact: { measured: 0, p50Seconds: null } });
+    expect(dto.rows[1]).toMatchObject({ received: 3, contacted: 1, notContacted: 2, firstContact: { measured: 1, p50Seconds: 120.5, p90Seconds: 300 } });
   });
 
   it("por canal: WhatsApp siempre, orden fijo, canales desconocidos fuera", () => {
@@ -291,6 +401,7 @@ describe("ejecución", () => {
       runReadOnly: fake,
       now: () => new Date("2026-10-16T18:00:00Z"),
       blocks: { onError: () => {} },
+      intakeEnabled: () => true,
     });
     expect(dto.byHour).toEqual({ ok: false, error: "unavailable" });
     expect(seen).toContain(m4);
@@ -305,7 +416,10 @@ describe("ejecución", () => {
       persons: 0,
     });
     expect(dto.sales.ok && dto.sales.data.previous?.to).toBe("2026-10-15");
-    expect(dto.byAd.ok && dto.byAd.data).toMatchObject({ rows: [], total: 0 });
+    expect(dto.byOrigin.ok && dto.byOrigin.data).toMatchObject({ rows: [], total: 0, totals: { leads: 0 } });
+    expect(dto.external.ok && dto.external.data.rows.map((r) => r.received)).toEqual([0, 0]);
+    expect(dto.attention.ok && dto.attention.data).toMatchObject({ leads: 0, newLeads: 0 });
+    expect(dto.intakeEnabled).toBe(true);
     expect(dto.byChannel.ok).toBe(true);
     expect(dto.pending.ok && dto.pending.data).toEqual({ total: 0, rows: [] });
     expect(dto.range.preset).toBe("today");
