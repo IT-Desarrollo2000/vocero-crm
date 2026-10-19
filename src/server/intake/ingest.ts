@@ -196,7 +196,13 @@ export async function ingestExternalLead(
       unreadCount: sql`${schema.conversation.unreadCount} + 1`,
       updatedAt: now,
     })
-    .where(eq(schema.conversation.id, conversation.id));
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversation.id)
+      )
+    );
 
   await step("último recibido", () =>
     recordIntakeReceived(organizationId, lead.origin, now)
