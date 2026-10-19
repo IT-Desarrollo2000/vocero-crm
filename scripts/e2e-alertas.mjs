@@ -14,7 +14,7 @@
  *      título con el nombre del contacto; título de ambas con «(N) »
  *      (N = counts.unreadConversations)
  *   d) conversación abierta y visible en la Bandeja → su entrante NO notifica
- *   e) handoff vía /api/bot/handoff (motivo cliente) → «Necesita atención humana»
+ *   e) handoff vía /api/bot/handoff (motivo cliente) → «Un cliente espera que lo atiendas»
  *   f) eco del teléfono (manual_reply) → NO notifica (el evento sí ocurre)
  *   g) vendedor (contexto aparte): entrante en una conversación asignada al
  *      owner → 0; en una sin asignar → 1
@@ -331,7 +331,7 @@ async function main() {
     await p1.goto(`${BASE}/pipeline`, { waitUntil: "load" });
     await sleep(1200);
 
-    console.log("\n== e) Handoff por el cerebro externo → «Necesita atención humana» ==");
+    console.log("\n== e) Handoff por el cerebro externo → «Un cliente espera que lo atiendas» ==");
     const beto = { phone: phone(), name: `Beto Alertas ${S}` };
     ok("inbound de Beto", (await inbound(beto.phone, beto.name)).res.ok);
     const betoConv = await convByName(beto.name);
@@ -350,7 +350,7 @@ async function main() {
     all = await totalNotes(pages);
     const hoNotes = all.slice(base2);
     ok("una notificación de escalamiento", hoNotes.length === 1, JSON.stringify(hoNotes));
-    ok("título «Necesita atención humana»", hoNotes[0]?.title === "Necesita atención humana", JSON.stringify(hoNotes[0]));
+    ok("título «Un cliente espera que lo atiendas»", hoNotes[0]?.title === "Un cliente espera que lo atiendas", JSON.stringify(hoNotes[0]));
     ok("el cuerpo trae el motivo en español", /humano/i.test(hoNotes[0]?.body ?? ""), JSON.stringify(hoNotes[0]));
 
     console.log("\n== f) Eco del teléfono (manual_reply) → no notifica ==");

@@ -404,7 +404,7 @@ export function ConversationList({
     { id: "all", label: "Todas", count: counts?.all ?? 0 },
     { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
     ...(teamMode ? [{ id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 }] : []),
-    { id: "human", label: "Atención humana", count: counts?.human ?? 0 },
+    { id: "human", label: "Por atender", count: counts?.human ?? 0 },
     // 022: las archivadas viven aparte (las demás vistas las excluyen).
     { id: "archived", label: "Archivadas", count: counts?.archived ?? 0 },
   ];
@@ -818,7 +818,7 @@ export function ConversationList({
               : filter === "archived"
                 ? "No hay conversaciones archivadas."
                 : filter === "human"
-                  ? "Ninguna conversación requiere atención humana."
+                  ? "No hay conversaciones por atender."
                   : filter === "mine"
                     ? "No tienes conversaciones a tu nombre."
                     : "Sin resultados para este filtro."}
@@ -924,7 +924,7 @@ export function ConversationList({
                         {c.handoffAt ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text">
                             <UserRound className="h-3 w-3" strokeWidth={1.7} />
-                            Atención humana
+                            Por atender
                           </span>
                         ) : c.aiEnabled === false ? (
                           <span className="inline-flex items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-3">

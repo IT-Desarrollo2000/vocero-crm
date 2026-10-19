@@ -199,7 +199,7 @@ describe("notificationContent", () => {
 
   it("handoff: título fijo, motivo en español y nota", () => {
     const c = notificationContent(handoff(), ON, { contactName: "Ana", note: "Quiere factura" });
-    expect(c.title).toBe("Necesita atención humana");
+    expect(c.title).toBe("Un cliente espera que lo atiendas");
     expect(c.body).toBe("Ana — El cliente pidió un humano\nQuiere factura");
     expect(
       notificationContent(handoff(), { showContent: false }, { contactName: "Ana", note: "x" })
@@ -209,7 +209,7 @@ describe("notificationContent", () => {
 
   it("agregada", () => {
     expect(aggregateHandoffContent(5).title).toBe(
-      "5 conversaciones necesitan atención humana"
+      "5 conversaciones están por atender"
     );
     expect(AGGREGATE_HANDOFF_TAG).toBe("handoff:aggregate");
   });

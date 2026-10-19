@@ -45,12 +45,12 @@ al montar se adopta lo que ya haya en el DOM.
 9. Camino infeliz: una etapa sin contactos no rompe la pantalla.
    ✅ Estado vacío honesto («Sin resultados», no «Sin contactos»).
 
-## Pastilla «Atención humana» (Bandeja)
+## Pastilla «Por atender» (Bandeja)
 
-Tercera pastilla junto a «Todas / No leídas». Atención humana = la
+Tercera pastilla junto a «Todas / No leídas». Por atender = la
 conversación tiene `handoffAt` **o** la IA se apagó a mano
 (`aiEnabled === false`, decisión del dueño 2026-10-10). Cada renglón del
-filtro lleva uno de dos distintivos, nunca ambos: «Atención humana» si hay
+filtro lleva uno de dos distintivos, nunca ambos: «Por atender» si hay
 handoff, «IA pausada» si solo se apagó la IA. Lógica pura en `needsHuman()` /
 `filterConversations()` (`src/components/inbox/helpers.ts`), cubierta por
 `tests/unit/inbox-filters.test.ts`.
@@ -58,20 +58,20 @@ handoff, «IA pausada» si solo se apagó la IA. Lógica pura en `needsHuman()` 
 10. Provocar un handoff en «Josué Ramírez» con un echo del mock
     (`POST /api/dev/wa-mock/echo`: el dueño contesta a mano → `manual_reply`).
     ✅ La API devuelve su `handoffAt`; «Zoraida» queda sin handoff.
-11. Pulsar «Atención humana».
-    ✅ Todo renglón lleva exactamente un distintivo («Atención humana» o
-    «IA pausada»); Josué sí (con «Atención humana»), Zoraida no.
+11. Pulsar «Por atender».
+    ✅ Todo renglón lleva exactamente un distintivo («Por atender» o
+    «IA pausada»); Josué sí (con «Por atender»), Zoraida no.
     ✅ El contador de la pastilla coincide con las filas (cuenta dentro de la
     bandeja/etapa/búsqueda activas, igual que «No leídas»).
 12. Pausar la IA de «Anónima» (sin handoff) con la misma API que el switch
     «IA en esta conversación» del panel: `PATCH /api/conversations/:id`
     `{ aiEnabled: false }`. Recargar y pulsar la pastilla.
-    ✅ Anónima aparece, con el distintivo «IA pausada» (no «Atención humana»).
+    ✅ Anónima aparece, con el distintivo «IA pausada» (no «Por atender»).
     ✅ El contador sube en uno y sigue coincidiendo con las filas.
     Reactivarla (`{ aiEnabled: true }`), recargar, pastilla.
     ✅ Anónima sale del filtro.
 13. Camino infeliz: buscar a Zoraida con la pastilla puesta.
-    ✅ Estado vacío coherente: «Ninguna conversación requiere atención humana.»
+    ✅ Estado vacío coherente: «No hay conversaciones por atender.»
     ✅ Volver a «Todas» restaura la lista.
 
 ## Búsqueda del servidor (Contactos)

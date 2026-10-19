@@ -229,7 +229,7 @@ export type ConversationInfo = {
 };
 
 const GENERIC_MESSAGE = "Nuevo mensaje";
-export const HANDOFF_TITLE = "Necesita atención humana";
+export const HANDOFF_TITLE = "Un cliente espera que lo atiendas";
 
 export function notificationContent(
   event: AlertEvent,
@@ -256,7 +256,7 @@ export function notificationContent(
 /** Texto de la notificación agregada (ráfaga de handoffs). */
 export function aggregateHandoffContent(count: number): NotificationText {
   return {
-    title: `${count} conversaciones necesitan atención humana`,
+    title: `${count} conversaciones están por atender`,
     body: "Abre la Bandeja para atenderlas.",
   };
 }

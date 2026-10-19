@@ -212,7 +212,7 @@ export function InboxSettingsClient() {
                   las de un lead en una etapa marcada &quot;No archivar&quot;
                   (se marca en Seguimiento → Etapas);
                 </li>
-                <li>las que pasaron a atención humana dentro de esos días.</li>
+                <li>las que quedaron por atender dentro de esos días.</li>
               </ul>
               <p>
                 Un mensaje nuevo del cliente, o uno que envíes tú, la regresa a

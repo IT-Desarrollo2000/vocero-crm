@@ -446,7 +446,7 @@ export function ContactPanel({
           {conversation.handoffAt && (
             <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
               <p className="flex items-center gap-1.5 text-[13px] font-medium text-warning-text">
-                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Atención humana
+                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Por atender
               </p>
               <p className="mt-1 text-xs text-warning-text opacity-80">
                 {handoffLabel(conversation.handoffReason)}
@@ -475,7 +475,7 @@ export function ContactPanel({
                 <p className="text-[13px] font-medium">IA en esta conversación</p>
                 <p className="text-[11px] text-text-3">
                   {conversation.handoffAt
-                    ? "En pausa · atención humana"
+                    ? "En pausa · por atender"
                     : !conversation.aiEnabled
                       ? "En pausa"
                       : agentReady

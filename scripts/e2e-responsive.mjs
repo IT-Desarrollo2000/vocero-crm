@@ -335,7 +335,7 @@ ok(
   JSON.stringify(tres)
 );
 await desk.screenshot({ path: `${SHOTS}/desktop-inbox.png` });
-// 020 (rediseño 4.4): las vistas (Todas / No leídas / Atención humana) y el
+// 020 (rediseño 4.4): las vistas (Todas / No leídas / Por atender) y el
 // botón "Filtros" no se salen de la columna de 360px (si no caben, bajan de
 // línea); el panel abierto —con el selector de etapa— tampoco.
 const dentroDeLaLista = (selectores) =>
@@ -358,7 +358,7 @@ const dentroDeLaLista = (selectores) =>
     return out;
   }, selectores);
 const filtros = await dentroDeLaLista({
-  pastilla: "text:Atención humana",
+  pastilla: "text:Por atender",
   boton: "text:Filtros",
 });
 ok(

@@ -25,7 +25,7 @@ Headless no muestra notificaciones del sistema. El guion reemplaza
 | b | Owner abre `/inbox` con permiso `default` | Aviso «Activar avisos»; al pulsarlo se concede el permiso, el aviso desaparece y `vocero.alerts.v1.<userId>` queda con `notifications: true` |
 | c | Dos pestañas (`/pipeline`, `/contacts`); entra un mensaje de «Ana» | **Una** notificación entre ambas, `tag = conv:<id>`, título «Ana…», clic → `/inbox?contact=<contactId>`; título de ambas con «(N) » (N = `counts.unreadConversations`); favicon `data:image/png` con punto |
 | d | Una pestaña abre la conversación de Ana en la Bandeja; Ana escribe otra vez | 0 notificaciones (RF-05-04) |
-| e | Entra «Beto» y el cerebro externo escala (`POST /api/bot/handoff`, `cliente`) | 1 notificación «Necesita atención humana» con el motivo en español |
+| e | Entra «Beto» y el cerebro externo escala (`POST /api/bot/handoff`, `cliente`) | 1 notificación «Un cliente espera que lo atiendas» con el motivo en español |
 | f | Entra «Caro» y el dueño contesta desde el teléfono (`/api/dev/wa-mock/echo`) | La conversación queda en pausa `manual_reply`, pero 0 notificaciones (RF-05-03) |
 | g | El vendedor (otro navegador) activa sus avisos; el owner se asigna la de Ana y Ana escribe; luego entra «Dani» sin asignar | Vendedor: 0 por la de Ana (el SSE no se la entrega), 1 por la de Dani |
 | h | SQL directo: `last_inbound_at` de Caro = hace 23 h y de Beto = hace 10 h | `filter=closing` trae a Caro y no a Beto; `counts.closing` = filas de la lista; pastilla «Ventana por cerrar» con ese número; el renglón de Caro dice «Cierra en 59m» (aprox.); a 360 px la fila de pastillas no se desborda |

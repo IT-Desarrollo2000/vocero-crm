@@ -248,7 +248,7 @@ ok("«Limpiar» quita los filtros del panel y deja la vista",
    new URL(page.url()).search);
 await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
 
-console.log("\n== Bandeja: pastilla 'Atención humana' ==");
+console.log("\n== Bandeja: pastilla 'Por atender' ==");
 // Se provoca el handoff con un echo del mock (el dueño contesta a mano desde
 // el teléfono → handoff manual_reply): no requiere BOT_API_KEY.
 await box.fill("");
@@ -264,30 +264,30 @@ ok("echo del dueño entregado al webhook", echo.ok(), String(echo.status()));
 await new Promise((res) => setTimeout(res, 1500));
 const convsHo = (await (await req.get(`${BASE}/api/conversations`)).json()).conversations;
 const byName = (n) => convsHo.find((c) => c.contact.name === n);
-ok("la conversación de Josué quedó en atención humana (setup)",
+ok("la conversación de Josué quedó por atender (setup)",
    !!byName(`Josué${S} Ramírez`)?.handoffAt,
    JSON.stringify(byName(`Josué${S} Ramírez`)?.handoffReason));
 ok("la de Zoraida NO (caso negativo)", !byName(`Zoraida${S} Belier`)?.handoffAt);
 
-// "Atención humana" también es el texto del distintivo de cada renglón; el
+// "Por atender" también es el texto del distintivo de cada renglón; el
 // nombre accesible de los renglones empieza por el contacto, así que el ancla
 // ^ aísla la pastilla.
-const hoPill = page.getByRole("button", { name: /^Atención humana/ });
+const hoPill = page.getByRole("button", { name: /^Por atender/ });
 // Recarga: lo que se prueba es el filtro, no la propagación por SSE.
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
 await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
 // Toda fila del filtro lleva UNO de los dos distintivos, nunca ambos: handoff
-// → "Atención humana"; IA apagada a mano sin handoff → "IA pausada".
-const oneBadge = (t) => t.includes("Atención humana") !== t.includes("IA pausada");
+// → "Por atender"; IA apagada a mano sin handoff → "IA pausada".
+const oneBadge = (t) => t.includes("Por atender") !== t.includes("IA pausada");
 const rowOf = (l, name) => l.find((t) => t.includes(name)) ?? "";
 ok("la pastilla deja solo conversaciones con un distintivo (y solo uno)",
    list.length > 0 && list.every(oneBadge),
    JSON.stringify(list.filter((t) => !oneBadge(t)).slice(0, 2)));
 ok("Josué (con handoff) aparece", has(list, `Josué${S}`), JSON.stringify(list.length));
-ok("Josué lleva 'Atención humana', no 'IA pausada'",
-   rowOf(list, `Josué${S}`).includes("Atención humana") &&
+ok("Josué lleva 'Por atender', no 'IA pausada'",
+   rowOf(list, `Josué${S}`).includes("Por atender") &&
      !rowOf(list, `Josué${S}`).includes("IA pausada"),
    JSON.stringify(rowOf(list, `Josué${S}`)));
 ok("Zoraida (sin handoff) no aparece", !has(list, `Zoraida${S}`));
@@ -310,10 +310,10 @@ await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
 await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
-ok("con la IA pausada, Anónima aparece en 'Atención humana'", has(list, anon),
+ok("con la IA pausada, Anónima aparece en 'Por atender'", has(list, anon),
    JSON.stringify(list.length));
-ok("y lleva el distintivo 'IA pausada', no 'Atención humana'",
-   rowOf(list, anon).includes("IA pausada") && !rowOf(list, anon).includes("Atención humana"),
+ok("y lleva el distintivo 'IA pausada', no 'Por atender'",
+   rowOf(list, anon).includes("IA pausada") && !rowOf(list, anon).includes("Por atender"),
    JSON.stringify(rowOf(list, anon)));
 const pillCount2 = Number((await hoPill.innerText()).replace(/\D/g, ""));
 ok("el contador sube con ella y coincide con la lista",
@@ -332,7 +332,7 @@ ok("con la IA reactivada, Anónima sale del filtro", !has(list, anon),
 await settle(() => box.fill(`Zoraida${S}`), (p) => withQ(`Zoraida${S}`)(p) && p.get("filter") === "human");
 ok("búsqueda de alguien sin handoff + pastilla → estado vacío coherente",
    (await rows()).length === 0 &&
-     (await page.getByText("Ninguna conversación requiere atención humana.").isVisible()));
+     (await page.getByText("No hay conversaciones por atender.").isVisible()));
 await settle(() => box.fill(""), withQ(""));
 await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
 ok("volver a 'Todas' restaura la lista", (await rows()).length >= 3);

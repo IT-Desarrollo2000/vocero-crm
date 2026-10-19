@@ -132,7 +132,7 @@ export function AlertsMenu() {
         <div className="space-y-2">
           <p className="text-sm text-text-2">
             Recibe un aviso cuando te escriba un cliente o una conversación
-            necesite atención humana, aunque estés en otra pestaña.
+            quede por atender, aunque estés en otra pestaña.
           </p>
           <Button onClick={() => void activate()} disabled={asking}>
             {asking ? "Esperando tu respuesta…" : "Activar notificaciones"}
@@ -161,7 +161,7 @@ export function AlertsMenu() {
             onChange={(v) => update({ incoming: v })}
           />
           <Toggle
-            label="Necesita atención humana"
+            label="Conversación por atender"
             hint="Cuando el agente escala una conversación."
             checked={prefs.handoffs}
             onChange={(v) => update({ handoffs: v })}
