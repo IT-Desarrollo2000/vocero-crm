@@ -94,11 +94,15 @@ Fuera de alcance (v1):
 - **RF-1 Autenticación.** Header `X-API-Key` comparado en tiempo constante con
   la clave de la organización (cifrada en BD con `encryptSecret`). Sin clave
   configurada o incorrecta → 401 sin detalle. Bandera apagada → 404.
-- **RF-2 Límite de tasa.** Solo global (p. ej. 120/min) con
-  `checkRateLimit`; excedido → 429. Sin límite por IP: todo llega desde la
-  IP de salida de Supabase (`pg_net`), así que un límite por IP más estricto
-  frenaría leads legítimos. (El antispam del visitante sigue en el
-  ERP: reCAPTCHA y 5/h por IP en `create-public-lead`.)
+- **RF-2 Límite de tasa.** Dos cubetas con `checkRateLimit`: una por IP que
+  cuenta SOLO intentos fallidos (sin clave o clave incorrecta, 20/min) y una
+  global (120/min) que cuenta SOLO peticiones ya autenticadas; cualquiera
+  excedida → 429 sin detalle. Orden: bandera → ¿IP bloqueada por fallos? →
+  organización + clave (fallo: cuenta en la IP, 401) → global → OK. Así
+  alguien sin clave no agota el cupo global ni deja al ERP en 429, y el ERP
+  (todo llega desde la IP de salida de Supabase, `pg_net`) no llena la
+  cubeta de fallos mientras use la clave correcta. (El antispam del
+  visitante sigue en el ERP: reCAPTCHA y 5/h por IP en `create-public-lead`.)
 - **RF-3 Contrato de entrada** (Zod, campos desconocidos ignorados):
 
   | Campo | Req. | Nota |

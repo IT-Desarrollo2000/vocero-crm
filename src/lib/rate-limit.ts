@@ -37,6 +37,22 @@ export function checkRateLimit(
   return { allowed: true, remaining: opts.max - bucket.length };
 }
 
+/**
+ * ¿La clave ya agotó su cupo? Como `checkRateLimit` pero SIN registrar el
+ * intento: para cubetas que solo cuentan algunos casos (p. ej. los fallos).
+ */
+export function peekRateLimit(
+  key: string,
+  opts: { windowMs: number; max: number },
+  now: number = Date.now()
+): RateLimitResult {
+  const cutoff = now - opts.windowMs;
+  const count = (store().get(key) ?? []).filter((t) => t > cutoff).length;
+  return count >= opts.max
+    ? { allowed: false, remaining: 0 }
+    : { allowed: true, remaining: opts.max - count };
+}
+
 /** Solo para tests. */
 export function resetRateLimit(): void {
   store().clear();

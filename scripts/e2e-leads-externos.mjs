@@ -30,8 +30,11 @@
  *   m) el prospecto escribe por WhatsApp → misma conversación, ventana
  *      abierta, nombre conservado (el nick va a profileName), el agente sí
  *      responde
+ *   n0) muchos fallos desde una IP → 429 para ESA IP; la clave buena desde
+ *      otra IP sigue pasando (los fallos no gastan el cupo global)
  *   n) rotar invalida la clave vieja al instante · revocar → 401
- *   o) 429 por el límite global (al final: agota el cupo del minuto)
+ *   o) 429 por el límite global de autenticadas (al final: agota el cupo del
+ *      minuto)
  *
  * Con LEADS_EXTERNOS apagada: endpoint, API de Ajustes y página en 404, y la
  * pestaña no aparece.
@@ -456,6 +459,27 @@ async function onChecks() {
     ok("typing ya encuentra el entrante real (no la tarjeta)", ty.res.ok && ty.json?.reason !== "no_inbound", short(ty));
   }
 
+  console.log("\n== n0) Los fallos se cuentan por IP y no frenan al ERP ==");
+  // El "atacante" llega desde otra IP (X-Forwarded-For, como la ve el
+  // limitador del login); el ERP, desde la de siempre.
+  const ATTACKER = { "x-forwarded-for": `203.0.113.${Math.floor(Math.random() * 200) + 20}` };
+  const postFrom = (headers, key, payload) =>
+    anon.api("/api/intake/lead", {
+      method: "POST",
+      headers: { ...headers, ...(key === null ? {} : { "x-api-key": key }) },
+      body: body(payload),
+    });
+  const attempts = [];
+  for (let i = 0; i < 25; i++) {
+    attempts.push((await postFrom(ATTACKER, i % 2 ? null : "clave-mala", lead())).res.status);
+  }
+  ok("20 intentos fallidos → 401 cada uno", attempts.slice(0, 20).every((s) => s === 401), attempts.join(","));
+  ok("del 21 en adelante → 429 para esa IP", attempts.slice(20).every((s) => s === 429), attempts.join(","));
+  const blocked = await postFrom(ATTACKER, KEY, lead());
+  ok("esa IP bloqueada → 429 rate_limited sin detalle (ni con la clave buena)", blocked.res.status === 429 && blocked.json?.error?.code === "rate_limited", short(blocked));
+  const erp = await postLead(KEY, lead({ first_name: `Tras ataque ${S}` }));
+  ok("una con la clave buena desde otra IP → 201", erp.res.status === 201, short(erp));
+
   console.log("\n== n) Rotar y revocar ==");
   const rot = await owner.api("/api/settings/intake", { method: "PUT" });
   const KEY2 = rot.json?.key;
@@ -470,13 +494,21 @@ async function onChecks() {
   ok("tras revocar → 401", r.res.status === 401, short(r));
   ok("y Ajustes queda sin clave", (await owner.api("/api/settings/intake")).json?.intake === null);
 
-  console.log("\n== o) Límite de tasa global ==");
+  console.log("\n== o) Límite de tasa global (solo autenticadas) ==");
+  const KEY3 = (await owner.api("/api/settings/intake", { method: "PUT" })).json?.key;
+  ok("clave nueva para medir el cupo global", !!KEY3);
+  // Autenticadas con cuerpo inválido (422): gastan el cupo global sin crear
+  // 120 leads.
   let got429 = null;
+  let authed = 0;
   for (let i = 0; i < 140 && !got429; i++) {
-    const x = await postLead("clave-que-no-existe", lead());
+    const x = await postLead(KEY3, "{}");
     if (x.res.status === 429) got429 = x;
+    else if (x.res.status === 422) authed++;
   }
-  ok("exceso → 429 rate_limited", got429?.json?.error?.code === "rate_limited", got429 ? short(got429) : "nunca 429");
+  ok("exceso de autenticadas → 429 rate_limited", got429?.json?.error?.code === "rate_limited", got429 ? short(got429) : "nunca 429");
+  ok("…tras pasar la autenticación (422 hasta el tope)", authed > 0 && authed <= 120, String(authed));
+  await owner.api("/api/settings/intake", { method: "DELETE" });
 }
 
 async function uiChecks(KEY, convId, contactId) {

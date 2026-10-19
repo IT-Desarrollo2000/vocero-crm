@@ -98,5 +98,8 @@ Con `LEADS_EXTERNOS` apagada:
 
 ## Límite de tasa
 
-Al final (agota el cupo del minuto): más de 120 peticiones/min → **429**
-`rate_limited`. Solo límite global, sin límite por IP.
+1. Más de 20 intentos con clave mala desde una IP (`X-Forwarded-For`) en un
+   minuto → **429** `rate_limited` para esa IP; una petición con la clave
+   buena desde otra IP sigue pasando (**201**).
+2. Al final (agota el cupo del minuto): más de 120 peticiones AUTENTICADAS
+   por minuto → **429** `rate_limited` (cupo global, solo autenticadas).
