@@ -13,6 +13,8 @@ const BUSINESS_TABS: SettingsTab[] = [
   { href: "/settings/templates", label: "Plantillas" },
   // 09 — Catálogo del negocio: lo gestiona el Propietario, lo usan todos.
   { href: "/settings/quick-replies", label: "Respuestas rápidas" },
+  // 022 — Archivo de conversaciones inactivas (auto y limpieza masiva).
+  { href: "/settings/inbox", label: "Bandeja" },
   { href: "/settings/team", label: "Equipo" },
 ];
 

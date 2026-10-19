@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+/** 022: qué hace la casilla "No archivar" (tooltip y texto en pantallas anchas). */
+const KEEP_ACTIVE_HINT = "sus conversaciones no se archivan por inactividad";
+
 /** Gestión de etapas: renombrar, reordenar, agregar, eliminar (con reasignación). */
 export function StageManager({
   stages,
@@ -21,6 +24,24 @@ export function StageManager({
   const [deleting, setDeleting] = useState<StageDto | null>(null);
   const [moveTo, setMoveTo] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 022: valor optimista de "No archivar" mientras vuelve la lista. */
+  const [keepActive, setKeepActive] = useState<Record<string, boolean>>({});
+
+  async function toggleKeepActive(stage: StageDto, value: boolean) {
+    setError(null);
+    setKeepActive((m) => ({ ...m, [stage.id]: value }));
+    const res = await fetch(`/api/pipeline/stages/${stage.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keepActive: value }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setKeepActive((m) => ({ ...m, [stage.id]: stage.keepActive }));
+      setError(`No se pudo cambiar "No archivar" en "${stage.name}".`);
+      return;
+    }
+    onChanged();
+  }
 
   async function rename(stage: StageDto, name: string) {
     if (!name.trim() || name === stage.name) return;
@@ -100,11 +121,11 @@ export function StageManager({
         <h3 className="mb-4 font-semibold">Etapas de seguimiento</h3>
         <ul className="space-y-2">
           {sorted.map((s, i) => (
-            <li key={s.id} className="flex items-center gap-2">
+            <li key={s.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <Input
                 defaultValue={s.name}
                 onBlur={(e) => void rename(s, e.target.value)}
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               {s.kind !== "open" ? (
                 <Badge variant={s.kind === "won" ? "success" : "secondary"}>
@@ -138,6 +159,21 @@ export function StageManager({
               >
                 <ArrowDown className="h-4 w-4" />
               </Button>
+              {/* 022: segunda línea para no apretar la fila en 360 px. */}
+              <label
+                className="flex basis-full cursor-pointer items-center gap-1.5 pl-1 text-xs text-text-3"
+                title={KEEP_ACTIVE_HINT}
+              >
+                <input
+                  type="checkbox"
+                  checked={keepActive[s.id] ?? s.keepActive}
+                  onChange={(e) => void toggleKeepActive(s, e.target.checked)}
+                  aria-label={`No archivar automáticamente "${s.name}"`}
+                  className="accent-primary"
+                />
+                No archivar
+                <span className="max-sm:hidden">— {KEEP_ACTIVE_HINT}</span>
+              </label>
             </li>
           ))}
         </ul>

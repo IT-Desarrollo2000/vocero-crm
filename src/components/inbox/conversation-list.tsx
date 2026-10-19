@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Hourglass,
   PauseCircle,
   Search,
@@ -296,6 +298,7 @@ export function ConversationList({
   error = null,
   onLoadMore,
   onRetry,
+  onArchive,
 }: {
   /** 06: lo cargado y dentro del filtro activo; null = primera carga. */
   conversations: ConversationDto[] | null;
@@ -321,6 +324,8 @@ export function ConversationList({
   onLoadMore?: () => void;
   /** 06: reintenta la primera página tras un error. */
   onRetry?: () => void;
+  /** 022: archivar (`archived: true`) o desarchivar (`false`) desde la fila. */
+  onArchive?: (id: string, archived: boolean) => void;
 }) {
   // 020: arranca con la búsqueda de la URL (los filtros viven ahí).
   const [query, setQuery] = useState(filters.q);
@@ -400,6 +405,8 @@ export function ConversationList({
     { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
     ...(teamMode ? [{ id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 }] : []),
     { id: "human", label: "Atención humana", count: counts?.human ?? 0 },
+    // 022: las archivadas viven aparte (las demás vistas las excluyen).
+    { id: "archived", label: "Archivadas", count: counts?.archived ?? 0 },
   ];
   const ORIGINS: { id: InboxOrigin | null; label: string; count?: number }[] = [
     { id: null, label: "Todos" },
@@ -808,11 +815,13 @@ export function ConversationList({
           <p className="p-6 text-center text-xs text-text-3">
             {activeCount > 0
               ? "Sin resultados para estos filtros."
-              : filter === "human"
-                ? "Ninguna conversación requiere atención humana."
-                : filter === "mine"
-                  ? "No tienes conversaciones a tu nombre."
-                  : "Sin resultados para este filtro."}
+              : filter === "archived"
+                ? "No hay conversaciones archivadas."
+                : filter === "human"
+                  ? "Ninguna conversación requiere atención humana."
+                  : filter === "mine"
+                    ? "No tienes conversaciones a tu nombre."
+                    : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
@@ -820,11 +829,12 @@ export function ConversationList({
               const unread = c.unreadCount > 0;
               const closesIn = closingRemainingMs(c.channel, c.lastInboundAt, now);
               const active = selectedId === c.id;
+              const archived = c.archivedAt != null;
               return (
                 <li
                   key={c.id}
                   data-conversation-id={c.id}
-                  className="relative border-b border-border/70"
+                  className="group relative border-b border-border/70"
                 >
                   {active && (
                     <span className="absolute inset-y-0 left-0 w-[3px] bg-brand" />
@@ -887,6 +897,14 @@ export function ConversationList({
                         </span>
                       )}
                       <span className="mt-1.5 flex items-center gap-1.5">
+                        {/* 022: en cualquier vista (búsqueda, enlace
+                            ?contact=), no solo en Archivadas. */}
+                        {archived && (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-3">
+                            <Archive className="h-3 w-3" strokeWidth={1.7} />
+                            Archivada
+                          </span>
+                        )}
                         {c.stageName && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-2">
                             <span
@@ -928,6 +946,28 @@ export function ConversationList({
                       </span>
                     </span>
                   </button>
+                  {/* 022: acción rápida HERMANA del botón de la fila (no se
+                      anidan botones). En escritorio aparece al pasar el
+                      cursor o al enfocar con teclado; en móvil no se pinta
+                      (un blanco invisible sobre la fila archivaría en vez de
+                      abrir) y queda el botón de la cabecera del hilo. */}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      onClick={() => onArchive(c.id, !archived)}
+                      aria-label={
+                        archived ? "Desarchivar conversación" : "Archivar conversación"
+                      }
+                      title={archived ? "Desarchivar" : "Archivar"}
+                      className="absolute right-2 top-2 hidden rounded-md border bg-background p-1.5 text-text-3 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand md:block md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
+                    >
+                      {archived ? (
+                        <ArchiveRestore className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      ) : (
+                        <Archive className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      )}
+                    </button>
+                  )}
                 </li>
               );
             })}

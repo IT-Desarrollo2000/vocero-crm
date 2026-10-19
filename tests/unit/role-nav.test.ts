@@ -65,6 +65,7 @@ describe("settingsTabsFor", () => {
       "/settings/branding",
       "/settings/templates",
       "/settings/quick-replies",
+      "/settings/inbox",
       "/settings/team",
       "/settings/account",
     ]);
@@ -86,6 +87,7 @@ describe("settingsTabsFor", () => {
       "/settings/branding",
       "/settings/templates",
       "/settings/quick-replies",
+      "/settings/inbox",
       "/settings/team",
       "/settings/calendar",
       "/settings/ads",

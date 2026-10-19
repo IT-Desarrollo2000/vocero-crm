@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronLeft, Info, PanelRight, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronLeft, Info, PanelRight, X } from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
+import { Button } from "@/components/ui/button";
 import type {
   AssignBody,
   ConversationDto,
@@ -531,6 +532,37 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
   );
 
   /**
+   * 022 — Archivar (`true`) / desarchivar (`false`) UNA conversación, desde la
+   * fila (puede no ser la abierta) o desde la cabecera del hilo. La abierta
+   * sigue abierta: `?ids=` es suelto y devuelve también las archivadas, así
+   * que `onResolved` refresca `selectedDto` aunque la fila salga de la vista.
+   */
+  const archive = useCallback(
+    async (conversationId: string, archived: boolean) => {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived }),
+      }).catch(() => null);
+      if (!res) {
+        setNotice("Sin conexión con el servidor.");
+      } else if (res.status === 404) {
+        closeLost(conversationId, false);
+      } else if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as ApiErrorBody;
+        setNotice(
+          data?.error?.message ??
+            (archived
+              ? "No se pudo archivar la conversación."
+              : "No se pudo desarchivar la conversación.")
+        );
+      }
+      refreshOne(conversationId);
+    },
+    [closeLost, refreshOne]
+  );
+
+  /**
    * 09: la asignación solo se enseña si hay equipo. Con el Propietario solo
    * (instancia de un usuario) la Bandeja queda exactamente como antes; el
    * Vendedor, por definición, trabaja en equipo. 06: la regla la resuelve
@@ -576,6 +608,7 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
           error={list.error}
           onLoadMore={() => void list.loadMore()}
           onRetry={() => reloadList()}
+          onArchive={(id, archived) => void archive(id, archived)}
         />
       </section>
 
@@ -628,6 +661,28 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
                   vez — aquí con el panel cerrado, en el panel si está
                   abierto — para que sus aria-label no se repitan. */}
               {!panelOpen && assignmentControl()}
+              {/* 022: sin gemelo en el panel, así que no depende de él. En
+                  móvil queda solo el icono (el texto pasa a sr-only). */}
+              <button
+                type="button"
+                onClick={() => void archive(selected.id, selected.archivedAt == null)}
+                aria-label={selected.archivedAt != null ? "Desarchivar" : "Archivar"}
+                title={
+                  selected.archivedAt != null
+                    ? "Devolver a la Bandeja"
+                    : "Sacar de la Bandeja (vuelve si el cliente escribe)"
+                }
+                className="flex shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-1.5 text-[12.5px] font-medium text-text-2 hover:bg-accent hover:text-foreground md:px-2.5"
+              >
+                {selected.archivedAt != null ? (
+                  <ArchiveRestore className="h-4 w-4" strokeWidth={1.7} />
+                ) : (
+                  <Archive className="h-4 w-4" strokeWidth={1.7} />
+                )}
+                <span className="max-md:sr-only">
+                  {selected.archivedAt != null ? "Desarchivar" : "Archivar"}
+                </span>
+              </button>
               {!panelOpen && (
                 <button
                   onClick={() => togglePanel(true)}
@@ -645,6 +700,29 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
                   void refetchMessages(selectedIdRef.current);
               }}
             />
+            {/* 022: archivada y abierta. Se puede seguir escribiendo: el
+                envío exitoso la desarchiva en el servidor y `onSent` →
+                `refreshOne` retira este aviso. */}
+            {selected.archivedAt != null && (
+              <div
+                role="note"
+                aria-label="Conversación archivada"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t bg-secondary px-3 py-2 text-[13px] text-text-2 md:px-4"
+              >
+                <Archive className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.7} aria-hidden />
+                <p className="min-w-0 flex-1">
+                  Conversación archivada. Volverá a la Bandeja si el cliente
+                  escribe o si envías un mensaje.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void archive(selected.id, false)}
+                >
+                  Desarchivar
+                </Button>
+              </div>
+            )}
             <Composer
               // 019: un compositor por conversación — la respuesta tardía de
               // un lote del catálogo no puede tocar el estado del hilo nuevo.

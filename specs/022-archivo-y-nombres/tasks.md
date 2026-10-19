@@ -28,10 +28,10 @@ Plan: [plan.md](plan.md). Rama `022-archivo-y-nombres` (worktree
 
 ## T4. Archivo — cliente
 - [x] Espejo list-state/helpers (hecho con T3: lo exigían typecheck y los unit).
-- [ ] Pastilla Archivadas, acción en fila, etiqueta en búsqueda.
-- [ ] Cabecera Archivar/Desarchivar + aviso en hilo.
-- [ ] Ajustes → Bandeja (interruptor, días, limpiar con conteo).
-- [ ] Etapas: "No archivar".
+- [x] Pastilla Archivadas, acción en fila, etiqueta en búsqueda.
+- [x] Cabecera Archivar/Desarchivar + aviso en hilo.
+- [x] Ajustes → Bandeja (interruptor, días, limpiar con conteo).
+- [x] Etapas: "No archivar".
 
 ## T5. Verificación
 - [ ] Gate técnico verde.
