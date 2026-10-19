@@ -17,17 +17,17 @@ Plan: [plan.md](plan.md). Rama `022-archivo-y-nombres` (worktree
 - [x] Unit: identity, search-parity.
 
 ## T3. Archivo — servidor (A)
-- [ ] `src/server/inbox/archive.ts` (condición, masiva, auto).
-- [ ] Desarchivar en entrante / origen sin mensaje / eco / saliente ok / plantilla.
-- [ ] PATCH conversación `archived`.
-- [ ] Vista `archived` + regla de exclusión + contadores + DTO.
-- [ ] Rutas: ajustes inbox, archive-inactive, dev auto-archive, stage keepActive.
-- [ ] Ticker + instrumentation.
-- [ ] Evento `conversations.bulk`.
-- [ ] Unit: vistas/contadores, condición, ticker, role-matrix.
+- [x] `src/server/inbox/archive.ts` (condición, masiva, auto).
+- [x] Desarchivar en entrante / origen sin mensaje / eco / saliente ok / plantilla.
+- [x] PATCH conversación `archived`.
+- [x] Vista `archived` + regla de exclusión + contadores + DTO.
+- [x] Rutas: ajustes inbox, archive-inactive, dev auto-archive, stage keepActive.
+- [x] Ticker + instrumentation.
+- [x] Evento `conversations.bulk`.
+- [x] Unit: vistas/contadores, condición, ticker, role-matrix.
 
 ## T4. Archivo — cliente
-- [ ] Espejo list-state/helpers.
+- [x] Espejo list-state/helpers (hecho con T3: lo exigían typecheck y los unit).
 - [ ] Pastilla Archivadas, acción en fila, etiqueta en búsqueda.
 - [ ] Cabecera Archivar/Desarchivar + aviso en hilo.
 - [ ] Ajustes → Bandeja (interruptor, días, limpiar con conteo).

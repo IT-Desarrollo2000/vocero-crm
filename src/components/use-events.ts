@@ -31,6 +31,11 @@ export type EventHandlers = {
   }) => void;
   /** 015 — Algo cambió en la agenda (también cuando agenda la IA). */
   onBookingUpdated?: (data: { bookingId: string }) => void;
+  /**
+   * 022 — Archivo masivo o automático (sin ids): recargar la primera página y
+   * los contadores (NO fusionar: las filas archivadas deben salir).
+   */
+  onConversationsBulk?: (data: { reason: "bulk" | "auto" }) => void;
   /** Se llama tras RECONECTAR (no en la conexión inicial): catch-up con refetch. */
   onReconnect?: () => void;
 };

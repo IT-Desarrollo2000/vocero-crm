@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { startReminderTicker } from "@/server/agenda/reminder-ticker";
 import { startMediaPurgeTicker } from "@/server/media/purge-ticker";
+import { startAutoArchiveTicker } from "@/server/inbox/auto-archive-ticker";
 
 /**
  * Limpieza al arranque (FR-034): corridas del Laboratorio que quedaron
@@ -34,8 +35,10 @@ export async function cleanupOrphanRuns(): Promise<void> {
  * 10 — Trabajo en segundo plano in-process (sin colas externas). Hoy: el reloj
  * de recordatorios de cita, que solo arranca con AGENDA encendida y
  * `AGENDA_REMINDER_TICK_MS` distinto de 0; y (018) la purga de la caché de
- * adjuntos, que arranca siempre salvo `MEDIA_PURGE_TICK_MS=0`. Nunca tumba
- * el arranque.
+ * adjuntos, que arranca siempre salvo `MEDIA_PURGE_TICK_MS=0`; y (022) el
+ * auto-archivo de la Bandeja, que arranca siempre salvo
+ * `INBOX_AUTO_ARCHIVE_TICK_MS=0` (cada vuelta respeta el interruptor de cada
+ * organización). Nunca tumba el arranque.
  */
 export function startBackgroundJobs(): void {
   try {
@@ -47,5 +50,10 @@ export function startBackgroundJobs(): void {
     startMediaPurgeTicker();
   } catch (err) {
     console.error("[boot] el reloj de purga de adjuntos no arrancó:", err);
+  }
+  try {
+    startAutoArchiveTicker();
+  } catch (err) {
+    console.error("[boot] el reloj de auto-archivo no arrancó:", err);
   }
 }

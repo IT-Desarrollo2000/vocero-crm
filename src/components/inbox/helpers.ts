@@ -32,6 +32,9 @@ export function needsHuman(c: ConversationDto): boolean {
  *     sin asignar, por cerrar) → `inInbox` (base de las vistas);
  *  3. vista → `visible`.
  *
+ * 022: la capa 1 excluye además las archivadas, salvo vista `archived` o
+ * búsqueda con texto (`includeArchived`).
+ *
  * Solo nombre y teléfono, como cualquier filtro de contactos. Antes también
  * miraba el preview, y como el agente nombra al dueño en sus propios
  * mensajes, buscar ese nombre devolvía media bandeja.
@@ -62,6 +65,13 @@ export function filterConversations(
     viewerId?: string;
     /** 05: reloj de «Ventana por cerrar» (ms); por defecto, ahora. */
     now?: number;
+    /**
+     * 022: ¿entran las archivadas fuera de la vista `archived`? Por defecto,
+     * solo con búsqueda (`query` no vacía), igual que `archiveLayer` del
+     * servidor. Explícito cuando la búsqueda ya la resolvió el servidor y aquí
+     * llega `query: ""` (ver `displayedConversations`).
+     */
+    includeArchived?: boolean;
   }
 ): {
   searched: ConversationDto[];
@@ -70,6 +80,11 @@ export function filterConversations(
 } {
   const { query, stage, stageId, filter, viewerId, origin } = opts;
   const now = opts.now ?? Date.now();
+  // 022: capa de archivo, aparte de la vista (espejo de `archiveLayer`).
+  const includeArchived =
+    filter === "archived" || (opts.includeArchived ?? query.trim() !== "");
+  const archiveOk = (c: ConversationDto): boolean =>
+    includeArchived || c.archivedAt == null;
   // Los filtros combinables se aplican en la capa del canal: las vistas
   // cuentan dentro de ellos.
   const panelOk = (c: ConversationDto): boolean =>
@@ -89,7 +104,9 @@ export function filterConversations(
         // 022: también por el nombre de perfil (espejo de contactSearchSql).
         text: [c.contact.name, c.contact.profileName],
         phone: c.contact.phone,
-      }) && stageOk(c)
+      }) &&
+      stageOk(c) &&
+      archiveOk(c)
   );
   // La bandeja elegida es el filtro de AFUERA: las pastillas cuentan dentro
   // de ella, no sobre la suma de los canales.
@@ -107,7 +124,9 @@ export function filterConversations(
             ? inInbox.filter((c) => c.assignedTo === null)
             : filter === "closing"
               ? inInbox.filter((c) => isClosingSoon(c.channel, c.lastInboundAt, now))
-              : inInbox;
+              : filter === "archived"
+                ? inInbox.filter((c) => c.archivedAt != null)
+                : inInbox;
   return { searched, inInbox, visible };
 }
 

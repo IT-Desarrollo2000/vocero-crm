@@ -390,6 +390,11 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
       // El agente movió de etapa o cambió el handoff: refresca el panel en vivo.
       setDetailRev((v) => v + 1);
     },
+    // 022: archivo masivo/auto (sin ids). Recarga desde cero, NO `catchUp`:
+    // `mergeFirstPage` conservaría abajo filas que ya se archivaron.
+    onConversationsBulk: () => {
+      reloadList();
+    },
     onReconnect: () => {
       // Catch-up tras reconexión: página 1 fusionada + contadores, sin
       // `since` y sin perder las páginas ya cargadas.

@@ -27,6 +27,7 @@ import {
 import { getInstagramSourceByOrg } from "@/server/instagram/credentials";
 import { conversationVisibleTo, type Viewer } from "@/server/inbox/visibility";
 import { contactSearchSql } from "@/server/search";
+import { UNARCHIVE_SET } from "@/server/inbox/archive";
 import { closingBounds, closingWindowGroups } from "@/lib/closing-window";
 import {
   IDS_MAX,
@@ -124,9 +125,26 @@ export function inboxFilterCondition(
       return assignedCondition(viewer, "unassigned");
     case "closing":
       return closingCondition(now);
+    case "archived":
+      return isNotNull(c.archivedAt);
     default:
       return undefined;
   }
+}
+
+/**
+ * 022 — Capa de archivo, APARTE de la vista: las archivadas quedan fuera
+ * (`archived_at IS NULL`) salvo en la vista `archived` (cuyo predicado ya es
+ * `IS NOT NULL`) o con búsqueda `q` no vacía (incluye ambas). `view` es la
+ * vista de la que sale el número (en los contadores, la de cada vista; en las
+ * facetas, la activa). Exportada para el unit que fija su forma.
+ */
+export function archiveLayer(
+  view: InboxFilter | undefined,
+  q: string | undefined
+): SQL | undefined {
+  if (view === "archived" || (q ?? "").trim() !== "") return undefined;
+  return isNull(schema.conversation.archivedAt);
 }
 
 /**
@@ -197,8 +215,8 @@ function baseFilters(
 /**
  * WHERE de la lista (modos lista y `since`): org ∧ `is_test = false` ∧
  * visibilidad (09) ∧ `assigned` ∧ `q` ∧ `stage` ∧ (020) filtros del panel
- * (`channel` ∧ `origin` ∧ `unassigned` ∧ `closing`) ∧ vista.
- * Exportado para el unit que fija su forma.
+ * (`channel` ∧ `origin` ∧ `unassigned` ∧ `closing`) ∧ vista ∧ (022) capa de
+ * archivo (`archiveLayer`). Exportado para el unit que fija su forma.
  */
 export function inboxListWhere(
   organizationId: string,
@@ -214,7 +232,8 @@ export function inboxListWhere(
     conversationVisibleTo(viewer),
     ...baseFilters(viewer, opts),
     ...panelFilters(viewer, opts, now),
-    inboxFilterCondition(viewer, opts.filter, now)
+    inboxFilterCondition(viewer, opts.filter, now),
+    archiveLayer(opts.filter, opts.q)
   );
 }
 
@@ -414,7 +433,13 @@ function anuncioDeFila(r: {
  *   unassigned/closing = base ∧ vista ∧ filtros-sin-él ∧ su predicado
  *   origin.ad/post/none = base ∧ vista ∧ filtros-sin-origen ∧ ese origen
  *   byChannel[x]  = base ∧ vista ∧ filtros-sin-canal ∧ channel = x
- *   unreadConversations / unreadMessages = SOLO visibilidad (badge, D-05-1)
+ *   archived      = base ∧ filtros ∧ archived_at IS NOT NULL (022)
+ *   unreadConversations / unreadMessages = SOLO visibilidad ∧ no archivada
+ *                   (badge, D-05-1; 022: una archivada no pide atención)
+ *
+ * 022 — "Dos bases": cada número lleva además `archiveLayer(su vista, q)`.
+ * Las vistas usan la suya (`archived` no lleva capa: su predicado ya es
+ * IS NOT NULL); las facetas, la vista activa. Con `q`, nadie lleva capa.
  *   teamMode      = !owner ∨ miembros > 1 ∨ alguna visible con responsable
  *
  * Sin vista ni filtros del panel, coincide con el contrato 06-0. Una sola
@@ -436,17 +461,25 @@ export async function countConversations(
   const always = sql`true`;
   const now = new Date();
   const base = and(...baseFilters(viewer, query));
-  const view = inboxFilterCondition(viewer, query.filter, now);
+  // 022: la vista activa CON su capa de archivo (base de las facetas).
+  const view = and(
+    inboxFilterCondition(viewer, query.filter, now),
+    archiveLayer(query.filter, query.q)
+  );
+  const viewCount = (v: InboxFilter) =>
+    and(inboxFilterCondition(viewer, v, now), archiveLayer(v, query.q));
   const panel = (omit?: Facet) => panelFilters(viewer, query, now, omit);
   const countWhere = (...conds: (SQL | undefined)[]) =>
     sql<number>`count(*) filter (where ${and(...conds) ?? always})::int`.mapWith(Number);
+  const notArchived = isNull(c.archivedAt);
 
   const aggregates = db
     .select({
-      all: countWhere(base, ...panel()),
-      unread: countWhere(base, ...panel(), inboxFilterCondition(viewer, "unread")),
-      human: countWhere(base, ...panel(), inboxFilterCondition(viewer, "human")),
-      mine: countWhere(base, ...panel(), inboxFilterCondition(viewer, "mine")),
+      all: countWhere(base, ...panel(), viewCount("all")),
+      unread: countWhere(base, ...panel(), viewCount("unread")),
+      human: countWhere(base, ...panel(), viewCount("human")),
+      mine: countWhere(base, ...panel(), viewCount("mine")),
+      archived: countWhere(base, ...panel(), viewCount("archived")),
       unassigned: countWhere(
         base,
         view,
@@ -460,8 +493,11 @@ export async function countConversations(
       originAd: countWhere(base, view, ...panel("origin"), originCondition("ad")),
       originPost: countWhere(base, view, ...panel("origin"), originCondition("post")),
       originNone: countWhere(base, view, ...panel("origin"), originCondition("none")),
-      unreadConversations: countWhere(gt(c.unreadCount, 0)),
-      unreadMessages: sql<number>`coalesce(sum(${c.unreadCount}), 0)::int`.mapWith(Number),
+      unreadConversations: countWhere(gt(c.unreadCount, 0), notArchived),
+      unreadMessages:
+        sql<number>`coalesce(sum(${c.unreadCount}) filter (where ${notArchived}), 0)::int`.mapWith(
+          Number
+        ),
       anyAssigned: sql<boolean>`coalesce(bool_or(${c.assignedUserId} is not null), false)`,
     })
     .from(c)
@@ -491,6 +527,7 @@ export async function countConversations(
     unread: n(agg?.unread),
     human: n(agg?.human),
     mine: n(agg?.mine),
+    archived: n(agg?.archived),
     unassigned: n(agg?.unassigned),
     closing: n(agg?.closing),
     byChannel: {
@@ -636,6 +673,8 @@ export function serializeConversation(
     sortAt: (c.lastMessageAt ?? c.createdAt).toISOString(),
     stageId,
     anuncio,
+    archivedAt: c.archivedAt?.toISOString() ?? null,
+    archivedReason: c.archivedReason ?? null,
   };
 }
 
@@ -650,11 +689,18 @@ export function serializeConversation(
 export async function updateConversation(
   organizationId: string,
   conversationId: string,
-  patch: { aiEnabled?: boolean; reactivate?: boolean; markRead?: boolean },
+  patch: {
+    aiEnabled?: boolean;
+    reactivate?: boolean;
+    markRead?: boolean;
+    /** 022: archivar (`true`, motivo `manual`) o desarchivar (`false`). */
+    archived?: boolean;
+  },
   viewer?: Viewer
 ) {
   const db = getDb();
-  const set: Record<string, unknown> = { updatedAt: new Date() };
+  const now = new Date();
+  const set: Record<string, unknown> = { updatedAt: now };
   if (patch.aiEnabled !== undefined) set.aiEnabled = patch.aiEnabled;
   if (patch.reactivate) {
     set.handoffAt = null;
@@ -663,6 +709,13 @@ export async function updateConversation(
     set.aiEnabled = patch.aiEnabled ?? true;
   }
   if (patch.markRead) set.unreadCount = 0;
+  if (patch.archived === true) {
+    set.archivedAt = now;
+    set.archivedReason = "manual";
+    set.archivedBy = viewer?.userId ?? null;
+  } else if (patch.archived === false) {
+    Object.assign(set, UNARCHIVE_SET);
+  }
 
   const updated = await db
     .update(schema.conversation)
@@ -672,7 +725,9 @@ export async function updateConversation(
         schema.conversation.organizationId,
         organizationId,
         eq(schema.conversation.id, conversationId),
-        viewer ? conversationVisibleTo(viewer) : undefined
+        viewer ? conversationVisibleTo(viewer) : undefined,
+        // 022: las del Laboratorio nunca se archivan (0 filas → 404).
+        patch.archived !== undefined ? eq(schema.conversation.isTest, false) : undefined
       )
     )
     .returning();

@@ -33,6 +33,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/conversations/counts": "any*",
   "GET /api/conversations/[id]": "any*",
   "PATCH /api/conversations/[id]": "any*",
+  // 022: limpieza masiva de inactivas (archivar de una en una va por el PATCH).
+  "POST /api/conversations/archive-inactive": "owner",
   // 09: tomar/liberar (ambos roles, sobre lo visible) · asignar a otro (Propietario).
   "POST /api/conversations/[id]/assign": "any*",
   "GET /api/conversations/[id]/messages": "any*",
@@ -169,6 +171,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PUT /api/settings/branding": "owner",
   "PUT /api/settings/branding/favicon": "owner",
   "DELETE /api/settings/branding/favicon": "owner",
+  // 022: Ajustes → Bandeja (auto-archivo).
+  "GET /api/settings/inbox": "owner",
+  "PUT /api/settings/inbox": "owner",
 
   // ── Públicas ───────────────────────────────────────────────────────────
   "GET /api/branding/favicon": "public",
@@ -218,6 +223,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/dev/reminders/tick": "dev",
   // 018: una vuelta de la purga de adjuntos (caché de 30 días), reloj adelantable.
   "POST /api/dev/media/purge": "dev",
+  // 022: una vuelta del auto-archivo (respeta el interruptor), reloj adelantable.
+  "POST /api/dev/inbox/auto-archive": "dev",
   // 020: ¿se guardó el ctwa_clid? (la API pública solo dice si existe con la bandera).
   "GET /api/dev/attribution": "dev",
   // 10: falla conmutable de los envíos de WhatsApp del mock.

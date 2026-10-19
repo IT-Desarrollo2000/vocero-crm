@@ -61,7 +61,8 @@ export const DEFAULT_FILTERS: InboxFilters = {
   closing: false,
 };
 
-const VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human"];
+/** Vistas de la URL: espejo de `INBOX_VIEWS` del servidor (un unit los compara). */
+export const VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human", "archived"];
 
 /**
  * 020 — Cuántos filtros del PANEL hay puestos (el número del botón
@@ -291,7 +292,9 @@ export function visibleConversations(
   items: readonly ConversationDto[],
   f: InboxFilters,
   viewerId: string | undefined,
-  now: number = Date.now()
+  now: number = Date.now(),
+  /** 022: ver `filterConversations`; por defecto, según `f.q`. */
+  includeArchived?: boolean
 ): ConversationDto[] {
   return filterConversations(items, {
     query: f.q,
@@ -304,7 +307,13 @@ export function visibleConversations(
     closing: f.closing,
     viewerId,
     now,
+    includeArchived,
   }).visible;
+}
+
+/** 022: ¿estos filtros traen archivadas fuera de su vista? (búsqueda con texto). */
+export function searchIncludesArchived(f: InboxFilters): boolean {
+  return f.q.trim() !== "";
 }
 
 /**
@@ -326,11 +335,14 @@ export function displayedConversations(
   now: number = Date.now()
 ): ConversationDto[] {
   const serverFiltered = loadedKey !== null && loadedKey === buildListQuery(f);
+  // 022: la regla de archivo se decide con la búsqueda ORIGINAL: con `q: ""`
+  // el espejo tiraría las archivadas que el servidor devolvió por la búsqueda.
   return visibleConversations(
     items,
     serverFiltered ? { ...f, q: "" } : f,
     viewerId,
-    now
+    now,
+    searchIncludesArchived(f)
   );
 }
 
@@ -419,6 +431,7 @@ export function countsFromLoaded(
     unread: count({ filter: "unread" }),
     human: count({ filter: "human" }),
     mine: count({ filter: "mine" }),
+    archived: count({ filter: "archived" }),
     unassigned: count({ unassigned: true }),
     closing: count({ closing: true }),
     byChannel: {
@@ -431,8 +444,13 @@ export function countsFromLoaded(
       post: count({ origin: "post" }),
       none: count({ origin: "none" }),
     },
-    unreadConversations: items.filter((c) => c.unreadCount > 0).length,
-    unreadMessages: items.reduce((a, c) => a + c.unreadCount, 0),
+    // 022: el badge no cuenta archivadas (espejo del servidor).
+    unreadConversations: items.filter((c) => c.unreadCount > 0 && c.archivedAt == null)
+      .length,
+    unreadMessages: items.reduce(
+      (a, c) => a + (c.archivedAt == null ? c.unreadCount : 0),
+      0
+    ),
     teamMode: items.some((c) => c.assignedTo !== null),
   };
 }

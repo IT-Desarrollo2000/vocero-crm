@@ -46,6 +46,7 @@ export const GET = withAuth(async (session, _req: Request, ctx: Params) => {
           name: stageRow.stage.name,
           position: stageRow.stage.position,
           kind: stageRow.stage.kind,
+          keepActive: stageRow.stage.keepActive,
         }
       : null,
     lead: stageRow ? { id: stageRow.lead.id } : null,

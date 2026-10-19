@@ -15,6 +15,7 @@ import {
   markReconnectRequired,
 } from "@/server/whatsapp/credentials";
 import { callGraphSend, SendError } from "@/server/inbox/send";
+import { UNARCHIVE_SET } from "@/server/inbox/archive";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
 
@@ -398,9 +399,11 @@ export async function sendTemplate(input: {
     .returning();
   const message = inserted[0]!;
 
+  // 022: la plantilla aceptada desarchiva (un `failed` posterior por webhook
+  // la deja desarchivada: aceptado, ver `persistOutbound`).
   await db
     .update(schema.conversation)
-    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+    .set({ lastMessageAt: new Date(), updatedAt: new Date(), ...UNARCHIVE_SET })
     .where(eq(schema.conversation.id, input.conversationId));
 
   publish(input.organizationId, {

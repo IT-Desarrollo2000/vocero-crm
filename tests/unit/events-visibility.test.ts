@@ -118,6 +118,13 @@ describe("decideDelivery — asignación", () => {
     expect(await decideDelivery(labRun, seller, never)).toEqual({ kind: "drop" });
     expect(await decideDelivery(booking, seller, never)).toEqual({ kind: "deliver" });
   });
+
+  it("022: conversations.bulk (sin ids) → deliver a ambos roles, sin consultar la BD", async () => {
+    const bulk: SseEvent = { type: "conversations.bulk", data: { reason: "auto" } };
+    expect(await decideDelivery(bulk, seller, never)).toEqual({ kind: "deliver" });
+    expect(await decideDelivery(bulk, { role: "owner" }, never)).toEqual({ kind: "deliver" });
+    expect(never.canSee).not.toHaveBeenCalled();
+  });
 });
 
 /**

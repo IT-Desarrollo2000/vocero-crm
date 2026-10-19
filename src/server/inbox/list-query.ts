@@ -27,10 +27,20 @@ export const INBOX_FILTERS: readonly InboxFilter[] = [
   "mine",
   "unassigned",
   "closing",
+  "archived",
 ];
 
-/** 020: vistas excluyentes de la Bandeja (`?filter=`). */
-export const INBOX_VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human"];
+/**
+ * 020: vistas excluyentes de la Bandeja (`?filter=`). 022: `archived`. Espejo
+ * de `VIEWS` en `src/components/inbox/list-state.ts` (un unit los compara).
+ */
+export const INBOX_VIEWS: readonly InboxView[] = [
+  "all",
+  "unread",
+  "mine",
+  "human",
+  "archived",
+];
 
 /** 020: valores de `?origin=`. */
 export const INBOX_ORIGINS: readonly InboxOrigin[] = ["ad", "post", "none"];

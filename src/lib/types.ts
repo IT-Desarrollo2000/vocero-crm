@@ -72,7 +72,17 @@ export type ConversationDto = {
    * que pinta la fila: el detalle completo va en `GET /api/contacts/[id]`.
    */
   anuncio: { headline: string | null; sourceType: string | null } | null;
+  /**
+   * 022: ISO de cuándo se archivó, o null = en la Bandeja. Archivada = fuera
+   * de las vistas normales salvo la vista `archived` o una búsqueda con texto.
+   */
+  archivedAt: string | null;
+  /** 022: por qué se archivó, o null si no está archivada. */
+  archivedReason: ArchivedReason | null;
 };
+
+/** 022: motivo de archivo (mismo catálogo que `ARCHIVED_REASONS` del schema). */
+export type ArchivedReason = "manual" | "bulk" | "auto";
 
 /**
  * 020: anuncio de origen del CONTACTO (el primero que lo trajo, D1), tal como
@@ -108,14 +118,22 @@ export type AssignedFilter = "me" | "unassigned" | "all";
  * intersectan). Valor desconocido → `all` (tolerante).
  */
 /** 05: `closing` = «Ventana por cerrar» (< 2 h de las 24 h, `src/lib/closing-window.ts`). */
-export type InboxFilter = "all" | "unread" | "human" | "mine" | "unassigned" | "closing";
+/** 022: `archived` = solo las archivadas (el resto de pastillas las excluye). */
+export type InboxFilter =
+  | "all"
+  | "unread"
+  | "human"
+  | "mine"
+  | "unassigned"
+  | "closing"
+  | "archived";
 
 /**
  * 020 (rediseño 4.4): VISTA de la Bandeja, excluyente — `?filter=`. Los
  * valores viejos `unassigned`/`closing` del mismo parámetro siguen
  * aceptándose: hoy son filtros combinables (`?unassigned=1`, `?closing=1`).
  */
-export type InboxView = "all" | "unread" | "mine" | "human";
+export type InboxView = "all" | "unread" | "mine" | "human" | "archived";
 
 /**
  * 020: filtro Origen, `?origin=`. `ad` = la conversación llegó por un anuncio;
@@ -148,12 +166,19 @@ export type ConversationsPage = {
  * - `byChannel[x]` = base ∧ vista ∧ filtros-sin-canal ∧ canal x;
  * - `unreadConversations`/`unreadMessages`/`teamMode` = solo visibilidad.
  * Sin vista ni filtros nuevos coincide con el contrato 06-0.
+ *
+ * 022 — Archivo: cada número excluye las archivadas (`archived_at IS NULL`)
+ * salvo con búsqueda `q` (cuenta ambas) o si la vista que cuenta es
+ * `archived`. `archived` = base ∧ archivadas ∧ filtros. El badge
+ * (`unreadConversations`/`unreadMessages`) excluye siempre las archivadas.
  */
 export type ConversationCounts = {
   all: number;
   unread: number;
   human: number;
   mine: number;
+  /** 022: vista «Archivadas». */
+  archived: number;
   unassigned: number;
   /** 05: «Ventana por cerrar» (misma capa que las demás pastillas). */
   closing: number;
@@ -285,6 +310,8 @@ export type StageDto = {
   name: string;
   position: number;
   kind: "open" | "won" | "lost";
+  /** 022: "No archivar" — sus leads quedan fuera del archivo masivo/auto. */
+  keepActive: boolean;
 };
 
 /** Un dato de la ficha. Escalar a propósito: ver `server/bot/ficha`. */

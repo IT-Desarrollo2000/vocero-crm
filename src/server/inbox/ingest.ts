@@ -1,7 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { Channel } from "@/lib/channels";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import { scoped } from "@/lib/db/tenant";
+import { UNARCHIVE_SET } from "@/server/inbox/archive";
 import { normalizeMx } from "@/lib/meta/client";
 import { publish } from "@/server/events/bus";
 import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
@@ -351,9 +353,10 @@ async function ingestManualEcho(
     : null;
 
   // Solo lastMessageAt: un mensaje del negocio NUNCA abre la ventana de 24 h.
+  // 022: el eco del teléfono es un saliente exitoso → desarchiva.
   await db
     .update(schema.conversation)
-    .set({ lastMessageAt: waTimestamp, updatedAt: new Date() })
+    .set({ lastMessageAt: waTimestamp, updatedAt: new Date(), ...UNARCHIVE_SET })
     .where(eq(schema.conversation.id, conversation.id));
 
   // Pausa automática de la IA, idempotente y atómica (solo si no hay handoff):
@@ -445,6 +448,20 @@ export async function registrarOrigenSinMensaje(input: {
     conversationId: conversation.id,
     anuncio: input.anuncio,
   });
+  // 022: el anuncio cuenta como entrante → desarchiva. UPDATE explícito (este
+  // camino no toca la conversación) y solo si estaba archivada: así no sube
+  // `updated_at` en balde.
+  await getDb()
+    .update(schema.conversation)
+    .set({ ...UNARCHIVE_SET, updatedAt: new Date() })
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversation.id),
+        isNotNull(schema.conversation.archivedAt)
+      )
+    );
   // La Bandeja repinta la fila (y su etiqueta de origen) por `?ids=`.
   publish(organizationId, {
     type: "conversation.updated",
@@ -577,6 +594,9 @@ export async function ingestInboundMessage(input: {
       lastMessageAt: waTimestamp,
       unreadCount: sql`${schema.conversation.unreadCount} + 1`,
       updatedAt: new Date(),
+      // 022: un entrante devuelve la conversación a la Bandeja (tras el
+      // dedupe: un duplicado no desarchiva).
+      ...UNARCHIVE_SET,
     })
     .where(eq(schema.conversation.id, conversation.id));
 

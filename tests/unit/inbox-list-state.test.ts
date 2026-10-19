@@ -53,6 +53,8 @@ function mk(
     sortAt: "2026-01-01T00:00:00.000Z",
     stageId: null,
     anuncio: null,
+    archivedAt: null,
+    archivedReason: null,
     ...rest,
   } satisfies ConversationDto;
 }
@@ -395,5 +397,75 @@ describe("filtros combinables y URL de la página (020)", () => {
     expect(
       ids(visibleConversations(items, f({ filter: "unread", origin: "none" }), "u1"))
     ).toEqual([]);
+  });
+});
+
+describe("022 — espejo de la regla de archivo", () => {
+  const viva = mk({ name: "Ana Viva", unreadCount: 2 });
+  const archivada = mk({
+    name: "Ana Archivada",
+    unreadCount: 3,
+    archivedAt: "2026-10-05T12:00:00.000Z",
+    archivedReason: "manual",
+  });
+  const items = [viva, archivada];
+
+  it("vistas normales excluyen archivadas; la vista archived solo trae ellas", () => {
+    for (const filter of ["all", "unread", "mine", "human"] as const) {
+      expect(ids(visibleConversations(items, f({ filter }), undefined)), filter).not.toContain(
+        archivada.id
+      );
+    }
+    expect(ids(visibleConversations(items, f({ filter: "archived" }), undefined))).toEqual([
+      archivada.id,
+    ]);
+    expect(matchesFilters(archivada, f(), undefined)).toBe(false);
+    expect(matchesFilters(archivada, f({ filter: "archived" }), undefined)).toBe(true);
+    expect(matchesFilters(viva, f({ filter: "archived" }), undefined)).toBe(false);
+  });
+
+  it("con búsqueda entran ambas (salvo en la vista archived)", () => {
+    expect(ids(visibleConversations(items, f({ q: "ana" }), undefined)).sort()).toEqual(
+      [viva.id, archivada.id].sort()
+    );
+    expect(ids(visibleConversations(items, f({ q: "ana", filter: "archived" }), undefined))).toEqual(
+      [archivada.id]
+    );
+    // Una q en blanco no es búsqueda.
+    expect(ids(visibleConversations(items, f({ q: "   " }), undefined))).toEqual([viva.id]);
+  });
+
+  it("displayedConversations: la búsqueda ya resuelta por el servidor NO tira las archivadas", () => {
+    const activos = f({ q: "ana" });
+    const shown = displayedConversations(items, buildListQuery(activos), activos, undefined);
+    expect(ids(shown).sort()).toEqual([viva.id, archivada.id].sort());
+    // Sin búsqueda, la misma página cargada no pinta archivadas.
+    const sinQ = f();
+    expect(ids(displayedConversations(items, buildListQuery(sinQ), sinQ, undefined))).toEqual([
+      viva.id,
+    ]);
+  });
+
+  it("countsFromLoaded: archived propio; el resto y el badge sin archivadas", () => {
+    const counts = countsFromLoaded(items, f(), undefined);
+    expect(counts.all).toBe(1);
+    expect(counts.unread).toBe(1);
+    expect(counts.archived).toBe(1);
+    expect(counts.byChannel.whatsapp).toBe(1);
+    expect(counts.unreadConversations).toBe(1);
+    expect(counts.unreadMessages).toBe(2);
+    // En la vista archived, las facetas cuentan dentro de ella.
+    const enArchivadas = countsFromLoaded(items, f({ filter: "archived" }), undefined);
+    expect(enArchivadas.byChannel.whatsapp).toBe(1);
+    expect(enArchivadas.all).toBe(1);
+    // Con búsqueda, `all` incluye ambas.
+    expect(countsFromLoaded(items, f({ q: "ana" }), undefined).all).toBe(2);
+  });
+
+  it("la URL acepta ?filter=archived y lo reenvía al servidor", () => {
+    const parsed = filtersFromSearchParams(new URLSearchParams("filter=archived"));
+    expect(parsed.filter).toBe("archived");
+    expect(params(buildListQuery(parsed))).toEqual({ limit: "50", filter: "archived" });
+    expect(params(buildCountsQuery(parsed))).toEqual({ filter: "archived" });
   });
 });

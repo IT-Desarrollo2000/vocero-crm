@@ -212,6 +212,70 @@ describe("listConversations — lista paginada (keyset)", () => {
     );
   });
 
+  it("022: capa de archivo — fuera salvo vista archived o búsqueda con texto", async () => {
+    const listSql = async (opts: Parameters<typeof listConversations>[2]) => {
+      calls.length = 0;
+      await listConversations("org_1", owner, { limit: 10, ...opts });
+      return calls.find(isList)!.sql;
+    };
+    // Vistas normales (y sin vista): excluyen archivadas.
+    for (const filter of ["all", "unread", "human", "mine"] as const) {
+      const s = await listSql({ filter });
+      expect(s, filter).toContain('"conversation"."archived_at" is null');
+      expect(s, filter).not.toContain('"archived_at" is not null');
+    }
+    expect(await listSql({})).toContain('"conversation"."archived_at" is null');
+    // Vista Archivadas: solo ellas, sin la capa.
+    const archived = await listSql({ filter: "archived" });
+    expect(archived).toContain('"conversation"."archived_at" is not null');
+    expect(archived).not.toContain('"archived_at" is null');
+    // Con búsqueda: ambas (ni IS NULL ni IS NOT NULL).
+    const searched = await listSql({ q: "ana" });
+    expect(searched).toContain("like");
+    expect(searched).not.toMatch(/"conversation"."archived_at" is/);
+    // Búsqueda dentro de Archivadas: sigue siendo solo archivadas.
+    expect(await listSql({ filter: "archived", q: "ana" })).toContain(
+      '"archived_at" is not null'
+    );
+    // Una q en blanco no cuenta como búsqueda.
+    expect(await listSql({ q: "   " })).toContain('"archived_at" is null');
+    // `since` usa el mismo WHERE.
+    expect(await listSql({ since: new Date("2026-10-01T00:00:00.000Z") })).toContain(
+      '"archived_at" is null'
+    );
+  });
+
+  it("022: modos sueltos (?ids=, ?contact=) no filtran por archivo", async () => {
+    await listConversations("org_1", owner, { ids: ["cv_1"] });
+    expect(calls.find(isList)!.sql).not.toMatch(/"conversation"."archived_at" is/);
+    calls.length = 0;
+    await listConversations("org_1", owner, { contactId: "ct_1" });
+    expect(calls.find(isList)!.sql).not.toMatch(/"conversation"."archived_at" is/);
+  });
+
+  it("022: el DTO lleva archivedAt (ISO) y archivedReason", async () => {
+    responder = (c) =>
+      isList(c)
+        ? [
+            positional(LIST_SELECTION, {
+              conversation: conversationRow("cv_a", {
+                archivedAt: ts("2026-10-05T12:00:00.000Z"),
+                archivedReason: "bulk",
+              }),
+              contact: contactRow("ct_cv_a"),
+              sortKey: "2026-10-01 10:00:00.000000",
+            }),
+            listRow("cv_b", "2026-10-01 09:00:00.000000"),
+          ]
+        : [];
+    const page = await listConversations("org_1", owner, { q: "nombre" });
+    const [a, b] = page.conversations;
+    expect(a?.archivedAt).toBe("2026-10-05T12:00:00.000Z");
+    expect(a?.archivedReason).toBe("bulk");
+    expect(b?.archivedAt).toBeNull();
+    expect(b?.archivedReason).toBeNull();
+  });
+
   it("nextCursor = la última fila DEVUELTA (sortKey con µs), no la extra", async () => {
     responder = (c) =>
       isList(c)
@@ -409,6 +473,7 @@ describe("countConversations — capas del contrato 06-0", () => {
     "unread",
     "human",
     "mine",
+    "archived",
     "unassigned",
     "closing",
     "whatsapp",
@@ -453,9 +518,21 @@ describe("countConversations — capas del contrato 06-0", () => {
       expect(seg[k]).toContain("like");
       expect(seg[k]?.match(/"channel" = \$/g)).toHaveLength(1);
     }
-    // Badge: solo visibilidad (sin q/stage/channel/assigned).
-    expect(seg.unreadConversations).toMatch(/^"conversation"\."unread_count" > \$\d+$/);
-    expect(q.sql).toContain('coalesce(sum("conversation"."unread_count"), 0)::int');
+    // 022: con búsqueda, ninguna vista lleva la capa de archivo (entran ambas);
+    // `archived` = base ∧ filtros ∧ IS NOT NULL.
+    for (const k of ["all", "unread", "human", "mine", "unassigned", "closing"] as const) {
+      expect(seg[k]).not.toContain('"archived_at" is null');
+    }
+    expect(seg.archived).toContain('"conversation"."archived_at" is not null');
+    expect(seg.archived).toContain("like");
+    expect(seg.archived).toContain('"conversation"."channel" = $');
+    // Badge: solo visibilidad (sin q/stage/channel/assigned) ∧ no archivada.
+    expect(seg.unreadConversations).toMatch(
+      /^\("conversation"\."unread_count" > \$\d+ and "conversation"\."archived_at" is null\)$/
+    );
+    expect(q.sql).toContain(
+      'coalesce(sum("conversation"."unread_count") filter (where "conversation"."archived_at" is null), 0)::int'
+    );
     // El vendedor no cuenta miembros (teamMode siempre true).
     expect(calls.some(isMembers)).toBe(false);
   });
@@ -491,16 +568,41 @@ describe("countConversations — capas del contrato 06-0", () => {
     expect(seg.originAd).toContain("is distinct from 'post'");
   });
 
-  it("sin filtros → FILTER (where true) y el canal pedido no toca byChannel", async () => {
+  it("sin filtros → solo la capa de archivo y el canal pedido no toca byChannel", async () => {
     await countConversations("org_1", owner, {});
     const seg = segments(calls.find(isCounts)!.sql);
-    expect(seg[0]).toBe("true");
-    expect(seg[6]).toMatch(/^"conversation"\."channel" = \$\d+$/);
+    // 022: sin q ni vista `archived`, todo número excluye las archivadas.
+    expect(seg[0]).toBe('"conversation"."archived_at" is null');
+    expect(seg[4]).toBe('"conversation"."archived_at" is not null');
+    expect(seg[7]).toMatch(
+      /^\("conversation"\."archived_at" is null and "conversation"\."channel" = \$\d+\)$/
+    );
+  });
+
+  it("022: vista archived — las vistas llevan su propia capa; las facetas, la de archived", async () => {
+    await countConversations("org_1", owner, { filter: "archived", origin: "ad" });
+    const q = calls.find(isCounts)!;
+    const seg = Object.fromEntries(KEYS.map((k, i) => [k, segments(q.sql)[i]!]));
+    // Las otras vistas (lo que verías al elegirlas) siguen sin archivadas.
+    for (const k of ["all", "unread", "human", "mine"] as const) {
+      expect(seg[k]).toContain('"archived_at" is null');
+      expect(seg[k]).not.toContain('"archived_at" is not null');
+    }
+    expect(seg.archived).toContain('"archived_at" is not null');
+    expect(seg.archived).not.toContain('"archived_at" is null');
+    // Facetas dentro de la vista activa (archived): IS NOT NULL, sin capa.
+    for (const k of ["unassigned", "closing", "whatsapp", "originAd", "originNone"] as const) {
+      expect(seg[k]).toContain('"archived_at" is not null');
+      expect(seg[k]).not.toContain('"archived_at" is null');
+    }
+    // El badge excluye archivadas siempre.
+    expect(seg.unreadConversations).toContain('"archived_at" is null');
+    expect(q.sql).not.toContain("now()");
   });
 
   it("los números vuelven como Number aunque el driver mande texto", async () => {
     responder = (c) => {
-      if (isCounts(c)) return [["9", "2", "3", "1", "4", "2", "7", "1", "1", "3", "2", "6", "5", "12", false]];
+      if (isCounts(c)) return [["9", "2", "3", "1", "8", "4", "2", "7", "1", "1", "3", "2", "6", "5", "12", false]];
       if (isMembers(c)) return [["1"]];
       return [];
     };
@@ -510,6 +612,7 @@ describe("countConversations — capas del contrato 06-0", () => {
       unread: 2,
       human: 3,
       mine: 1,
+      archived: 8,
       unassigned: 4,
       closing: 2,
       byChannel: { whatsapp: 7, instagram: 1, messenger: 1 },
@@ -523,7 +626,7 @@ describe("countConversations — capas del contrato 06-0", () => {
   it("teamMode: owner solo y sin asignadas → false; con 2 miembros o una asignada → true; vendedor → true", async () => {
     const run = async (viewer: typeof owner | typeof seller, members: string, any: boolean) => {
       responder = (c) => {
-        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
+        if (isCounts(c)) return [["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", any]];
         if (isMembers(c)) return [[members]];
         return [];
       };

@@ -3,6 +3,7 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
 import { publish } from "@/server/events/bus";
+import { UNARCHIVE_SET } from "@/server/inbox/archive";
 import {
   getCredentialsByOrg,
   markReconnectRequired,
@@ -426,9 +427,16 @@ async function persistOutbound(input: {
     .returning();
   const message = inserted[0]!;
 
+  // 022: un saliente aceptado (operador, agente, bot API, catálogo) desarchiva;
+  // uno que ya falló, no. Aceptado: si WhatsApp lo marca `failed` después
+  // (webhook `pending` → `failed`), la conversación queda desarchivada.
   await db
     .update(schema.conversation)
-    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+    .set({
+      lastMessageAt: new Date(),
+      updatedAt: new Date(),
+      ...(input.status !== "failed" ? UNARCHIVE_SET : {}),
+    })
     .where(eq(schema.conversation.id, input.conversationId));
 
   publish(input.organizationId, {

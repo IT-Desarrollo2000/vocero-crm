@@ -38,6 +38,12 @@ export type SseEvent =
     }
   /** 015 — algo cambió en la agenda: la pantalla de Citas se refresca sola. */
   | { type: "booking.updated"; data: { bookingId: string } }
+  /**
+   * 022 — Archivo masivo o automático: UN evento por operación, SIN ids ni
+   * cuántas: "recarga la lista y los contadores con tu vista". Viaja a todos
+   * los roles; el cliente recarga la primera página (no fusiona).
+   */
+  | { type: "conversations.bulk"; data: { reason: "bulk" | "auto" } }
   | {
       type: "lab.run";
       data: {

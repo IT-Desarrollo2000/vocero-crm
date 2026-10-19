@@ -15,6 +15,11 @@ const patchSchema = z.object({
   aiEnabled: z.boolean().optional(),
   reactivate: z.boolean().optional(),
   markRead: z.boolean().optional(),
+  /**
+   * 022: archivar (`true`) / desarchivar (`false`). Vendedor y Propietario,
+   * con su visibilidad; una `is_test` → 404.
+   */
+  archived: z.boolean().optional(),
 });
 
 type Params = { params: Promise<{ id: string }> };

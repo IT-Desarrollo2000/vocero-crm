@@ -11,11 +11,11 @@ import {
 
 /** Las etapas que siembra `on-signup.ts`. */
 const SEED: StageDto[] = [
-  { id: "st_1", name: "Nuevo", position: 0, kind: "open" },
-  { id: "st_2", name: "En conversación", position: 1, kind: "open" },
-  { id: "st_3", name: "Interesado", position: 2, kind: "open" },
-  { id: "st_4", name: "Cliente", position: 3, kind: "won" },
-  { id: "st_5", name: "Perdido", position: 4, kind: "lost" },
+  { id: "st_1", name: "Nuevo", position: 0, kind: "open", keepActive: false },
+  { id: "st_2", name: "En conversación", position: 1, kind: "open", keepActive: false },
+  { id: "st_3", name: "Interesado", position: 2, kind: "open", keepActive: false },
+  { id: "st_4", name: "Cliente", position: 3, kind: "won", keepActive: false },
+  { id: "st_5", name: "Perdido", position: 4, kind: "lost", keepActive: false },
 ];
 
 describe("stageColor", () => {
@@ -48,10 +48,10 @@ describe("stageColor", () => {
   it("las abiertas se colorean por su lugar entre las abiertas, no por position cruda", () => {
     // Huecos (se borró una etapa) y una abierta creada DESPUÉS de las anclas.
     const gaps: StageDto[] = [
-      { id: "a", name: "Uno", position: 10, kind: "open" },
-      { id: "w", name: "Ganado", position: 20, kind: "won" },
-      { id: "b", name: "Dos", position: 35, kind: "open" },
-      { id: "c", name: "Tres", position: 50, kind: "open" },
+      { id: "a", name: "Uno", position: 10, kind: "open", keepActive: false },
+      { id: "w", name: "Ganado", position: 20, kind: "won", keepActive: false },
+      { id: "b", name: "Dos", position: 35, kind: "open", keepActive: false },
+      { id: "c", name: "Tres", position: 50, kind: "open", keepActive: false },
     ];
     expect(stageColorByName("Uno", gaps)).toBe(OPEN_STAGE_PALETTE[0]);
     expect(stageColorByName("Dos", gaps)).toBe(OPEN_STAGE_PALETTE[1]);
@@ -69,6 +69,7 @@ describe("stageColor", () => {
       name: `E${i}`,
       position: i,
       kind: "open",
+      keepActive: false,
     }));
     expect(stageColorByName(`E${OPEN_STAGE_PALETTE.length}`, many)).toBe(OPEN_STAGE_PALETTE[0]);
   });

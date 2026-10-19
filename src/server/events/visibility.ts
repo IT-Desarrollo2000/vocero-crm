@@ -94,6 +94,9 @@ export async function decideDelivery(
     }
     case "booking.updated":
       return { kind: "deliver" };
+    // 022: sin ids ni datos de conversación: cada quien recarga con su vista.
+    case "conversations.bulk":
+      return { kind: "deliver" };
     default:
       // Tipo nuevo sin clasificar: cerrar por defecto hasta decidir su regla.
       return { kind: "drop" };
