@@ -23,7 +23,9 @@
  *      nombre de respaldo (el teléfono) y la tarjeta dice «(sin nombre)»
  *   h) el Vendedor la ve (sin asignar) y lee sus mensajes
  *   i) el agente no corre: sin salientes y sin escalamiento (ventana)
- *   j) métricas del agente (M1/M4/M8) sin cambios por las tarjetas
+ *   j) métricas del agente (M1/M4/M8) y del Resumen 021 (personas,
+ *      entrantes, por hora) sin cambios por las tarjetas; el lead sin
+ *      atender SÍ sale en pendientes del Resumen
  *   k) Ajustes: último lead por origen · /api/bot/typing ignora `intake:%`
  *   l) Playwright: la Bandeja abierta pinta la conversación nueva EN VIVO, la
  *      pestaña en segundo plano recibe UNA alerta, el hilo muestra la tarjeta
@@ -211,6 +213,24 @@ async function login() {
   ok("owner con sesión", su.res.ok, short(su));
 }
 
+/** Reportes → Resumen (021): lo que una tarjeta de lead NO debe mover, y pendientes. */
+async function summaryReport() {
+  const r = await owner.api("/api/reports/summary?range=30d");
+  const d = (b) => (r.json?.[b]?.ok ? r.json[b].data : null);
+  const att = d("attention");
+  const byHour = (d("byHour")?.rows ?? []).reduce((n, row) => n + (row.inbound ?? 0), 0);
+  const pending = d("pending");
+  return {
+    ok: r.res.ok && !!att && !!pending,
+    persons: att?.persons ?? null,
+    inbound: att?.inbound ?? null,
+    byHour,
+    pendingTotal: pending?.total ?? null,
+    pendingIds: (pending?.rows ?? []).map((row) => row.conversationId),
+    raw: r,
+  };
+}
+
 async function agentReport() {
   const r = await owner.api("/api/reports/agent?range=30d");
   const d = (b) => (r.json?.[b]?.ok ? r.json[b].data : null);
@@ -311,6 +331,8 @@ async function onChecks() {
 
   const before = await agentReport();
   ok("reporte del agente (antes) → 200", before.ok, short(before.raw));
+  const sumBefore = await summaryReport();
+  ok("Resumen 021 (antes) → 200", sumBefore.ok, short(sumBefore.raw));
 
   console.log("\n== e) Alta desde el formulario web ==");
   const digits = ten();
@@ -433,6 +455,11 @@ async function onChecks() {
   ok("M1/M2: activas sin cambio", after.active === before.active, `${before.active} → ${after.active}`);
   ok("M8: entrantes sin cambio", after.volIn === before.volIn, `${before.volIn} → ${after.volIn}`);
   ok("M4: sesiones sin cambio", after.sessions === before.sessions, `${before.sessions} → ${after.sessions}`);
+  const sumAfter = await summaryReport();
+  ok("Resumen 021: personas sin cambio", sumAfter.persons === sumBefore.persons, `${sumBefore.persons} → ${sumAfter.persons}`);
+  ok("Resumen 021: entrantes sin cambio", sumAfter.inbound === sumBefore.inbound, `${sumBefore.inbound} → ${sumAfter.inbound}`);
+  ok("Resumen 021: por hora sin cambio", sumAfter.byHour === sumBefore.byHour, `${sumBefore.byHour} → ${sumAfter.byHour}`);
+  ok("Resumen 021: el lead sin atender SÍ está en pendientes", sumAfter.pendingTotal > sumBefore.pendingTotal && sumAfter.pendingIds.includes(convId), JSON.stringify({ before: sumBefore.pendingTotal, after: sumAfter.pendingTotal, has: sumAfter.pendingIds.includes(convId) }));
 
   console.log("\n== k) Último recibido y /api/bot/typing ==");
   const g2 = (await owner.api("/api/settings/intake")).json?.intake;
@@ -479,7 +506,10 @@ async function onChecks() {
 
   console.log("\n== n0) Los fallos se cuentan por IP y no frenan al ERP ==");
   // El "atacante" llega desde otra IP (X-Forwarded-For, como la ve el
-  // limitador del login); el ERP, desde la de siempre.
+  // limitador del login); el ERP, desde la de siempre. La UI (l) ya rotó la
+  // clave: se genera una vigente para esta sección.
+  const KEY_N0 = (await owner.api("/api/settings/intake", { method: "PUT" })).json?.key;
+  ok("clave vigente para n0", !!KEY_N0);
   const ATTACKER = { "x-forwarded-for": `203.0.113.${Math.floor(Math.random() * 200) + 20}` };
   const postFrom = (headers, key, payload) =>
     anon.api("/api/intake/lead", {
@@ -493,9 +523,9 @@ async function onChecks() {
   }
   ok("20 intentos fallidos → 401 cada uno", attempts.slice(0, 20).every((s) => s === 401), attempts.join(","));
   ok("del 21 en adelante → 429 para esa IP", attempts.slice(20).every((s) => s === 429), attempts.join(","));
-  const blocked = await postFrom(ATTACKER, KEY, lead());
+  const blocked = await postFrom(ATTACKER, KEY_N0, lead());
   ok("esa IP bloqueada → 429 rate_limited sin detalle (ni con la clave buena)", blocked.res.status === 429 && blocked.json?.error?.code === "rate_limited", short(blocked));
-  const erp = await postLead(KEY, lead({ first_name: `Tras ataque ${S}` }));
+  const erp = await postLead(KEY_N0, lead({ first_name: `Tras ataque ${S}` }));
   ok("una con la clave buena desde otra IP → 201", erp.res.status === 201, short(erp));
 
   console.log("\n== n) Rotar y revocar ==");
