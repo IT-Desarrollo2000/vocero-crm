@@ -4,6 +4,7 @@ import { schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { titularDeOrigen } from "@/lib/anuncios";
 import { CHANNEL_ORDER, isChannel, type Channel } from "@/lib/channels";
+import { LEAD_INTAKE_TYPE } from "@/lib/lead-intake";
 import {
   ADS_REPORT_MAX_ROWS,
   SUMMARY_PENDING_MAX_ROWS,
@@ -61,6 +62,10 @@ import { closedCte, closedInRange, salesSummaryOf } from "./sales";
  *  - PENDIENTES = personas del rango sin saliente (no fallido) posterior a su
  *    ÚLTIMO entrante (de cualquier fecha): su último mensaje es entrante. La
  *    que más lleva esperando primero.
+ *  - TARJETAS de leads externos (011, `type = 'lead_intake'`): entrantes que
+ *    no escribió el cliente. Fuera de personas, mensajes, por hora y del
+ *    arranque del reloj del asesor; DENTRO de pendientes (un lead sin
+ *    atender está pendiente).
  *  - VENTAS y TIEMPOS DE PRIMERA RESPUESTA no se reimplementan: se reutilizan
  *    `salesSummaryOf` (Ventas) y `responseTimesSql` (Agente M4).
  *
@@ -95,6 +100,14 @@ const ADVISOR_ORIGINS = sql.raw(`('operator', 'manual')`);
 /** Laboratorio fuera, siempre. */
 const notTest = sql`${c.isTest} = false`;
 
+/**
+ * 011: la TARJETA de un lead externo es un entrante (`direction = 'in'`)
+ * pero no la escribió el cliente: no hace persona, no es volumen ni cuenta
+ * en la hora, y no arranca el reloj de la primera respuesta (como en
+ * `agent.ts`). Sí cuenta en PENDIENTES: un lead sin atender está pendiente.
+ */
+const notIntake = sql`${m.type} <> ${sql.raw(`'${LEAD_INTAKE_TYPE}'`)}`;
+
 function msgRange(p: SummaryReportParams): SQL {
   return sql`${m.createdAt} >= ${ts(p.fromUtc)} and ${m.createdAt} < ${ts(p.toUtc)}`;
 }
@@ -114,14 +127,27 @@ function outboundAfter(p: SummaryReportParams, conv: SQL, after: SQL, extra?: SQ
  * `pin` = las personas del rango (primer entrante y entrantes del rango);
  * `persons` = con canal, contacto, ¿nueva?, ¿contestada?, ¿atendida por
  * asesor?
+ *
+ * Por defecto las tarjetas de leads externos no hacen persona ni arrancan el
+ * reloj (`first_in_at`); `withLeadIntake` las incluye (solo PENDIENTES).
  */
-function personsCte(p: SummaryReportParams): SQL {
+function personsCte(
+  p: SummaryReportParams,
+  opts: { withLeadIntake?: boolean } = {}
+): SQL {
   return sql`pin as (
   select ${m.conversationId} as conversation_id,
     min(${m.createdAt}) as first_in_at,
     count(*)::int as inbound
   from ${M} join ${C} on ${c.id} = ${m.conversationId}
-  where ${scoped(m.organizationId, p.organizationId, notTest, sql`${m.direction} = 'in'`, msgRange(p))}
+  where ${scoped(
+    m.organizationId,
+    p.organizationId,
+    notTest,
+    sql`${m.direction} = 'in'`,
+    opts.withLeadIntake ? undefined : notIntake,
+    msgRange(p)
+  )}
   group by ${m.conversationId}
 ), persons as (
   select pin.conversation_id,
@@ -141,7 +167,7 @@ function personsCte(p: SummaryReportParams): SQL {
 
 // ── SQL ──────────────────────────────────────────────────────────────────
 
-/** Mensajes del rango por dirección × origen (salientes fallidos fuera). */
+/** Mensajes del rango por dirección × origen (salientes fallidos y tarjetas de lead fuera). */
 export function messagesSql(p: SummaryReportParams): SQL {
   return sql`select ${m.direction} as direction, ${m.origin} as origin, count(*)::int as n
 from ${M} join ${C} on ${c.id} = ${m.conversationId}
@@ -149,6 +175,7 @@ where ${scoped(
     m.organizationId,
     p.organizationId,
     notTest,
+    notIntake,
     sql`(${m.direction} = 'in' or ${m.status} <> 'failed')`,
     msgRange(p)
   )}
@@ -253,7 +280,7 @@ export function byHourSql(p: SummaryReportParams): SQL {
   return sql`select extract(hour from ((${m.createdAt} at time zone 'UTC') at time zone ${p.tz}))::int as hora,
   count(*)::int as n
 from ${M} join ${C} on ${c.id} = ${m.conversationId}
-where ${scoped(m.organizationId, p.organizationId, notTest, sql`${m.direction} = 'in'`, msgRange(p))}
+where ${scoped(m.organizationId, p.organizationId, notTest, notIntake, sql`${m.direction} = 'in'`, msgRange(p))}
 group by 1`;
 }
 
@@ -263,7 +290,8 @@ group by 1`;
  * = todas (la ventana se calcula antes del LIMIT).
  */
 export function pendingSql(p: SummaryReportParams): SQL {
-  return sql`with ${firstOriginCte(p)}, ${personsCte(p)},
+  // Con las tarjetas: un lead externo sin atender SÍ está pendiente.
+  return sql`with ${firstOriginCte(p)}, ${personsCte(p, { withLeadIntake: true })},
 pend as (
   select persons.conversation_id, persons.contact_id, persons.channel,
     li.last_in_at

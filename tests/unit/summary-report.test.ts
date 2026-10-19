@@ -120,6 +120,34 @@ describe("SQL", () => {
     expect(query.sql).toContain("order by pend.last_in_at asc, pend.conversation_id asc");
     expect(query.params).toContain(SUMMARY_PENDING_MAX_ROWS);
   });
+
+  // 011: la tarjeta de un lead externo es un entrante que no escribió el
+  // cliente (mismo criterio que agent-report-sql).
+  const NOT_INTAKE = `"m"."type" <> 'lead_intake'`;
+
+  it.each([
+    "personsSql",
+    "messagesSql",
+    "byHourSql",
+    "advisorFirstReplySql",
+    "byChannelSql",
+    "personsByAdSql",
+  ] as const)("011: %s deja fuera las tarjetas de leads externos", (name) => {
+    expect(q(name).sql).toContain(NOT_INTAKE);
+  });
+
+  it("011: el reloj del asesor arranca en el primer entrante que NO es tarjeta", () => {
+    const s = q("advisorFirstReplySql").sql;
+    const pin = s.slice(s.indexOf("pin as ("), s.indexOf("), persons as ("));
+    expect(pin).toContain("min(\"m\".\"created_at\") as first_in_at");
+    expect(pin).toContain(NOT_INTAKE);
+  });
+
+  it("011: pendientes SÍ cuentan las tarjetas (un lead sin atender está pendiente)", () => {
+    const s = q("pendingSql").sql;
+    expect(s).not.toContain("lead_intake");
+    expect(s).toContain(`"m"."direction" = 'in'`);
+  });
 });
 
 describe("forma", () => {
