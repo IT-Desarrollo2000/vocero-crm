@@ -169,6 +169,13 @@
       "when": 1792427034968,
       "tag": "0023_archivo_y_nombres",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792438620421,
+      "tag": "0024_leads_externos",
+      "breakpoints": true
     }
   ]
 }
