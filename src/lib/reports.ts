@@ -288,6 +288,8 @@ export type AdSourceKey =
   | "referido"
   | "conocido"
   | "otro"
+  | "web"
+  | "promotor"
   | "desconocida";
 
 export type AdsSourceRowDto = {

@@ -118,6 +118,9 @@ function guardProblem(h: Handler, policy: RoutePolicy): string | null {
     case "bot":
       // La guarda puede vivir en un helper del archivo: se mira el archivo.
       return /requireBotKey\(/.test(readFileSync(h.file, "utf8")) ? null : "sin requireBotKey(";
+    case "intake":
+      // 011: bandera → tasa global → clave del ERP, en su helper.
+      return /requireIntakeKey\(/.test(readFileSync(h.file, "utf8")) ? null : "sin requireIntakeKey(";
     case "dev":
       return /mockGuard\(/.test(readFileSync(h.file, "utf8")) ? null : "sin mockGuard(";
     case "public":

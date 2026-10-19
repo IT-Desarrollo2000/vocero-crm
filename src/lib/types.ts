@@ -455,7 +455,10 @@ export type SourceValue =
   | "organico"
   | "referido"
   | "conocido"
-  | "otro";
+  | "otro"
+  // 011: leads externos (formulario web / promotores de FastApp).
+  | "web"
+  | "promotor";
 
 export type SourceDto = {
   /** "desconocida" cuando nadie la capturó y no se pudo deducir. */

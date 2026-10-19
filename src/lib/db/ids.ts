@@ -47,6 +47,8 @@ const prefixes = {
   productVariant: "pvar",
   productFile: "pf",
   productFileUpload: "pfu",
+  // 011 — leads externos
+  intakeSettings: "intk",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

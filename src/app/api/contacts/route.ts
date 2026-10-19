@@ -116,7 +116,7 @@ const createSchema = z.object({
     .trim()
     .regex(/^\d{7,15}$/, "Teléfono en dígitos, con código de país (ej. 5215512345678)"),
   notes: z.string().max(4000).optional(),
-  source: z.enum(["anuncio", "organico", "referido", "conocido", "otro"]).optional(),
+  source: z.enum(["anuncio", "organico", "referido", "conocido", "otro", "web", "promotor"]).optional(),
   /** Etapa inicial del lead; si no viene, la primera abierta del tablero. */
   stageId: z.string().min(1).optional(),
 });

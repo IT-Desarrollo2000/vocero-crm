@@ -76,7 +76,7 @@ const patchSchema = z.object({
    * "sin identificar"). "desconocida" no es capturable.
    */
   source: z
-    .enum(["anuncio", "organico", "referido", "conocido", "otro"])
+    .enum(["anuncio", "organico", "referido", "conocido", "otro", "web", "promotor"])
     .nullable()
     .optional(),
 });

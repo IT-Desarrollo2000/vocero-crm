@@ -187,7 +187,16 @@ export const contact = pgTable(
      * que ya existían.
      */
     source: text("source", {
-      enum: ["anuncio", "organico", "referido", "conocido", "otro"],
+      enum: [
+        "anuncio",
+        "organico",
+        "referido",
+        "conocido",
+        "otro",
+        // 011: leads externos (formulario web y promotores de FastApp).
+        "web",
+        "promotor",
+      ],
     }),
     archivedAt: timestamp("archived_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -500,7 +509,8 @@ export const fichaEvent = pgTable(
     oldValue: jsonb("old_value").$type<string | number | boolean | null>(),
     /** Escalar (o NULL = borrado / intento sin valor guardable). */
     newValue: jsonb("new_value").$type<string | number | boolean | null>(),
-    source: text("source", { enum: ["ia", "humano", "bot"] }).notNull(),
+    // 011: `externo` = lo llenó un lead externo (formulario web / FastApp).
+    source: text("source", { enum: ["ia", "humano", "bot", "externo"] }).notNull(),
     /** Solo `source = "humano"`. */
     actorUserId: text("actor_user_id").references(() => user.id, {
       onDelete: "set null",
@@ -1480,6 +1490,31 @@ export const capiSettings = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("capi_settings_org_uq").on(t.organizationId)]
+);
+
+/**
+ * 011 — Clave con la que el ERP del negocio entrega sus leads externos
+ * (formulario web, FastApp) a `POST /api/intake/lead`. Cifrada en reposo con
+ * `lib/crypto`, igual que el token de WhatsApp; la vista solo dice sus
+ * últimos 4. `last_received_at`: ISO del último lead aceptado por origen
+ * (`{ website?: string, fast_app?: string }`).
+ */
+export const intakeSettings = pgTable(
+  "intake_settings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    keyCipher: text("key_cipher").notNull(),
+    keyIv: text("key_iv").notNull(),
+    keyTag: text("key_tag").notNull(),
+    keyLast4: text("key_last4").notNull(),
+    lastReceivedAt: jsonb("last_received_at").$type<Record<string, string>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("intake_settings_org_uq").on(t.organizationId)]
 );
 
 /* ============================================================

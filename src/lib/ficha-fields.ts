@@ -203,8 +203,12 @@ export const FICHA_TEMPLATE_AUTOS_ELECTRICOS: readonly FichaFieldDef[] = [
  * Procedencia por campo (RF-04-06 / RF-04-07)
  * ============================================================ */
 
-/** Quién escribió un valor: el agente in-process, una persona o el cerebro externo. */
-export const FICHA_SOURCES = ["ia", "humano", "bot"] as const;
+/**
+ * Quién escribió un valor: el agente in-process, una persona, el cerebro
+ * externo o (011) un lead externo del ERP (formulario web / FastApp). Este
+ * último sigue la regla de `bot`: respeta el candado humano.
+ */
+export const FICHA_SOURCES = ["ia", "humano", "bot", "externo"] as const;
 export type FichaSource = (typeof FICHA_SOURCES)[number];
 
 /**

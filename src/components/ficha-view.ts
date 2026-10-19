@@ -26,12 +26,13 @@ import type { FichaDto, FichaEventDto, FichaValue } from "@/lib/types";
  * Cómo se marca un valor:
  * - `ia`: lo llenó el agente in-process (chip "IA").
  * - `bot`: lo llenó el cerebro externo (chip "Bot").
+ * - `externo` (011): llegó con un lead del formulario web / FastApp (chip "Web").
  * - `humano`: lo editó el equipo (candado).
  * - `legado`: tiene valor pero no procedencia (anterior a 04). El agente no lo
  *   pisa, así que se pinta con candado y se puede desbloquear igual.
  * - `null`: sin valor, nada que marcar.
  */
-export type FichaProvenance = "ia" | "bot" | "humano" | "legado" | null;
+export type FichaProvenance = "ia" | "bot" | "externo" | "humano" | "legado" | null;
 
 export function fichaProvenance(
   entry: FichaMetaEntry | undefined,
@@ -58,6 +59,8 @@ export function provenanceTitle(
       return `Lo llenó el agente${cuando}`;
     case "bot":
       return `Lo llenó tu bot${cuando}`;
+    case "externo":
+      return `Llegó con el lead del sitio web / promotor${cuando}`;
     case "humano":
       return `Confirmado por el equipo${cuando}: el agente no lo cambia`;
     case "legado":
@@ -213,7 +216,9 @@ export function formatFichaEvent(
       ? "Agente"
       : e.source === "bot"
         ? "Bot"
-        : (e.actor?.name ?? "Alguien del equipo");
+        : e.source === "externo"
+          ? "Lead externo"
+          : (e.actor?.name ?? "Alguien del equipo");
   const antes = e.oldValue === null ? "—" : fichaValueText(e.oldValue);
   const despues = e.newValue === null ? "—" : fichaValueText(e.newValue);
   const aplicado = e.outcome === "aplicado";

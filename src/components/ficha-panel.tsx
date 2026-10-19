@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Bot,
   Check,
+  Globe,
   History,
   Lock,
   LockOpen,
@@ -342,6 +343,19 @@ function Procedencia({ fila }: { fila: FichaRow }) {
       >
         <Bot className="h-2.5 w-2.5" />
         Bot
+      </span>
+    );
+  }
+  if (p === "externo") {
+    return (
+      <span
+        title={title}
+        role="img"
+        aria-label={title}
+        className="mt-1 flex shrink-0 items-center gap-0.5 rounded-full border border-info-soft bg-info-tint px-1.5 text-[10px] font-medium text-info-text"
+      >
+        <Globe className="h-2.5 w-2.5" />
+        Web
       </span>
     );
   }

@@ -21,6 +21,8 @@ export type RoutePolicy =
   | "any*"
   /** `BOT_API_KEY` (`src/server/bot/auth.ts`), sin sesión. */
   | "bot"
+  /** 011: clave de leads externos (`requireIntakeKey`, `src/server/intake/auth.ts`), sin sesión. */
+  | "intake"
   /** `mockGuard()` (`src/lib/dev-guard.ts`): 404 en producción. */
   | "dev"
   /** Sin sesión, con su propia defensa (firma, segmento secreto…). */
@@ -147,6 +149,10 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/settings/capi": "owner",
   "PUT /api/settings/capi": "owner",
   "DELETE /api/settings/capi": "owner",
+  // 011 — clave de leads externos (404 si LEADS_EXTERNOS está apagada).
+  "GET /api/settings/intake": "owner",
+  "PUT /api/settings/intake": "owner",
+  "DELETE /api/settings/intake": "owner",
   "GET /api/settings/capi/events": "owner",
   "POST /api/settings/capi/events/retry": "owner",
   "POST /api/settings/capi/events/[id]/retry": "owner",
@@ -215,6 +221,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/bot/profile": "bot",
   "POST /api/bot/reset": "bot",
   "POST /api/bot/typing": "bot",
+
+  // ── Leads externos (011: clave del ERP; 404 sin LEADS_EXTERNOS) ────────
+  "POST /api/intake/lead": "intake",
 
   // ── Mocks del entorno de pruebas (404 en producción) ───────────────────
   "POST /api/dev/ai-mock/chat/completions": "dev",

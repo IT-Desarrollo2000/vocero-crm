@@ -15,6 +15,9 @@ export const SOURCE_VALUES: readonly SourceValue[] = [
   "organico",
   "referido",
   "conocido",
+  // 011: los pone la entrada de leads externos si nadie capturó otra.
+  "web",
+  "promotor",
   "otro",
 ];
 
@@ -23,6 +26,8 @@ export const SOURCE_LABELS: Record<SourceValue | "desconocida", string> = {
   organico: "Contenido orgánico",
   referido: "Referido",
   conocido: "Conocido",
+  web: "Sitio web",
+  promotor: "Promotor",
   otro: "Otro",
   desconocida: "Sin identificar",
 };
