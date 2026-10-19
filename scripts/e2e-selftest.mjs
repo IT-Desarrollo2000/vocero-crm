@@ -1186,6 +1186,8 @@ async function main() {
   await reporteAnunciosVendedorChecks();
   // 021: AL FINAL — Ventas y Resumen; también da de alta una Vendedora.
   await reportesVentasResumenChecks();
+  // 011: AL FINAL — crea contactos/conversaciones nuevos (no mueve conteos previos).
+  await leadsExternosChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -2072,9 +2074,10 @@ async function reporteAnunciosChecks() {
     `${base.res.status} ${JSON.stringify(base.json)?.slice(0, 300)}`
   );
   ok(
-    "por fuente: las seis fuentes en su orden",
+    // 011: + «Sitio web» y «Promotor» (leads externos), antes de «Otro».
+    "por fuente: las ocho fuentes en su orden",
     JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value)) ===
-      JSON.stringify(["anuncio", "organico", "referido", "conocido", "otro", "desconocida"]),
+      JSON.stringify(["anuncio", "organico", "referido", "conocido", "web", "promotor", "otro", "desconocida"]),
     JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value))
   );
 
@@ -2371,6 +2374,62 @@ async function reporteAnunciosVendedorChecks() {
     redirect: "manual",
   });
   ok("/reports/ads para el Vendedor → 404", p.status === 404, String(p.status));
+}
+
+/* ============================================================
+ * 011 — Leads externos (tests/e2e/us-leads-externos.md). Lo esencial con la
+ * bandera en cualquier posición; el recorrido completo (UI, alerta, métricas,
+ * agente, rotación, 429) vive en scripts/e2e-leads-externos.mjs.
+ * ============================================================ */
+async function leadsExternosChecks() {
+  const encendida = /^(on|1|true|si|sí|yes)$/i.test(
+    (process.env.LEADS_EXTERNOS ?? "").trim()
+  );
+  console.log(`\n== 011: leads externos (LEADS_EXTERNOS ${encendida ? "on" : "off"}) ==`);
+  /** Como el ERP: sin sesión, solo `X-API-Key`. */
+  const intake = async (key, payload) => {
+    const res = await fetch(`${BASE}/api/intake/lead`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(key ? { "x-api-key": key } : {}) },
+      body: JSON.stringify(payload),
+    });
+    return { res, json: await res.json().catch(() => null) };
+  };
+  const tenDigits = `55${String(Date.now()).slice(-8)}`;
+  const payload = {
+    lead_id: crypto.randomUUID(),
+    origin: "website",
+    first_name: "Lead",
+    last_name: `Selftest ${tenDigits.slice(-4)}`,
+    phone: tenDigits,
+    email: "lead.selftest@example.com",
+  };
+
+  if (!encendida) {
+    const r = await intake("x".repeat(43), payload);
+    ok("bandera apagada: POST /api/intake/lead → 404", r.res.status === 404, String(r.res.status));
+    const s = await api("/api/settings/intake");
+    ok("bandera apagada: GET /api/settings/intake → 404", s.res.status === 404, String(s.res.status));
+    return;
+  }
+
+  const gen = await api("/api/settings/intake", { method: "PUT" });
+  const key = gen.json?.key;
+  ok("Ajustes genera la clave (completa una sola vez)", gen.res.ok && typeof key === "string" && key.length === 43, String(gen.res.status));
+  ok("la vista solo trae sus últimos 4", gen.json?.intake?.keyLast4 === key?.slice(-4));
+  const bad = await intake(`${key}x`, payload);
+  ok("clave incorrecta → 401", bad.res.status === 401, String(bad.res.status));
+  const c = await intake(key, payload);
+  ok("lead del sitio web → 201", c.res.status === 201 && !!c.json?.conversationId, `${c.res.status} ${JSON.stringify(c.json)}`);
+  const dup = await intake(key, payload);
+  ok("mismo lead_id → 200 duplicate", dup.res.status === 200 && dup.json?.duplicate === true, JSON.stringify(dup.json));
+  const conv = (await api(`/api/conversations?ids=${c.json?.conversationId}`)).json?.conversations?.[0];
+  ok("conversación sin asignar, en modo plantilla, con el 52+10", conv?.assignedTo === null && conv?.replyMode === "template" && conv?.contact?.phone === `52${tenDigits}`, JSON.stringify(conv?.contact));
+  const msgs = (await api(`/api/conversations/${c.json?.conversationId}/messages`)).json?.messages ?? [];
+  ok("una sola tarjeta lead_intake", msgs.length === 1 && msgs[0]?.type === "lead_intake", JSON.stringify(msgs.map((m) => m.type)));
+  await api("/api/settings/intake", { method: "DELETE" });
+  const rev = await intake(key, { ...payload, lead_id: crypto.randomUUID() });
+  ok("revocada → 401", rev.res.status === 401, String(rev.res.status));
 }
 
 async function atribucionChecks() {
