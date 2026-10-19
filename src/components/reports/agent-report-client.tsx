@@ -12,6 +12,7 @@ import { KpiTile } from "./kpi-tile";
 import { RangePicker } from "./range-picker";
 import {
   DEFAULT_RANGE,
+  canSuggestShorter,
   parseRangeParams,
   rangeToQuery,
   type RangeSelection,
@@ -22,6 +23,7 @@ import {
   isReportEmpty,
   type ReportOutcome,
 } from "./report-fetch";
+import { useReportPrintMeta } from "./report-print";
 import { ReportSection } from "./report-section";
 import { ResponseTimes } from "./response-times";
 import type { AgentReportDto } from "./types";
@@ -80,28 +82,31 @@ export function AgentReportClient() {
   }
 
   const range = report?.range ?? null;
+  useReportPrintMeta(range);
   const tz = range?.tz ?? null;
   const empty = report ? isReportEmpty(report) : false;
   const showBlocks = loading || !!report;
 
   return (
-    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
-      <RangePicker
-        // Remonta al cambiar el rango desde fuera (atrás/adelante del navegador).
-        key={query}
-        value={selection}
-        onChange={select}
-        timezone={tz}
-        resolved={range ? { from: range.from, to: range.to } : null}
-        disabled={loading}
-      />
+    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6 print:space-y-4 print:p-0">
+      <div className="print:hidden">
+        <RangePicker
+          // Remonta al cambiar el rango desde fuera (atrás/adelante del navegador).
+          key={query}
+          value={selection}
+          onChange={select}
+          timezone={tz}
+          resolved={range ? { from: range.from, to: range.to } : null}
+          disabled={loading}
+        />
+      </div>
 
       {failure && (
         <ReportFailure
           failure={failure}
           onRetry={() => setAttempt((a) => a + 1)}
           onShorter={() => select(DEFAULT_RANGE)}
-          canShorten={selection.preset !== DEFAULT_RANGE.preset}
+          canShorten={canSuggestShorter(selection)}
         />
       )}
 
@@ -198,7 +203,7 @@ function Kpis({ report, loading }: { report: AgentReportDto | null; loading: boo
   const fail = report?.failures;
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5"
+      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5 print:grid-cols-3"
       role="group"
       aria-label="Resumen del agente"
     >

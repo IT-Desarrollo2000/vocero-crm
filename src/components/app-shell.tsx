@@ -75,13 +75,16 @@ export function AppShell({
           coordinación de alertas para todas las páginas autenticadas. */}
       <EventsProvider>
         <AlertsProvider>
-          <div className="flex h-dvh overflow-hidden bg-background">
+          {/* 021 — Al imprimir (Descargar PDF de Reportes) toda la cadena pierde la
+              altura fija y el scroll: un ancestro con scroll imprime solo su
+              viewport. Las clases print: no cambian nada en pantalla. */}
+          <div className="flex h-dvh overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
             {navOpen && (
               <button
                 aria-label="Cerrar el menú"
                 tabIndex={-1}
                 onClick={() => setNavOpen(false)}
-                className="fixed inset-0 z-40 bg-overlay lg:hidden"
+                className="fixed inset-0 z-40 bg-overlay lg:hidden print:hidden"
               />
             )}
 
@@ -97,8 +100,8 @@ export function AppShell({
               onClose={() => setNavOpen(false)}
             />
 
-            <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden">
+            <div className="flex min-w-0 flex-1 flex-col print:block">
+              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 lg:hidden print:hidden">
                 <button
                   onClick={() => setNavOpen(true)}
                   aria-label="Abrir el menú"
@@ -118,7 +121,7 @@ export function AppShell({
                 </span>
               </header>
 
-              <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+              <main className="min-h-0 min-w-0 flex-1 overflow-hidden print:block print:h-auto print:overflow-visible">{children}</main>
             </div>
           </div>
         </AlertsProvider>

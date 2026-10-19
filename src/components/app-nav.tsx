@@ -126,6 +126,8 @@ export function AppNav({
       className={cn(
         "fixed inset-y-0 left-0 z-50 flex w-[17rem] shrink-0 flex-col overflow-y-auto border-r bg-subtle px-3 pb-3.5 pt-4 transition-[transform,visibility] duration-200",
         "lg:static lg:visible lg:z-auto lg:translate-x-0 lg:overflow-visible lg:transition-[width]",
+        // 021 — La navegación no va al papel (Descargar PDF de Reportes).
+        "print:hidden",
         collapsed ? "lg:w-16 lg:px-2" : "lg:w-56",
         open ? "visible translate-x-0 shadow-pop" : "invisible -translate-x-full"
       )}

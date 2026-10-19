@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-/** `/reports` abre la pestaña «Agente», conservando el rango del enlace. */
+/** `/reports` abre la pestaña «Resumen» (021), conservando el rango del enlace. */
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -13,5 +13,5 @@ export default async function ReportsPage({
     if (typeof value === "string") params.set(key, value);
   }
   const qs = params.toString();
-  redirect(qs ? `/reports/agent?${qs}` : "/reports/agent");
+  redirect(qs ? `/reports/summary?${qs}` : "/reports/summary");
 }

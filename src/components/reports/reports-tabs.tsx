@@ -5,32 +5,25 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * Pestañas de Reportes. «Agente» (02) y «Citas» (10, solo con `AGENDA`
- * encendida); «Ventas» (punto 1) y «Anuncios» (07, solo con `ATRIBUCION`
- * encendida) se anuncian deshabilitadas para que el marco no cambie de forma
- * cuando lleguen. Al cambiar de pestaña se conserva el rango de la URL.
+ * Pestañas de Reportes, en este orden: «Resumen» (021, para dirección),
+ * «Agente» (02), «Citas» (10, solo con `AGENDA` encendida), «Ventas» (021) y
+ * «Anuncios» (020). Al cambiar de pestaña se conserva el rango de la URL.
  */
 export function ReportsTabs({ bookings }: { bookings: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const qs = searchParams.toString();
   const withRange = (href: string) => (qs ? `${href}?${qs}` : href);
+  const tab = (href: string, label: string) => (
+    <Tab key={href} href={withRange(href)} label={label} active={pathname.startsWith(href)} />
+  );
   return (
     <nav aria-label="Tipos de reporte" className="-mb-px mt-3 flex gap-1 overflow-x-auto">
-      <Tab href={withRange("/reports/agent")} label="Agente" active={pathname.startsWith("/reports/agent")} />
-      {bookings && (
-        <Tab
-          href={withRange("/reports/bookings")}
-          label="Citas"
-          active={pathname.startsWith("/reports/bookings")}
-        />
-      )}
-      <DisabledTab label="Ventas" />
-      <Tab
-        href={withRange("/reports/ads")}
-        label="Anuncios"
-        active={pathname.startsWith("/reports/ads")}
-      />
+      {tab("/reports/summary", "Resumen")}
+      {tab("/reports/agent", "Agente")}
+      {bookings && tab("/reports/bookings", "Citas")}
+      {tab("/reports/sales", "Ventas")}
+      {tab("/reports/ads", "Anuncios")}
     </nav>
   );
 }
@@ -49,20 +42,5 @@ function Tab({ href, label, active }: { href: string; label: string; active: boo
     >
       {label}
     </Link>
-  );
-}
-
-function DisabledTab({ label }: { label: string }) {
-  return (
-    <span
-      aria-disabled="true"
-      title="Próximamente"
-      className="flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 pb-2 text-sm text-text-4"
-    >
-      {label}
-      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-text-3">
-        Próximamente
-      </span>
-    </span>
   );
 }

@@ -29,9 +29,12 @@ export function ReportSection<T>({
     <section
       aria-labelledby={headingId}
       aria-busy={loading || undefined}
-      className={cn("min-w-0 rounded-lg border bg-card p-4 shadow-sm sm:p-5", className)}
+      className={cn("min-w-0 rounded-lg border bg-card p-4 shadow-sm sm:p-5 print:shadow-none", className)}
     >
-      <header className="mb-3">
+      {/* 021 — En papel la sección SÍ puede partirse (una tabla larga no empuja
+          todo a otra hoja dejando media en blanco); solo el título no se queda
+          huérfano al pie. Las filas no se cortan: ver globals.css. */}
+      <header className="mb-3 print:break-after-avoid">
         <h3 id={headingId} className="text-sm font-semibold">
           {title}
         </h3>

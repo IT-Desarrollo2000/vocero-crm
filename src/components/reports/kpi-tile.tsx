@@ -35,11 +35,11 @@ export function KpiTile({
       aria-describedby={helpId}
       aria-busy={loading || undefined}
       data-testid={testId}
-      className="min-w-0 rounded-lg border bg-card p-4 shadow-sm"
+      className="min-w-0 rounded-lg border bg-card p-4 shadow-sm print:break-inside-avoid print:p-3 print:shadow-none"
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <span title={help} className="shrink-0 text-text-4">
+        <span title={help} className="shrink-0 text-text-4 print:hidden">
           <Info className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
       </div>

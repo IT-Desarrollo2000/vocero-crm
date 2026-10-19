@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseReportRange, toRangeDto } from "@/server/reports/range";
+import { parseReportRange, previousRange, toRangeDto } from "@/server/reports/range";
+import {
+  RANGE_PRESETS,
+  parseRangeParams,
+  rangeToQuery,
+} from "@/components/reports/range-params";
 import {
   DEFAULT_REPORT_TIMEZONE,
   resolveReportTimezone,
@@ -71,6 +76,45 @@ describe("presets (N días locales que terminan hoy)", () => {
     expect(parseReportRange(qs("range=15d"), MX).ok).toBe(false);
     expect(parseReportRange(qs("range=15"), MX).ok).toBe(false);
     expect(parseReportRange(qs("range=abc"), MX).ok).toBe(false);
+  });
+});
+
+describe("021 — preset «Hoy» (from = to = hoy en la zona del reporte)", () => {
+  it("a las 23:30 locales del 11 (05:30Z del 12) «hoy» es el 11", () => {
+    const r = ok(qs("range=today"), MX, new Date("2026-10-12T05:30:00Z"));
+    expect(r.preset).toBe("today");
+    expect(r.from).toBe("2026-10-11");
+    expect(r.to).toBe("2026-10-11");
+    expect(r.days).toEqual(["2026-10-11"]);
+    expect(r.fromUtc.toISOString()).toBe("2026-10-11T06:00:00.000Z");
+    expect(r.toUtc.toISOString()).toBe("2026-10-12T06:00:00.000Z");
+    expect(r.toUtc.getTime() - r.fromUtc.getTime()).toBe(86_400_000);
+  });
+
+  it("un minuto después de medianoche local ya es el día siguiente", () => {
+    const r = ok(qs("range=today"), MX, new Date("2026-10-12T06:01:00Z"));
+    expect(r.from).toBe("2026-10-12");
+    expect(r.to).toBe("2026-10-12");
+  });
+
+  it("el periodo anterior de «Hoy» es ayer", () => {
+    const prev = previousRange(ok(qs("range=today"), MX, new Date("2026-10-12T18:00:00Z")))!;
+    expect(prev.from).toBe("2026-10-11");
+    expect(prev.to).toBe("2026-10-11");
+    expect(prev.toUtc.toISOString()).toBe("2026-10-12T06:00:00.000Z");
+  });
+
+  it("from/to mandan sobre range=today; «todayd» y «hoy» no son presets", () => {
+    expect(ok(qs("range=today&from=2026-10-01&to=2026-10-03")).days).toHaveLength(3);
+    expect(parseReportRange(qs("range=todayd"), MX).ok).toBe(false);
+    expect(parseReportRange(qs("range=hoy"), MX).ok).toBe(false);
+  });
+
+  it("UI: «Hoy» es el primer preset y la URL habla el mismo idioma que la API", () => {
+    expect(RANGE_PRESETS[0]).toEqual({ preset: "today", label: "Hoy" });
+    expect(rangeToQuery({ preset: "today" })).toBe("range=today");
+    expect(parseRangeParams(qs("range=today"))).toEqual({ preset: "today" });
+    expect(parseRangeParams(qs("range=TODAY"))).toEqual({ preset: "today" });
   });
 });
 

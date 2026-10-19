@@ -3,7 +3,7 @@
  * escribe `?range=` / `?from=&to=`, para que la página y la llamada a la API
  * hablen exactamente el mismo idioma.
  *
- * Forma que se EMITE: `range=7d|30d|90d` o `range=custom&from=YYYY-MM-DD&to=YYYY-MM-DD`.
+ * Forma que se EMITE: `range=today|7d|30d|90d` o `range=custom&from=YYYY-MM-DD&to=YYYY-MM-DD`.
  * Forma que se ACEPTA al leer (enlaces viejos o escritos a mano): además
  * `range=7|30|90` y `from`/`to` sin `range`. Lo ilegible cae al default
  * (30 días), igual que la API sin parámetros: un enlace roto abre el reporte,
@@ -12,13 +12,14 @@
  * Lógica pura (sin React) para poder probarla en unit.
  */
 
-export type RangePreset = "7d" | "30d" | "90d";
+export type RangePreset = "today" | "7d" | "30d" | "90d";
 
 export type RangeSelection =
   | { preset: RangePreset }
   | { preset: "custom"; from: string; to: string };
 
 export const RANGE_PRESETS: readonly { preset: RangePreset; label: string }[] = [
+  { preset: "today", label: "Hoy" },
   { preset: "7d", label: "7 días" },
   { preset: "30d", label: "30 días" },
   { preset: "90d", label: "90 días" },
@@ -80,6 +81,8 @@ type ParamsLike = { get(name: string): string | null };
 
 function parsePreset(raw: string | null): RangePreset | null {
   switch ((raw ?? "").trim().toLowerCase()) {
+    case "today":
+      return "today";
     case "7":
     case "7d":
       return "7d";
@@ -120,4 +123,15 @@ export function rangeToQuery(sel: RangeSelection): string {
 
 export function sameRange(a: RangeSelection, b: RangeSelection): boolean {
   return rangeToQuery(a) === rangeToQuery(b);
+}
+
+/**
+ * 021 — ¿Tiene sentido sugerir «Probar con 30 días» tras un 503? Solo si el
+ * rango actual es MÁS largo que el default: con «Hoy», 7 días o un
+ * personalizado corto, 30 días sería pedir más, no menos.
+ */
+export function canSuggestShorter(sel: RangeSelection): boolean {
+  if (sel.preset === "90d") return true;
+  if (sel.preset === "custom") return daysInclusive(sel.from, sel.to) > 30;
+  return false;
 }

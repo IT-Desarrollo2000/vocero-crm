@@ -30,11 +30,13 @@ import { KpiTile } from "./kpi-tile";
 import { RangePicker } from "./range-picker";
 import {
   DEFAULT_RANGE,
+  canSuggestShorter,
   parseRangeParams,
   rangeToQuery,
   type RangeSelection,
 } from "./range-params";
 import { TIMEOUT_MESSAGE } from "./report-fetch";
+import { useReportPrintMeta } from "./report-print";
 import { ReportSection } from "./report-section";
 
 type Failure = Exclude<AdsReportOutcome, { kind: "ok" }>;
@@ -90,27 +92,30 @@ export function AdsReportClient() {
   }
 
   const range = report?.range ?? null;
+  useReportPrintMeta(range);
   const empty = report ? isAdsReportEmpty(report) : false;
   const showBlocks = loading || !!report;
   const sinMonto = report ? totalWonWithoutAmount(report) : 0;
 
   return (
-    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
-      <RangePicker
-        key={query}
-        value={selection}
-        onChange={select}
-        timezone={range?.tz ?? null}
-        resolved={range ? { from: range.from, to: range.to } : null}
-        disabled={loading}
-      />
+    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6 print:space-y-4 print:p-0">
+      <div className="print:hidden">
+        <RangePicker
+          key={query}
+          value={selection}
+          onChange={select}
+          timezone={range?.tz ?? null}
+          resolved={range ? { from: range.from, to: range.to } : null}
+          disabled={loading}
+        />
+      </div>
 
       {failure && (
         <ReportFailure
           failure={failure}
           onRetry={() => setAttempt((a) => a + 1)}
           onShorter={() => select(DEFAULT_RANGE)}
-          canShorten={selection.preset !== DEFAULT_RANGE.preset}
+          canShorten={canSuggestShorter(selection)}
         />
       )}
 
@@ -145,6 +150,13 @@ export function AdsReportClient() {
       {showBlocks && (
         <>
           <Kpis block={report?.summary} loading={loading} />
+          {/* 021 D1b — Anuncios mide por cohorte de llegada; Ventas, por la fecha
+              del cierre. La nota evita que dirección compare peras con manzanas. */}
+          <p className="text-xs text-text-3" data-testid="ads-sales-note">
+            Aquí una venta cuenta en el periodo en que llegó el lead. En la pestaña
+            Ventas cuenta por la fecha en que se ganó, por eso los números pueden
+            diferir.
+          </p>
 
           <ReportSection
             title="Por fuente"
@@ -177,7 +189,7 @@ export function AdsReportClient() {
                     </span>
                     <Link
                       href="/inbox?origin=ad"
-                      className="font-medium text-brand-text underline underline-offset-2 hover:text-brand"
+                      className="font-medium text-brand-text underline underline-offset-2 hover:text-brand print:hidden"
                     >
                       Ver conversaciones de anuncio en la Bandeja
                     </Link>
@@ -222,7 +234,7 @@ function Kpis({
   const note = d ? wonAmountNote(d.adWonAmount) : null;
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5"
+      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5 print:grid-cols-3"
       role="group"
       aria-label="Resumen de anuncios"
     >
@@ -300,7 +312,7 @@ function SourcesTable({ rows }: { rows: AdsSourceRowDto[] }) {
   return (
     <>
       {/* Móvil: una tarjeta por fuente; la tabla de 6 columnas no cabe. */}
-      <ul className="space-y-2 sm:hidden" aria-label="Por fuente">
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Por fuente">
         {rows.map((r) => {
           const vacia = r.conversations === 0 && r.leads === 0;
           const note = wonAmountNote(r.wonAmount);
@@ -327,8 +339,8 @@ function SourcesTable({ rows }: { rows: AdsSourceRowDto[] }) {
         })}
       </ul>
 
-      {/* Escritorio: tabla. */}
-      <div className="hidden sm:block">
+      {/* Escritorio (y papel): tabla. */}
+      <div className="hidden sm:block print:block">
       <table className="w-full text-sm" aria-label="Por fuente">
         <thead>
           <tr className="text-left text-xs text-muted-foreground">
@@ -372,8 +384,8 @@ function SourcesTable({ rows }: { rows: AdsSourceRowDto[] }) {
 function AdsTable({ rows }: { rows: AdRowDto[] }) {
   return (
     <>
-      {/* Escritorio: tabla. */}
-      <table className="hidden w-full text-sm sm:table" aria-label="Por anuncio">
+      {/* Escritorio (y papel): tabla. */}
+      <table className="hidden w-full text-sm sm:table print:table" aria-label="Por anuncio">
         <thead>
           <tr className="text-left text-xs text-muted-foreground">
             <th scope="col" className="pb-2 pr-3 font-medium">Anuncio</th>
@@ -401,7 +413,7 @@ function AdsTable({ rows }: { rows: AdRowDto[] }) {
       </table>
 
       {/* Móvil: una tarjeta por anuncio, sin columnas apretadas. */}
-      <ul className="space-y-2 sm:hidden" aria-label="Por anuncio">
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Por anuncio">
         {rows.map((r) => (
           <li key={r.key} data-ad={r.sourceId ?? r.key} className="rounded-md border bg-subtle p-3">
             <AdIdentity row={r} />

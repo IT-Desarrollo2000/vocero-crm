@@ -22,6 +22,7 @@ import {
  * intervalos en SQL contra columnas `timestamp` sin zona (dependería del
  * `TimeZone` de la sesión de Postgres).
  *
+ *   ?range=today                            solo hoy (021): from = to = hoy en la zona
  *   ?range=7d|30d|90d                       N días locales que terminan HOY
  *   ?range=custom&from=YYYY-MM-DD&to=…      personalizado, `to` inclusive, ≤ 366 días
  *   ?range=7|30|90 · ?from=…&to=…           forma del .md, por compatibilidad
@@ -63,7 +64,7 @@ const isoDay = z
   }, "Fecha ilegible (usa YYYY-MM-DD)");
 
 const querySchema = z.object({
-  range: z.enum(["7d", "30d", "90d", "custom", "7", "30", "90"]).optional(),
+  range: z.enum(["today", "7d", "30d", "90d", "custom", "7", "30", "90"]).optional(),
   from: isoDay.optional(),
   to: isoDay.optional(),
 });
@@ -134,9 +135,10 @@ export function parseReportRange(
     return build("custom", q.from, q.to, tz);
   }
 
-  // "7" → "7d" (forma del .md); sin `range` → 30d.
+  // "today" tal cual (no termina en "d" de días); "7" → "7d" (forma del
+  // .md); sin `range` → 30d.
   const preset = (q.range
-    ? q.range.endsWith("d")
+    ? q.range === "today" || q.range.endsWith("d")
       ? q.range
       : `${q.range}d`
     : REPORT_DEFAULT_PRESET) as keyof typeof REPORT_PRESET_DAYS;

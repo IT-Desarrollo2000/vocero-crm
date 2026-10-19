@@ -63,14 +63,15 @@ export function VolumeChart({
         </span>
       </div>
 
-      <div className="overflow-x-auto pb-1">
+      <div className="overflow-x-auto pb-1 print:overflow-visible">
         <svg
           role="img"
           aria-labelledby={titleId}
           width={width}
           height={HEIGHT}
           viewBox={`0 0 ${width} ${HEIGHT}`}
-          className="block"
+          // En papel no hay scroll: con muchos días el gráfico se encoge al ancho.
+          className="block print:h-auto print:max-w-full"
           data-testid="volume-chart"
           data-days={series.days.length}
         >

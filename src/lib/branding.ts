@@ -188,14 +188,20 @@ function accentBlock(selector: string, s: AccentSet): string {
  *
  * El selector va duplicado (`:root:root`) a propósito: así gana en
  * especificidad a los bloques de globals.css sin depender del orden de carga.
+ *
+ * 021 — El PDF de Reportes (impresión) va en claro aunque la app esté en
+ * oscuro: un tercer bloque, solo en `@media print`, repite el acento CLARO
+ * del negocio con un selector más largo que el del tema oscuro.
  */
 export function accentCssVariables(accentHex: string): string {
+  const light = resolveAccentSet(accentHex, "light");
   return (
-    accentBlock(":root:root", resolveAccentSet(accentHex, "light")) +
+    accentBlock(":root:root", light) +
     accentBlock(
       ':root:root[data-theme="dark"]',
       resolveAccentSet(accentHex, "dark")
-    )
+    ) +
+    `@media print{${accentBlock(":root:root:root:root:root", light)}}`
   );
 }
 

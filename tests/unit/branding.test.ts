@@ -87,6 +87,14 @@ describe("white-label: acento en tema oscuro", () => {
     expect(css).toContain(resolveAccentSet("#3f5972", "dark").accent);
   });
 
+  it("021: al imprimir (PDF de Reportes) manda el acento CLARO, también en oscuro", () => {
+    const css = accentCssVariables("#3f5972");
+    const print = css.slice(css.indexOf("@media print{"));
+    expect(print).toContain(":root:root:root:root:root{");
+    expect(print).toContain(`--accent:${resolveAccentSet("#3f5972", "light").accent};`);
+    expect(print).not.toContain("data-theme");
+  });
+
   it("el fondo de referencia del cálculo sigue al de globals.css", () => {
     // DARK_BG vive duplicado en branding.ts porque el cálculo de contraste es
     // JS y el token es CSS. Si alguien cambia el fondo oscuro y no el otro,

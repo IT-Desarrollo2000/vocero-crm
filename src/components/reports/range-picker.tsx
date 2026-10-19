@@ -14,7 +14,7 @@ import {
 import { formatDayRange } from "./format";
 
 /**
- * Selector de rango: 7/30/90 días o personalizado (≤ 366 días), siempre en la
+ * Selector de rango: hoy, 7/30/90 días o personalizado (≤ 366 días), siempre en la
  * zona horaria del negocio — la que el servidor usó, que se muestra al lado
  * para que nadie compare «hoy» de su navegador con «hoy» del reporte.
  */

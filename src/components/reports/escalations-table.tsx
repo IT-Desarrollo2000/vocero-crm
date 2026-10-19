@@ -65,7 +65,7 @@ export function EscalationsTable({
                 <td className="w-14 py-2.5 pr-3 text-right text-xs text-muted-foreground tabular-nums">
                   {formatPercent(ratio(r.count, data.total))}
                 </td>
-                <td className="hidden py-2.5 sm:table-cell">
+                <td className="hidden py-2.5 sm:table-cell print:table-cell">
                   <Samples samples={r.samples} timezone={timezone} />
                 </td>
               </tr>
@@ -76,7 +76,7 @@ export function EscalationsTable({
 
       {/* En móvil las notas van debajo de la tabla, no en una columna apretada. */}
       {data.byReason.some((r) => r.samples.length > 0) && (
-        <div className="space-y-3 sm:hidden">
+        <div className="space-y-3 sm:hidden print:hidden">
           {data.byReason
             .filter((r) => r.samples.length > 0)
             .map((r) => (

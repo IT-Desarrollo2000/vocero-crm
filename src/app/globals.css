@@ -185,3 +185,111 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/*
+  021 — Descargar PDF de Reportes (impresión del navegador). El papel va
+  SIEMPRE en tema claro, aunque la app esté en oscuro: se reescriben los
+  neutros y estados con un selector más específico que el del tema oscuro
+  (y que el white-label, ver `accentCssVariables`, que trae su propio bloque
+  de impresión con el acento claro del negocio). Sin sombras; los fondos de
+  barras y gráficos se imprimen tal cual (`print-color-adjust: exact`).
+  La cadena de alturas/scroll se resuelve con clases `print:` en AppShell y en
+  el layout de Reportes; aquí solo html/body por si algún navegador los fija.
+*/
+@page {
+  size: Letter;
+  margin: 14mm 12mm;
+}
+
+@media print {
+  :root:root:root:root {
+    color-scheme: light;
+
+    --bg: #ffffff;
+    --bg-subtle: #f7f7f8;
+    --bg-panel: #f1f1f3;
+    --bg-hover: #f1f1f3;
+    --text: #111114;
+    --text-2: #3f3f46;
+    --text-3: #5c5c66;
+    --text-4: #8a8a93;
+    --border: #d9dade;
+    --border-strong: #c4c5cc;
+
+    --success: #3f7a57;
+    --success-tint: #eff7f1;
+    --success-soft: #cfe3d5;
+    --success-text: #2f5f43;
+
+    --warning: #9a7340;
+    --warning-tint: #faf7f0;
+    --warning-soft: #e6d8bd;
+    --warning-text: #7a5d2c;
+
+    --danger: #a2504c;
+    --danger-tint: #faf1f0;
+    --danger-soft: #e6c8c6;
+    --danger-text: #8f3f3b;
+    --danger-fg: #ffffff;
+
+    --info: #4a6c96;
+    --info-tint: #f3f7fc;
+    --info-soft: #d0dcef;
+    --info-text: #34507a;
+
+    --overlay: transparent;
+    --knob: #ffffff;
+
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-pop: none;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-shadow: none !important;
+  }
+}
+
+/*
+  021 — Paginación del PDF: las secciones largas se parten (si no, una tabla
+  empuja la sección entera a la hoja siguiente y deja media hoja en blanco),
+  pero las filas no se cortan por la mitad, el encabezado de la tabla se
+  repite en cada hoja y los títulos no quedan huérfanos al pie. Lo que sí va
+  entero (KPIs, notas cortas) lleva `print:break-inside-avoid` en su clase.
+*/
+@media print {
+  thead {
+    display: table-header-group;
+  }
+  /* El total sale UNA vez, al final: como `table-footer-group` Chrome lo
+     repetiría al pie de cada hoja, antes de filas que aún no se imprimen. */
+  tfoot {
+    display: table-row-group;
+  }
+  tr,
+  li,
+  figure {
+    break-inside: avoid;
+  }
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  /* Las tablas solo-lector-de-pantalla de los gráficos (hasta 90 filas) no
+     caben en 1 px: una tabla crece con su contenido, y en papel añadía hojas
+     en blanco al final. En papel no hay lector de pantalla. */
+  .sr-only {
+    display: none !important;
+  }
+}

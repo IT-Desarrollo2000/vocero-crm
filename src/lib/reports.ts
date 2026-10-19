@@ -18,10 +18,13 @@ export type HandoffReason = (typeof HANDOFF_REASONS)[number];
 
 // ── Rango ────────────────────────────────────────────────────────────────
 
-/** Presets del selector: N días locales que terminan HOY, o personalizado. */
-export type ReportPreset = "7d" | "30d" | "90d" | "custom";
+/**
+ * Presets del selector: N días locales que terminan HOY (`today` = solo hoy,
+ * 021), o personalizado.
+ */
+export type ReportPreset = "today" | "7d" | "30d" | "90d" | "custom";
 /** Días de cada preset fijo. */
-export const REPORT_PRESET_DAYS = { "7d": 7, "30d": 30, "90d": 90 } as const;
+export const REPORT_PRESET_DAYS = { today: 1, "7d": 7, "30d": 30, "90d": 90 } as const;
 /** Sin parámetros → 30 días (RF-02-01). */
 export const REPORT_DEFAULT_PRESET: Exclude<ReportPreset, "custom"> = "30d";
 /** Tope del rango personalizado, en días (`to` inclusive). */
@@ -350,6 +353,278 @@ export type AdsReportDto = {
   summary: ReportBlock<AdsSummaryDto>;
   bySource: ReportBlock<AdsBySourceDto>;
   byAd: ReportBlock<AdsByAdDto>;
+};
+
+// ── Reportes → Ventas (021) ─────────────────────────────────────────────
+
+/**
+ * Semántica (plan 021 §3.1):
+ *  - VENTA = lead que HOY está en una etapa `won`; su fecha es el
+ *    `occurred_at` de su ÚLTIMO evento `to_stage_kind = 'won'` en
+ *    `lead_stage_event` (D1), y cuenta en el periodo si esa fecha cae en el
+ *    rango. Un ganado reabierto o perdido deja de ser venta: el reporte de un
+ *    mes pasado puede cambiar si después se reabre uno de sus leads.
+ *  - Un lead en `won` SIN evento `won` (anomalía) no entra a ningún periodo:
+ *    se cuenta en `withoutDate`. No se usa `updated_at` (se mueve con
+ *    cualquier edición).
+ *  - PERDIDA = análogo con `lost`; motivo = `loss_reason` de ese evento.
+ *  - ASESOR (D2) = quien movió el lead (`actor_user_id`); si fue el bot o el
+ *    sistema, el asignado de la conversación real más reciente del contacto
+ *    (por fecha de creación); si no hay, «Sin asesor».
+ *  - Excluye el Laboratorio (contactos cuyas conversaciones son todas de
+ *    prueba).
+ */
+
+/** Cifras de ventas de un rango. */
+export type SalesFiguresDto = {
+  /** Ventas del periodo (último evento `won` en el rango). */
+  won: number;
+  /** Perdidas del periodo (último evento `lost` en el rango). */
+  lost: number;
+  /** `won / (won + lost)`; null sin cierres. */
+  closeRate: number | null;
+  /** Monto de las ventas, por moneda (nunca sumadas). */
+  wonAmount: WonAmountDto;
+  /**
+   * Monto principal / ventas con monto en la moneda principal, en centavos;
+   * null si ninguna venta tiene monto en esa moneda.
+   */
+  averageTicketCents: number | null;
+  /**
+   * Cierres del periodo (ganadas + perdidas) cuya fecha la SEMBRÓ la
+   * migración (`approximate = true`): cuentan, y la UI lo avisa.
+   */
+  approximateCount: number;
+};
+
+export type SalesSummaryDto = SalesFiguresDto & {
+  /** Leads hoy en `won` sin ningún evento `won`: fuera de todo periodo. */
+  withoutDate: number;
+  /** El rango inmediatamente anterior, del mismo número de días. */
+  previous: (SalesFiguresDto & { from: string; to: string }) | null;
+};
+
+export type SalesAdvisorRowDto = {
+  /** null = «Sin asesor». */
+  userId: string | null;
+  /** `user.name` (o su email si no tiene); «Sin asesor» si `userId` es null. */
+  name: string;
+  won: number;
+  lost: number;
+  closeRate: number | null;
+  wonAmount: WonAmountDto;
+};
+
+/** Orden: ventas desc, monto principal desc, nombre; «Sin asesor» al final. */
+export type SalesByAdvisorDto = { rows: SalesAdvisorRowDto[] };
+
+export type SalesLossReasonRowDto = {
+  /** `LossReason`, o `"sin_motivo"` (perdidas sembradas sin motivo). */
+  reason: string;
+  /** Etiqueta en español (`LOSS_REASON_LABEL`). */
+  label: string;
+  count: number;
+};
+
+export type SalesLossReasonsDto = {
+  /** Perdidas del periodo. */
+  total: number;
+  /** Orden: cantidad desc. */
+  rows: SalesLossReasonRowDto[];
+};
+
+export type SalesFunnelStageDto = {
+  stageId: string;
+  name: string;
+  kind: "open" | "won" | "lost";
+  position: number;
+  /** Leads (no Laboratorio) HOY en la etapa. */
+  leads: number;
+  /** Suma de sus montos en la moneda principal (sin moneda = la principal). */
+  amountCents: number;
+  /** Leads sin monto capturado. */
+  leadsWithoutAmount: number;
+  /** Leads con monto en otra moneda (no suman a `amountCents`). */
+  leadsOtherCurrency: number;
+};
+
+/**
+ * Embudo: FOTO ACTUAL por etapa (orden `position`); no depende del rango
+ * («Estado al momento de generar el reporte»).
+ */
+export type SalesFunnelDto = {
+  currency: string;
+  stages: SalesFunnelStageDto[];
+  totalLeads: number;
+};
+
+/**
+ * Tiempo de cierre de las ventas del periodo = fecha de venta − llegada del
+ * lead (primer anuncio de origen, o alta del lead). Las de fecha aproximada
+ * (sembrada) NO entran a los tiempos; una llegada posterior a la venta cuenta
+ * como 0 días.
+ */
+export type SalesTimeToCloseDto = {
+  /** Ventas medidas (con fecha exacta). */
+  sales: number;
+  /** Ventas del periodo fuera de la medición por fecha aproximada. */
+  excludedApproximate: number;
+  /** Días; null sin ventas medidas. */
+  p50Days: number | null;
+  p75Days: number | null;
+};
+
+export type SalesDayRowDto = {
+  /** Día local `YYYY-MM-DD`. */
+  day: string;
+  won: number;
+  /** Monto en la moneda principal (las otras monedas van solo en el resumen). */
+  amountCents: number;
+};
+
+/** Ventas por día local: una fila por cada día del rango, también en cero. */
+export type SalesByDayDto = { currency: string; rows: SalesDayRowDto[] };
+
+/** Respuesta 200 de `GET /api/reports/sales` (solo Propietario). */
+export type SalesReportDto = {
+  range: ReportRangeDto;
+  summary: ReportBlock<SalesSummaryDto>;
+  byAdvisor: ReportBlock<SalesByAdvisorDto>;
+  lossReasons: ReportBlock<SalesLossReasonsDto>;
+  funnel: ReportBlock<SalesFunnelDto>;
+  timeToClose: ReportBlock<SalesTimeToCloseDto>;
+  byDay: ReportBlock<SalesByDayDto>;
+};
+
+// ── Reportes → Resumen para dirección (021) ─────────────────────────────
+
+/**
+ * Semántica (plan 021 §3.2). Unidad = PERSONA = conversación real
+ * (`is_test = false`) con ≥ 1 mensaje entrante en el rango.
+ *  - Salientes que cuentan: las no fallidas (`status <> 'failed'`), igual que
+ *    Agente. IA = `origin = 'ai'`; asesor = `operator` | `manual`;
+ *    plantilla = `template`.
+ *  - CONTESTADA = recibió un saliente posterior a su primer entrante del
+ *    rango (aunque haya salido después del rango). ATENDIDA POR ASESOR = uno
+ *    de esos salientes fue `operator` | `manual`.
+ *  - PASADAS A ASESOR = conversaciones con un escalamiento (`opened`, sin
+ *    `manual_reply`) en el rango, según la bitácora de escalamientos
+ *    (`handoff_at` se limpia al devolverla a la IA).
+ */
+
+export type SummaryAttentionFiguresDto = {
+  /** Mensajes entrantes en el rango. */
+  inbound: number;
+  /** Salientes no fallidos en el rango (`ai + advisor + template`). */
+  outbound: number;
+  outboundByOrigin: { ai: number; advisor: number; template: number };
+  /** Conversaciones reales con ≥ 1 entrante en el rango. */
+  persons: number;
+  /** De esas, las de un contacto creado en el rango. */
+  newPersons: number;
+  answered: number;
+  /** `answered / persons`; null sin personas. */
+  answeredRate: number | null;
+  attendedByAdvisor: number;
+  /** `attendedByAdvisor / persons`; null sin personas. */
+  attendedByAdvisorRate: number | null;
+  handedOff: number;
+  /**
+   * Tiempo hasta que atiende un asesor: por persona ATENDIDA POR ASESOR, desde
+   * su primer entrante del rango hasta el primer saliente de asesor
+   * (`operator` | `manual`, no fallido) posterior, aunque antes haya
+   * contestado la IA. No es M4 de Agente (que solo mide al humano cuando
+   * respondió antes que la IA). Segundos; null sin personas.
+   */
+  advisorFirstReply: { persons: number; p50Seconds: number | null; p90Seconds: number | null };
+};
+
+export type SummaryAttentionDto = SummaryAttentionFiguresDto & {
+  previous: (SummaryAttentionFiguresDto & { from: string; to: string }) | null;
+};
+
+/** Columnas de una fila por anuncio. */
+export type SummaryAdFiguresDto = {
+  persons: number;
+  newPersons: number;
+  /** Mensajes entrantes de esas personas en el rango. */
+  inbound: number;
+  answered: number;
+  attendedByAdvisor: number;
+  /** Ventas del periodo (regla de Ventas) cuyo lead llegó por este anuncio. */
+  won: number;
+  wonAmount: WonAmountDto;
+};
+
+export type SummaryAdRowDto = SummaryAdFiguresDto & {
+  /** `source_id`, o el id de la fila de atribución si Meta no mandó ninguno. */
+  key: string;
+  sourceId: string | null;
+  /** `"ad"` | `"post"` (null = anuncio). */
+  sourceType: string | null;
+  /** Ya resuelto con `titularDeOrigen`. */
+  title: string;
+};
+
+export type SummaryByAdDto = {
+  /**
+   * Por el PRIMER anuncio del contacto (un anuncio con ventas del periodo y
+   * sin personas también sale); orden personas desc; ≤ `ADS_REPORT_MAX_ROWS`.
+   */
+  rows: SummaryAdRowDto[];
+  /** Anuncios distintos (puede pasar de las filas). */
+  total: number;
+  /** «Sin anuncio identificado»: orgánico, clientes previos, IG/Messenger sin dato. */
+  unidentified: SummaryAdFiguresDto;
+};
+
+export type SummaryChannelRowDto = {
+  channel: Channel;
+  persons: number;
+  inbound: number;
+  answered: number;
+  attendedByAdvisor: number;
+};
+
+/** WhatsApp siempre + los canales con personas, en orden fijo. */
+export type SummaryByChannelDto = { rows: SummaryChannelRowDto[] };
+
+/** Entrantes por hora local (0–23), sumando los días del rango: 24 filas. */
+export type SummaryByHourDto = { rows: { hour: number; inbound: number }[] };
+
+export type SummaryPendingRowDto = {
+  conversationId: string;
+  contactId: string;
+  contactName: string | null;
+  channel: Channel;
+  /** Titular del primer anuncio del contacto; null sin anuncio. */
+  adTitle: string | null;
+  /** Llegada del último entrante sin respuesta, ISO-8601 UTC. */
+  lastInboundAt: string;
+};
+
+/**
+ * Personas del rango cuyo último mensaje es ENTRANTE: no tienen saliente (no
+ * fallido) posterior a su último entrante, al momento de generar. La que más
+ * lleva esperando primero; como mucho `SUMMARY_PENDING_MAX_ROWS`.
+ */
+export type SummaryPendingDto = { total: number; rows: SummaryPendingRowDto[] };
+
+/** Filas máximas de «Pendientes de respuesta». */
+export const SUMMARY_PENDING_MAX_ROWS = 20;
+
+/** Respuesta 200 de `GET /api/reports/summary` (solo Propietario). */
+export type SummaryReportDto = {
+  range: ReportRangeDto;
+  attention: ReportBlock<SummaryAttentionDto>;
+  byAd: ReportBlock<SummaryByAdDto>;
+  byChannel: ReportBlock<SummaryByChannelDto>;
+  byHour: ReportBlock<SummaryByHourDto>;
+  pending: ReportBlock<SummaryPendingDto>;
+  /** El mismo resumen que Ventas (con periodo anterior). */
+  sales: ReportBlock<SalesSummaryDto>;
+  /** El mismo bloque de Agente (M4, por sesión de 24 h). */
+  responseTimes: ReportBlock<ResponseTimesDto>;
 };
 
 /** Mensaje del 503 `report_timeout` (RF-02-08). */

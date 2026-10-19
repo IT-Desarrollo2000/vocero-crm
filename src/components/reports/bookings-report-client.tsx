@@ -20,11 +20,13 @@ import { KpiTile } from "./kpi-tile";
 import { RangePicker } from "./range-picker";
 import {
   DEFAULT_RANGE,
+  canSuggestShorter,
   parseRangeParams,
   rangeToQuery,
   type RangeSelection,
 } from "./range-params";
 import { TIMEOUT_MESSAGE } from "./report-fetch";
+import { useReportPrintMeta } from "./report-print";
 import { ReportSection } from "./report-section";
 
 type Failure = Exclude<BookingReportOutcome, { kind: "ok" }>;
@@ -80,27 +82,30 @@ export function BookingsReportClient() {
   }
 
   const range = report?.range ?? null;
+  useReportPrintMeta(range);
   const tz = range?.tz ?? null;
   const empty = report ? isBookingReportEmpty(report) : false;
   const showBlocks = loading || !!report;
 
   return (
-    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
-      <RangePicker
-        key={query}
-        value={selection}
-        onChange={select}
-        timezone={tz}
-        resolved={range ? { from: range.from, to: range.to } : null}
-        disabled={loading}
-      />
+    <div className="space-y-4 p-4 sm:space-y-6 sm:p-6 print:space-y-4 print:p-0">
+      <div className="print:hidden">
+        <RangePicker
+          key={query}
+          value={selection}
+          onChange={select}
+          timezone={tz}
+          resolved={range ? { from: range.from, to: range.to } : null}
+          disabled={loading}
+        />
+      </div>
 
       {failure && (
         <ReportFailure
           failure={failure}
           onRetry={() => setAttempt((a) => a + 1)}
           onShorter={() => select(DEFAULT_RANGE)}
-          canShorten={selection.preset !== DEFAULT_RANGE.preset}
+          canShorten={canSuggestShorter(selection)}
         />
       )}
 
@@ -225,7 +230,7 @@ function Kpis({ report, loading }: { report: BookingReportDto | null; loading: b
   const att = report?.attendance;
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3"
+      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 print:grid-cols-3"
       role="group"
       aria-label="Resumen de citas"
     >
