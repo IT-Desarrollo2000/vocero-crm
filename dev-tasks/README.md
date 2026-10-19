@@ -122,7 +122,10 @@ por defecto.
 `ATRIBUCION` (hoy apagada en producción). Se especificará cuando se lancen
 campañas de Click-to-WhatsApp; reutilizará la pantalla de Reportes de 02.
 
-**[11 — Leads externos: formulario web (futuramexico.com/contacto) y FastApp](11-leads-del-formulario-web.md)** — borrador de especificación y plan (2026-10-19, rev. 2 con el proyecto Supabase real), decisiones D-11-1…9 aprobadas (2026-10-19); en implementación. Endpoint de
+**[11 — Leads externos: formulario web (futuramexico.com/contacto) y FastApp](11-leads-del-formulario-web.md)** — borrador de especificación y plan (2026-10-19, rev. 2 con el proyecto Supabase real), decisiones D-11-1…9 aprobadas (2026-10-19). **Lado CRM hecho en la rama
+`011-leads-externos` (2026-10-19), sin mergear; migración pendiente de
+renumerar a `0024` cuando 022 entre a `main` (no está commiteada). Lado ERP
+pendiente (requiere OK).** Endpoint de
 entrada en el CRM con clave secreta + reenvío desde la función de Supabase del
 sitio (el equipo tiene acceso). Va **después de todo lo planeado**; no afecta a
 las tareas actuales. Se apoya en 00 (clave en Ajustes), 04 (ficha), 05

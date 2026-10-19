@@ -1,7 +1,10 @@
 # 11 — Leads externos: formulario web (futuramexico.com/contacto) y FastApp
 
-> Estado: **aprobada por el dueño 2026-10-19 (D-11-1…9 según recomendación)** — en implementación (rev. 2 con el
-> proyecto Supabase real) · Prioridad: media · Esfuerzo: M (CRM) + S (ERP) ·
+> Estado: **aprobada por el dueño 2026-10-19 (D-11-1…9 según recomendación)** —
+> **lado CRM hecho en la rama `011-leads-externos` (2026-10-19), sin mergear**;
+> migración pendiente de renumerar (generada localmente como `0023`, NO
+> commiteada: se regenera como `0024` cuando 022 entre a `main`); lado ERP
+> pendiente (requiere OK) · Prioridad: media · Esfuerzo: M (CRM) + S (ERP) ·
 > Migración: sí, **`0024`** (la `0023` la ocupa `022-archivo-y-nombres`, aún
 > sin commit) · Bandera: sí, `LEADS_EXTERNOS` (apagada por defecto, ADR-001)
 >
@@ -345,6 +348,42 @@ Riesgos:
 - **Clave**: vive solo en Vault del ERP y cifrada en el CRM; nunca en un
   navegador ni en el código.
 - **FastApp no limpia el teléfono**: lo resuelve RF-4 del lado CRM.
+
+### Notas de implementación (lado CRM, 2026-10-19)
+
+Lo que quedó distinto o más preciso que el plan, y por qué:
+
+- **Orden en `ingestExternalLead`**: contacto → conversación → **tarjeta**
+  (insert con `onConflictDoNothing` sobre `intake:<lead_id>`) → fuente → lead
+  → ficha → contadores → `publish`. La tarjeta va antes que fuente/lead/ficha
+  para que un `lead_id` repetido corte sin efectos (RF-11). Los pasos
+  posteriores a la tarjeta se registran y siguen si fallan (el lead ya está
+  en la Bandeja y un reintento sería duplicado).
+- **Campos estructurados de la tarjeta sin columna nueva**: `message.text` es
+  el resumen legible con la cabecera de origen en la primera línea y un campo
+  por línea (`src/lib/lead-intake.ts`). Lo leen igual el hilo (tarjeta), la
+  lista/alerta (vista previa) y el historial del agente. Así la migración se
+  queda en `intake_settings`.
+- **`lastMessageAt = greatest(actual, ahora)`**: un lead viejo (carga inicial
+  D-11-9, conciliación de 48 h) no entierra una conversación más reciente; la
+  hora real del lead va en el `waTimestamp` de la tarjeta.
+- **Historial del agente**: además de etiquetar la tarjeta, se excluye de
+  `lastInboundText` para que el respaldo de handoff no corra sobre las notas
+  del prospecto.
+- **Errores**: siguen la convención del repo `{ error: { code, message } }`
+  (RF-12 decía `{ error: code }`). El duplicado responde 200
+  `{ duplicate: true, contactId, conversationId }`.
+- **Ficha (RF-9)**: el correo va a la clave que el negocio tenga para él
+  (`email`/`correo`) o a `email` como clave libre (contrato de `bot`);
+  vehículo → `vehiculo`/`modelo_interes`/`modelo` y sucursal → `sucursal`
+  solo si el negocio definió ese campo de texto. `FichaSource` `"externo"`
+  sigue la regla de `bot` (respeta el candado humano) y tiene su chip «Web».
+- **Fuentes nuevas** en orden: … «Conocido», «Sitio web», «Promotor», «Otro».
+- **«El agente no corre»** se prueba por lo observable (sin salientes y
+  `handoffAt` null con el agente encendido) en vez de contar llamadas al
+  ai-mock, que no las cuenta.
+- E2E: `tests/e2e/us-leads-externos.md` + `scripts/e2e-leads-externos.mjs`
+  (completo) y sección `011` en `scripts/e2e-selftest.mjs` (`pnpm test:e2e`).
 
 ## 3. Dependencias con otras tareas
 

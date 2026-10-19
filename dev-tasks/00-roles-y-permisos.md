@@ -174,8 +174,9 @@ ante Meta y son parte del canal; enviarlas es operación diaria.
 Política: `owner` = `withAuth(..., { role: "owner" })` · `any` = `withAuth`
 sin rol (Propietario y Vendedor) · `any*` = cualquier rol con respuesta
 filtrada por rol · `public` = sin sesión, con su propia defensa · `bot` =
-`BOT_API_KEY` (`src/server/bot/auth.ts`) · `dev` = `mockGuard()` (404 en
-producción).
+`BOT_API_KEY` (`src/server/bot/auth.ts`) · `intake` (011) = clave del ERP en
+`intake_settings` (`requireIntakeKey`, `src/server/intake/auth.ts`) · `dev` =
+`mockGuard()` (404 en producción).
 
 | Ruta (bajo `src/app/api/`) | Método | Política | Nota |
 |---|---|---|---|
@@ -219,6 +220,7 @@ producción).
 | `settings/capi/events/route.ts` | GET | **owner** | |
 | `settings/capi/events/retry/route.ts` | POST | **owner** | |
 | `settings/capi/events/[id]/retry/route.ts` | POST | **owner** | |
+| `settings/intake/route.ts` | GET, PUT, DELETE | **owner** | 011; 404 sin `LEADS_EXTERNOS` |
 | `settings/google/route.ts` | GET, PUT, DELETE | **owner** | |
 | `settings/google/test/route.ts` | POST | **owner** | |
 | `settings/zoom/route.ts` | GET, PUT, DELETE | **owner** | |
@@ -235,6 +237,7 @@ producción).
 | `meta/data-deletion/route.ts` | POST | public | firmado por Meta |
 | `webhooks/{wa,ig,fb}/[webhookToken]/route.ts` | GET, POST | public | segmento secreto + firma |
 | `bot/*` (10 rutas) | * | bot | sin sesión; no cambia |
+| `intake/lead/route.ts` | POST | intake | 011: sin sesión, `X-API-Key` del ERP; 404 sin `LEADS_EXTERNOS` |
 | `dev/*` (14 rutas) | * | dev | `src/lib/dev-guard.ts` |
 | `reports/*`, `metrics/*` (futuras, tarea 02) | * | **owner** | regla reservada |
 
