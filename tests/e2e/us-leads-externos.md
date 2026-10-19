@@ -50,7 +50,9 @@ Con `LEADS_EXTERNOS` apagada:
    `invalid_phone`.
 2. Lead `website` con teléfono `55 1234 5678` → **201** `{ contactId,
    conversationId, created: true }`:
-   - contacto con teléfono `52` + 10 y el nombre del lead;
+   - contacto con teléfono `52` + 10 y el nombre del lead en `name`;
+     `profileName` queda **null** (es el nick del canal y el formulario no
+     es WhatsApp);
    - conversación **sin asignar**, un no leído, `lastInboundAt` intacto y el
      compositor en **modo plantilla**;
    - una tarjeta `lead_intake` entrante: «Lead del sitio web» + correo,
@@ -70,7 +72,11 @@ Con `LEADS_EXTERNOS` apagada:
    un solo no leído (esto permite el cron de conciliación del ERP).
 2. El mismo teléfono por `fast_app` (`+52 1 55 …`) → 201 `created: false`,
    **misma** conversación, dos tarjetas (la segunda «Lead de promotor
-   (FastApp)» con el promotor). La fuente ya capturada y el nombre no cambian.
+   (FastApp)» con el promotor). La fuente ya capturada y el nombre no cambian,
+   y `profileName` sigue null.
+3. (022) Con la conversación **archivada**, un lead nuevo del mismo teléfono la
+   desarchiva (archivedAt/motivo en null) y vuelve a «Todas», como un entrante
+   de WhatsApp. Un `lead_id` repetido (duplicado) **no** la desarchiva.
 
 ## US1c — Lo que NO hace
 
@@ -86,7 +92,8 @@ Con `LEADS_EXTERNOS` apagada:
 
 1. Un entrante del wa-mock desde `521…` cae en la **misma** conversación: la
    ventana se abre (`replyMode free`), sigue habiendo un solo contacto con ese
-   teléfono y su nombre se conserva (no lo pisa el nombre de perfil).
+   teléfono y su nombre se conserva (no lo pisa el nombre de perfil, que va a
+   `profileName`).
 2. Ahora el agente sí responde, y `/api/bot/typing` encuentra el entrante real.
 
 ## Límite de tasa

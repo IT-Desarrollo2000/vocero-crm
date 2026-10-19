@@ -16,6 +16,9 @@
  *      web», correo en la ficha, compositor en modo plantilla
  *   f) mismo lead_id 2× → 200 duplicate, una sola tarjeta y un solo no leído
  *   g) mismo teléfono por `fast_app` (+52 1 …) → misma conversación, 2 tarjetas
+ *      (el nombre del lead va a `name`, nunca a `profileName`)
+ *   g2) (022) un lead nuevo desarchiva la conversación archivada; un
+ *      `lead_id` repetido no
  *   h) el Vendedor la ve (sin asignar) y lee sus mensajes
  *   i) el agente no corre: sin salientes y sin escalamiento (ventana)
  *   j) métricas del agente (M1/M4/M8) sin cambios por las tarjetas
@@ -25,7 +28,8 @@
  *      y el compositor ofrece solo plantilla; Ajustes muestra la pestaña y la
  *      clave nueva una sola vez; el Vendedor no ve la pestaña
  *   m) el prospecto escribe por WhatsApp → misma conversación, ventana
- *      abierta, nombre conservado, el agente sí responde
+ *      abierta, nombre conservado (el nick va a profileName), el agente sí
+ *      responde
  *   n) rotar invalida la clave vieja al instante · revocar → 401
  *   o) 429 por el límite global (al final: agota el cupo del minuto)
  *
@@ -328,6 +332,7 @@ async function onChecks() {
   const conv = await convById(owner, convId);
   ok(`contacto con teléfono 52+10 (52${digits})`, conv?.contact?.phone === `52${digits}`, JSON.stringify(conv?.contact));
   ok("nombre del lead", conv?.contact?.name === NAME, JSON.stringify(conv?.contact?.name));
+  ok("sin nombre de perfil (el formulario no es WhatsApp)", conv?.contact?.profileName === null, JSON.stringify(conv?.contact?.profileName));
   ok("conversación SIN asignar", conv?.assignedTo === null, JSON.stringify(conv?.assignedTo));
   ok("un no leído", conv?.unreadCount === 1, String(conv?.unreadCount));
   ok("ventana cerrada: lastInboundAt intacto", conv?.lastInboundAt === null, String(conv?.lastInboundAt));
@@ -363,6 +368,33 @@ async function onChecks() {
   const det2 = (await owner.api(`/api/contacts/${contactId}`)).json;
   ok("la fuente capturada no cambia (sigue «web»)", det2?.contact?.source?.value === "web", JSON.stringify(det2?.contact?.source));
   ok("el nombre real no se reemplaza", det2?.contact?.name === NAME, String(det2?.contact?.name));
+  ok("ni se inventa un nombre de perfil", (await convById(owner, convId))?.contact?.profileName === null);
+
+  console.log("
+== g2) Un lead desarchiva la conversación (022) ==");
+  const archive = (id, archived) =>
+    owner.api(`/api/conversations/${id}`, { method: "PATCH", body: body({ archived }) });
+  const inAll = async (id) =>
+    ((await owner.api("/api/conversations")).json?.conversations ?? []).some((c) => c.id === id);
+  const aPhone = ten();
+  const LA = lead({ first_name: "Archi", last_name: `Vada ${S}`, phone: aPhone });
+  const ca = await postLead(KEY, LA);
+  ok("lead nuevo → 201", ca.res.status === 201, short(ca));
+  const aConv = ca.json?.conversationId;
+  const a1 = await archive(aConv, true);
+  ok("archivar su conversación → 200", a1.res.ok && !!(await convById(owner, aConv))?.archivedAt, short(a1));
+  ok("sale de Todas", !(await inAll(aConv)));
+  const ca2 = await postLead(KEY, lead({ origin: "fast_app", first_name: "Archi", phone: aPhone, promoter: "Carlos" }));
+  ok("otro lead del mismo teléfono → 201, misma conversación", ca2.res.status === 201 && ca2.json?.conversationId === aConv, short(ca2));
+  const aBack = await convById(owner, aConv);
+  ok("la desarchiva (archivedAt y motivo en null)", aBack?.archivedAt === null && aBack?.archivedReason === null, JSON.stringify(aBack && { a: aBack.archivedAt, r: aBack.archivedReason }));
+  ok("…y vuelve a Todas", await inAll(aConv));
+  ok("el nombre del primer lead se conserva", aBack?.contact?.name === `Archi Vada ${S}`, String(aBack?.contact?.name));
+  await archive(aConv, true);
+  const aDup = await postLead(KEY, LA);
+  ok("un lead_id repetido → duplicate", aDup.res.status === 200 && aDup.json?.duplicate === true, short(aDup));
+  ok("…y NO desarchiva (sin efectos)", !!(await convById(owner, aConv))?.archivedAt);
+  await archive(aConv, false);
 
   console.log("\n== h) El Vendedor la ve ==");
   const sellerList = (await seller.api("/api/conversations?assigned=unassigned")).json?.conversations ?? [];
@@ -409,6 +441,7 @@ async function onChecks() {
   const conv3 = await convById(owner, convId);
   ok("la ventana se abre (replyMode free)", conv3?.replyMode === "free" && conv3?.lastInboundAt !== null, `${conv3?.replyMode} ${conv3?.lastInboundAt}`);
   ok("el nombre del lead se conserva", conv3?.contact?.name === NAME, String(conv3?.contact?.name));
+  ok("el nick de WhatsApp va a profileName", conv3?.contact?.profileName === "Otro Nombre de Perfil", String(conv3?.contact?.profileName));
   const contacts = (await owner.api(`/api/contacts?q=${digits}`)).json?.contacts ?? [];
   ok("un solo contacto con ese teléfono", contacts.filter((c) => c.phone === `52${digits}`).length === 1, JSON.stringify(contacts.map((c) => c.phone)));
   const replied = await until(async () => (await messagesOf(owner, convId)).some((m) => m.direction === "out" && m.aiGenerated), 20000);
