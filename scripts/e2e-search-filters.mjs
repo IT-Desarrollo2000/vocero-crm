@@ -63,7 +63,8 @@ ok("las 3 personas de prueba están en la bandeja",
    JSON.stringify(convs.map((c) => c.contact.name)));
 
 const page = await ctx.newPage();
-const rows = () => page.locator("ul > li button").allInnerTexts();
+// Una entrada por FILA (022: la fila lleva además el botón de archivar).
+const rows = () => page.locator("ul > li[data-conversation-id]").allInnerTexts();
 
 /**
  * 06: búsqueda, etapa y pastillas son filtros de SERVIDOR (la búsqueda con
