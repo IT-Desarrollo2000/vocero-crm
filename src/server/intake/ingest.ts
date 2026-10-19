@@ -11,7 +11,11 @@ import type { SourceValue } from "@/lib/types";
 import { upsertFicha } from "@/server/bot/ficha";
 import { publish } from "@/server/events/bus";
 import { getFichaFields } from "@/server/ficha-fields";
-import { getOrCreateContactByIdentity } from "@/server/inbox/identity";
+import { UNARCHIVE_SET } from "@/server/inbox/archive";
+import {
+  getOrCreateContactByIdentity,
+  isFallbackName,
+} from "@/server/inbox/identity";
 import {
   getOrCreateConversation,
   serializeMessage,
@@ -100,15 +104,36 @@ export async function ingestExternalLead(
   const db = getDb();
   const tag = `[011] lead ${lead.lead_id} (${lead.origin}) ··${phoneLast4(phone)}`;
 
+  // 022: `profile_name` es el nombre de perfil del CANAL (el nickname de
+  // WhatsApp) y el formulario no lo es: va null, o pisaría el nick real del
+  // contacto y la línea «WhatsApp: «…»» mentiría. El nombre del lead va a
+  // `name`, y solo si sigue siendo el de respaldo (contacto nuevo → su
+  // teléfono): nunca sobre un nombre que alguien escribió. Antes de la
+  // tarjeta: si falla, el reintento del ERP no cae en `duplicate`.
   const { contact, isNew } = await getOrCreateContactByIdentity(
     organizationId,
     {
       identity: phone,
       phone,
       waUserId: null,
-      profileName: fullName(lead),
+      profileName: null,
     }
   );
+  const leadName = fullName(lead);
+  if (leadName && leadName !== contact.name && isFallbackName(contact)) {
+    const patch = { name: leadName, updatedAt: new Date() };
+    await db
+      .update(schema.contact)
+      .set(patch)
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          organizationId,
+          eq(schema.contact.id, contact.id)
+        )
+      );
+    Object.assign(contact, patch);
+  }
   const conversation = await getOrCreateConversation(
     organizationId,
     contact.id,
@@ -192,6 +217,8 @@ export async function ingestExternalLead(
   // También va en `step`: con la tarjeta ya insertada, un 500 aquí haría que
   // el reintento del ERP cayera en `duplicate` y la conversación nunca subiera
   // ni avisara. Los `publish` de abajo salen siempre.
+  // 022: la tarjeta es un entrante → desarchiva, como el de WhatsApp (tras el
+  // dedupe de la tarjeta: un `lead_id` repetido no desarchiva).
   await step("bandeja", () =>
     db
       .update(schema.conversation)
@@ -199,6 +226,7 @@ export async function ingestExternalLead(
         lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
         unreadCount: sql`${schema.conversation.unreadCount} + 1`,
         updatedAt: now,
+        ...UNARCHIVE_SET,
       })
       .where(
         scoped(

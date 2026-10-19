@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
+// archive.ts arma SQL con el schema al cargar; aquí solo importa la constante.
+vi.mock("@/server/inbox/archive", () => ({ UNARCHIVE_SET: {} }));
 
 import { normalizeMx } from "@/lib/meta/client";
 import {
