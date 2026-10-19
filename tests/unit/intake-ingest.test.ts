@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * 011 — Atomicidad de la ingesta: la tarjeta y el update de la Bandeja van en
  * UNA transacción. Si el update falla, la ingesta falla (el endpoint da 500 y
  * el reintento del ERP no cae en `duplicate`), sin pasos accesorios ni
- * `publish`.
+ * `publish`. Y los pasos accesorios solo loguean el mensaje del error.
  */
 
 const state = vi.hoisted(() => ({
@@ -121,4 +121,22 @@ describe("011 — ingesta: tarjeta + Bandeja en una transacción", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it("un paso accesorio que falla se anota con SOLO el mensaje y la ingesta sigue", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = Object.assign(new Error("lead caído"), { payload: LEAD });
+    vi.mocked(createLeadForContact).mockRejectedValueOnce(err);
+    vi.mocked(recordIntakeReceived).mockRejectedValueOnce({ notes: LEAD.notes });
+    const r = await ingestExternalLead("org_1", LEAD, "525512345678");
+    expect(r.duplicate).toBe(false);
+    expect(publish).toHaveBeenCalledTimes(2);
+    const logged = spy.mock.calls;
+    expect(logged).toHaveLength(2);
+    expect(logged[0]?.[1]).toBe("lead caído");
+    expect(logged[1]?.[1]).toBe("desconocido");
+    const all = JSON.stringify(logged);
+    expect(all).not.toContain("dato privado");
+    expect(all).not.toContain("ana@example.com");
+    expect(all).toContain("··5678");
+    spy.mockRestore();
+  });
 });

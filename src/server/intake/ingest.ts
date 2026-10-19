@@ -200,12 +200,16 @@ export async function ingestExternalLead(
 
   // Lo que sigue es accesorio a la tarjeta: si algo falla, el lead YA está
   // en la Bandeja y un reintento del ERP sería duplicado — así que se anota
-  // y se sigue, en vez de devolver 500.
+  // y se sigue, en vez de devolver 500. Al log va solo el mensaje del error:
+  // el objeto completo podría arrastrar el payload (correo, notas).
   const step = async (name: string, fn: () => Promise<unknown>) => {
     try {
       await fn();
     } catch (err) {
-      console.error(`${tag}: falló «${name}»:`, err);
+      console.error(
+        `${tag}: falló «${name}»:`,
+        err instanceof Error ? err.message : "desconocido"
+      );
     }
   };
 
