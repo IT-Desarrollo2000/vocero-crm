@@ -119,7 +119,7 @@ Fuera de alcance (v1):
   | `promoter` | no | `fast_app_creator` (solo FastApp) |
   | `budget_min`, `budget_max`, `payment_method`, `trade_in` | no | |
   | `utm_source`, `utm_medium`, `utm_campaign` | no | |
-  | `created_at` | no | ISO; si falta, hora de llegada |
+  | `created_at` | no | ISO; si falta, es ilegible o viene más de 5 min en el futuro, hora de llegada (las fechas pasadas se respetan) |
 
 - **RF-4 Teléfono.** Se quitan los no-dígitos; 10 dígitos → `52` + 10; `521` +
   10 → `52` + 10 (`normalizeMx`); `52` + 10 tal cual; otra cosa → 422

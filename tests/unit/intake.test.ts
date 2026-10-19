@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
 // archive.ts arma SQL con el schema al cargar; aquí solo importa la constante.
@@ -140,6 +140,33 @@ describe("RF-3 — contrato", () => {
       created_at: "ayer",
     });
     expect(lead.created_at).toBeUndefined();
+  });
+
+  describe("created_at en el futuro", () => {
+    const NOW = new Date("2026-10-19T18:00:00.000Z");
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+    });
+    afterEach(() => vi.useRealTimers());
+
+    const at = (iso: string) =>
+      parse({ lead_id: LEAD_ID, origin: "website", first_name: "A", phone: "5512345678", created_at: iso })
+        .created_at;
+
+    it("más de 5 min por delante → se ignora (hora de llegada)", () => {
+      expect(at("2026-10-19T19:00:00.000Z")).toBeUndefined();
+      expect(at("2026-10-19T18:05:01.000Z")).toBeUndefined();
+    });
+
+    it("hasta 5 min por delante (desfase de reloj) se respeta", () => {
+      expect(at("2026-10-19T18:02:00.000Z")?.toISOString()).toBe("2026-10-19T18:02:00.000Z");
+      expect(at("2026-10-19T18:05:00.000Z")?.toISOString()).toBe("2026-10-19T18:05:00.000Z");
+    });
+
+    it("las fechas pasadas se respetan (carga inicial de 30 días)", () => {
+      expect(at("2026-09-19T10:00:00.000Z")?.toISOString()).toBe("2026-09-19T10:00:00.000Z");
+    });
   });
 });
 

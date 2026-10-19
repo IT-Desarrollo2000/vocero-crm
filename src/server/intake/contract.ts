@@ -16,6 +16,8 @@ export type IntakeOrigin = (typeof INTAKE_ORIGINS)[number];
 /** Tope por campo de texto libre: la tarjeta es un resumen, no un archivo. */
 const TEXT_MAX = 500;
 const NOTES_MAX = 1000;
+/** Cuánto puede venir `created_at` por delante del reloj del CRM. */
+export const CREATED_AT_MAX_SKEW_MS = 5 * 60_000;
 
 /** Texto opcional: `null`/vacío → undefined; espacios colapsados; recortado. */
 const optText = (max = TEXT_MAX) =>
@@ -65,13 +67,17 @@ export const intakeLeadSchema = z.object({
   utm_source: optText(120),
   utm_medium: optText(120),
   utm_campaign: optText(120),
+  // Ilegible o en el FUTURO (reloj del ERP adelantado, zona mal puesta) →
+  // undefined, y la tarjeta usa la hora de llegada. Las fechas pasadas se
+  // respetan: la carga inicial manda leads de hasta 30 días atrás.
   created_at: z
     .string()
     .nullish()
     .transform((v) => {
       if (!v) return undefined;
       const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? undefined : d;
+      if (Number.isNaN(d.getTime())) return undefined;
+      return d.getTime() > Date.now() + CREATED_AT_MAX_SKEW_MS ? undefined : d;
     }),
 });
 
