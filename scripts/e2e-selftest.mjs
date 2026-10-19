@@ -1184,6 +1184,8 @@ async function main() {
   await adjuntosChecks();
   // 020 fase B: AL FINAL — da de alta un Vendedor (cambia la forma del equipo).
   await reporteAnunciosVendedorChecks();
+  // 021: AL FINAL — Ventas y Resumen; también da de alta una Vendedora.
+  await reportesVentasResumenChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -3967,4 +3969,422 @@ async function adjuntosChecks() {
       `${mini.status} ${mini.headers.get("content-type")}`
     );
   }
+}
+
+/* ============================================================
+ * 021 — Reportes → Ventas y Resumen para dirección (+ PDF).
+ *
+ * Siembra por la API real (como Propietario): ganadas con monto, sin monto y
+ * en otra moneda, perdidas con motivo, una ganada y REABIERTA (no cuenta), y
+ * una venta del BOT (evento `won` con actor NULL insertado en la BD) sobre una
+ * conversación asignada a un Vendedor → la venta es de ese Vendedor (D2).
+ * Los números se comprueban como DELTA contra una foto previa: la BD del
+ * self-test acumula corridas y secciones. Con la IA apagada durante el bloque
+ * para que contestadas/pendientes sean exactos. Va AL FINAL: da de alta un
+ * Vendedor (cambia la forma del equipo).
+ * ============================================================ */
+function reporte021(kind, qs = "range=7d") {
+  return api(`/api/reports/${kind}?${qs}`);
+}
+
+const SALES_BLOCKS_021 = ["summary", "byAdvisor", "lossReasons", "funnel", "timeToClose", "byDay"];
+const SUMMARY_BLOCKS_021 = ["attention", "byAd", "byChannel", "byHour", "pending", "sales", "responseTimes"];
+const todosOk = (json, blocks) => blocks.every((b) => json?.[b]?.ok === true);
+const bloquesCaidos = (json, blocks) => blocks.filter((b) => json?.[b]?.ok !== true).join(",");
+
+async function reportesVentasResumenChecks() {
+  console.log("\n== 021: Reportes → Ventas y Resumen ==");
+  const agenda = /^(on|1|true|si|sí|yes)$/i.test((process.env.AGENDA ?? "").trim());
+  const SUF = String(Date.now()).slice(-6);
+  const tel = (n) => `52178${SUF}${n}`;
+  const AD_V = `1213${SUF}01`;
+  const TIT_V = `Venta directa ${SUF}`;
+  const inbound = (body) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({ phoneNumberId: PN, ...body }),
+    });
+
+  // IA apagada durante el bloque (se restaura al final): sin respuestas de la
+  // IA, «contestadas» y «pendientes» son exactas.
+  const perfil = (await api("/api/agent/profile")).json?.profile;
+  const iaAntes = perfil?.enabled === true;
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: false }) });
+
+  /* ---------- Fotos previas ---------- */
+  const v0 = await reporte021("sales");
+  const r0 = await reporte021("summary");
+  ok(
+    "GET /api/reports/sales (owner) → 200 con los seis bloques ok",
+    v0.res.status === 200 && todosOk(v0.json, SALES_BLOCKS_021),
+    `${v0.res.status} caídos=${bloquesCaidos(v0.json, SALES_BLOCKS_021)}`
+  );
+  ok(
+    "GET /api/reports/summary (owner) → 200 con los siete bloques ok",
+    r0.res.status === 200 && todosOk(r0.json, SUMMARY_BLOCKS_021),
+    `${r0.res.status} caídos=${bloquesCaidos(r0.json, SUMMARY_BLOCKS_021)}`
+  );
+
+  /* ---------- Vendedor (para la regla D2 y el 403/404) ---------- */
+  const email = `vend.021.${SUF}@vocero.test`;
+  const password = "password-vend-021-123";
+  const alta = await api("/api/settings/team", {
+    method: "POST",
+    body: JSON.stringify({ name: `Vendedora 021 ${SUF}`, email, password }),
+  });
+  ok("(setup) alta de la vendedora", alta.res.ok, `${alta.res.status} ${JSON.stringify(alta.json)}`);
+  const vendedora = ((await api("/api/settings/team")).json?.members ?? []).find((m) => m.email === email);
+  const yo = (await api("/api/auth/get-session")).json?.user?.id;
+  ok("(setup) ids de la vendedora y del dueño", !!vendedora?.userId && !!yo, JSON.stringify({ v: vendedora?.userId, yo }));
+
+  /* ---------- Siembra ---------- */
+  // w1 ganada MXN (anuncio) · w2 ganada sin monto · w3 ganada USD · w4 ganada y
+  // REABIERTA · l1/l2 perdidas · b1 ganada por el BOT (anuncio, asignada a la
+  // vendedora) · q1 sin respuesta (pendiente).
+  const leads = [
+    { k: "w1", ad: true, reply: true },
+    { k: "w2", reply: true },
+    { k: "w3", reply: false },
+    { k: "w4", reply: true },
+    { k: "l1", reply: false },
+    { k: "l2", reply: true },
+    { k: "b1", ad: true, reply: false },
+    { k: "q1", reply: false },
+  ];
+  const nombre = (k) => `Rep 021 ${k} ${SUF}`;
+  for (const [i, l] of leads.entries()) {
+    await inbound({
+      from: tel(String(i + 1)),
+      name: nombre(l.k),
+      text: "hola, quiero cotizar",
+      ...(l.ad ? { adSourceId: AD_V, adHeadline: TIT_V } : {}),
+      waMessageId: `wamid.e2e.021.${SUF}.${l.k}`,
+    });
+  }
+  let board = null;
+  for (let i = 0; i < 30; i++) {
+    board = (await api("/api/pipeline/board")).json;
+    const n = leads.filter((l) => board?.leads?.some((x) => x.contact?.name === nombre(l.k))).length;
+    if (n === leads.length) break;
+    await sleep(400);
+  }
+  const leadDe = (k) => board?.leads?.find((x) => x.contact?.name === nombre(k));
+  const ganado = board?.stages?.find((s) => s.kind === "won");
+  const perdido = board?.stages?.find((s) => s.kind === "lost");
+  const abierta = board?.stages?.find((s) => s.kind === "open");
+  ok(
+    "(setup) los 8 leads existen y hay etapas Ganado/Perdido/abierta",
+    leads.every((l) => leadDe(l.k)) && !!ganado && !!perdido && !!abierta,
+    `leads=${leads.filter((l) => leadDe(l.k)).length}`
+  );
+
+  // El asesor contesta a algunas (origen operator) → atendidas por asesor.
+  const respondidas = leads.filter((l) => l.reply);
+  for (const l of respondidas) {
+    const conv = leadDe(l.k)?.conversationId;
+    const r = await api(`/api/conversations/${conv}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text: "Te atiendo yo, ¿qué necesitas?" }),
+    });
+    if (!r.res.ok) ok(`(setup) respuesta del asesor a ${l.k}`, false, `${r.res.status} ${JSON.stringify(r.json)}`);
+  }
+
+  const mueve = async (k, body) => {
+    const lead = leadDe(k);
+    if (!lead) return false;
+    const r = await api(`/api/pipeline/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    return r.res.ok;
+  };
+  const movidos = [
+    await mueve("w1", { stageId: ganado?.id, amountCents: 200000 }),
+    await mueve("w2", { stageId: ganado?.id }),
+    await mueve("w3", { stageId: ganado?.id, amountCents: 4000, currency: "USD" }),
+    await mueve("w4", { stageId: ganado?.id, amountCents: 99900 }),
+    await mueve("w4", { stageId: abierta?.id }),
+    await mueve("l1", { stageId: perdido?.id, lossReason: "precio" }),
+    await mueve("l2", { stageId: perdido?.id, lossReason: "eligio_otro" }),
+    await mueve("b1", { amountCents: 50000 }),
+  ];
+  ok("(setup) movimientos por la API (ganadas, perdidas, reabierta, monto)", movidos.every(Boolean), JSON.stringify(movidos));
+
+  // b1: la conversación es de la vendedora y el BOT mueve el lead a Ganado
+  // (evento `won` con actor NULL, source 'bot', como stage-history.ts).
+  const b1 = leadDe("b1");
+  const asg = await api(`/api/conversations/${b1?.conversationId}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ userId: vendedora?.userId }),
+  });
+  ok("(setup) conversación de b1 asignada a la vendedora", asg.res.ok, `${asg.res.status} ${JSON.stringify(asg.json)}`);
+  let botOk = false;
+  try {
+    const { default: postgres } = await import("postgres");
+    const db = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+    try {
+      const [lead] = await db`
+        select l.id, l.organization_id, l.contact_id, l.stage_id, s.name as stage_name
+        from vocero.lead l left join vocero.pipeline_stage s on s.id = l.stage_id
+        where l.id = ${b1?.id}`;
+      await db.begin(async (tx) => {
+        await tx`update vocero.lead set stage_id = ${ganado.id}, updated_at = (now() at time zone 'utc') where id = ${lead.id}`;
+        await tx`
+          insert into vocero.lead_stage_event
+            (id, organization_id, lead_id, contact_id, from_stage_id, from_stage_name,
+             to_stage_id, to_stage_name, to_stage_kind, occurred_at, actor_user_id,
+             source, approximate, loss_reason, created_at)
+          values
+            (${`lse_e2e021_${SUF}`}, ${lead.organization_id}, ${lead.id}, ${lead.contact_id},
+             ${lead.stage_id}, ${lead.stage_name}, ${ganado.id}, ${ganado.name}, 'won',
+             (now() at time zone 'utc'), null, 'bot', false, null, (now() at time zone 'utc'))`;
+      });
+      botOk = true;
+    } finally {
+      await db.end();
+    }
+  } catch (err) {
+    ok("(setup) evento won del bot en la BD", false, String(err));
+  }
+  ok("(setup) b1 ganado por el bot (actor NULL) directo en la BD", botOk);
+
+  // q1 ya está pendiente (nadie le contestó). Un segundo mensaje de l2, que sí
+  // tenía respuesta, la vuelve pendiente: su último mensaje es entrante.
+  await inbound({
+    from: tel(String(leads.findIndex((l) => l.k === "l2") + 1)),
+    name: nombre("l2"),
+    text: "¿siguen ahí?",
+    waMessageId: `wamid.e2e.021.${SUF}.l2b`,
+  });
+  await sleep(1200);
+
+  /* ---------- Ventas (delta) ---------- */
+  const v1 = await reporte021("sales");
+  ok(
+    "tras sembrar: /api/reports/sales sigue 200 y con todo ok",
+    v1.res.status === 200 && todosOk(v1.json, SALES_BLOCKS_021),
+    `${v1.res.status} caídos=${bloquesCaidos(v1.json, SALES_BLOCKS_021)}`
+  );
+  const S0 = v0.json?.summary?.data;
+  const S1 = v1.json?.summary?.data;
+  const otra = (a, cur) => a?.otherCurrencies?.find((o) => o.currency === cur)?.amountCents ?? 0;
+  const dVentas = {
+    won: S1?.won - S0?.won,
+    lost: S1?.lost - S0?.lost,
+    mxn: S1?.wonAmount?.amountCents - S0?.wonAmount?.amountCents,
+    usd: otra(S1?.wonAmount, "USD") - otra(S0?.wonAmount, "USD"),
+    sinMonto: S1?.wonAmount?.wonWithoutAmount - S0?.wonAmount?.wonWithoutAmount,
+  };
+  ok(
+    "ventas: +4 ganadas (la reabierta NO cuenta), +2 perdidas, +2,500.00 MXN, +40.00 USD aparte, +1 sin monto",
+    JSON.stringify(dVentas) === JSON.stringify({ won: 4, lost: 2, mxn: 250000, usd: 4000, sinMonto: 1 }),
+    JSON.stringify(dVentas)
+  );
+  ok(
+    "ventas: tasa de cierre = ganadas / (ganadas + perdidas)",
+    S1 && Math.abs((S1.closeRate ?? -1) - S1.won / (S1.won + S1.lost)) < 1e-9,
+    JSON.stringify({ won: S1?.won, lost: S1?.lost, rate: S1?.closeRate })
+  );
+  ok(
+    "ventas: la moneda principal es la del negocio y el USD nunca se suma",
+    S1?.wonAmount?.currency === v1.json?.byDay?.data?.currency && S1?.wonAmount?.currency !== "USD",
+    JSON.stringify(S1?.wonAmount)
+  );
+  const fila = (json, id) => json?.byAdvisor?.data?.rows?.find((r) => r.userId === id);
+  const dFila = (id) => ({
+    won: (fila(v1.json, id)?.won ?? 0) - (fila(v0.json, id)?.won ?? 0),
+    lost: (fila(v1.json, id)?.lost ?? 0) - (fila(v0.json, id)?.lost ?? 0),
+  });
+  ok(
+    "por asesor (D2): la venta del bot es de la vendedora asignada (+1), con su nombre",
+    JSON.stringify(dFila(vendedora?.userId)) === JSON.stringify({ won: 1, lost: 0 }) &&
+      fila(v1.json, vendedora?.userId)?.name === `Vendedora 021 ${SUF}`,
+    JSON.stringify({ d: dFila(vendedora?.userId), fila: fila(v1.json, vendedora?.userId) })
+  );
+  ok(
+    "por asesor: el dueño suma las que movió él (+3 ganadas, +2 perdidas)",
+    JSON.stringify(dFila(yo)) === JSON.stringify({ won: 3, lost: 2 }),
+    JSON.stringify(dFila(yo))
+  );
+  const motivo = (json, r) => json?.lossReasons?.data?.rows?.find((x) => x.reason === r)?.count ?? 0;
+  ok(
+    "perdidas por motivo: +1 «precio», +1 «eligio_otro»",
+    motivo(v1.json, "precio") - motivo(v0.json, "precio") === 1 &&
+      motivo(v1.json, "eligio_otro") - motivo(v0.json, "eligio_otro") === 1,
+    JSON.stringify(v1.json?.lossReasons?.data)
+  );
+  const etapa = (json, kind) =>
+    (json?.funnel?.data?.stages ?? []).filter((s) => s.kind === kind).reduce((a, s) => a + s.leads, 0);
+  ok(
+    "embudo (foto actual): +8 leads; +4 en Ganado, +2 en Perdido",
+    v1.json?.funnel?.data?.totalLeads - v0.json?.funnel?.data?.totalLeads === 8 &&
+      etapa(v1.json, "won") - etapa(v0.json, "won") === 4 &&
+      etapa(v1.json, "lost") - etapa(v0.json, "lost") === 2,
+    JSON.stringify({ total: v1.json?.funnel?.data?.totalLeads - v0.json?.funnel?.data?.totalLeads })
+  );
+  ok(
+    "tiempo de cierre: +4 ventas medidas",
+    v1.json?.timeToClose?.data?.sales - v0.json?.timeToClose?.data?.sales === 4,
+    JSON.stringify(v1.json?.timeToClose?.data)
+  );
+  const diaWon = (json) => (json?.byDay?.data?.rows ?? []).reduce((a, r) => a + r.won, 0);
+  ok(
+    "por día: una fila por día del rango y suman las ventas del resumen",
+    v1.json?.byDay?.data?.rows?.length === v1.json?.range?.days?.length && diaWon(v1.json) === S1?.won,
+    JSON.stringify({ filas: v1.json?.byDay?.data?.rows?.length, suma: diaWon(v1.json), won: S1?.won })
+  );
+
+  /* ---------- Resumen (delta) ---------- */
+  const r1 = await reporte021("summary");
+  ok(
+    "tras sembrar: /api/reports/summary sigue 200 y con todo ok",
+    r1.res.status === 200 && todosOk(r1.json, SUMMARY_BLOCKS_021),
+    `${r1.res.status} caídos=${bloquesCaidos(r1.json, SUMMARY_BLOCKS_021)}`
+  );
+  const A0 = r0.json?.attention?.data;
+  const A1 = r1.json?.attention?.data;
+  const dA = {
+    personas: A1?.persons - A0?.persons,
+    nuevas: A1?.newPersons - A0?.newPersons,
+    recibidos: A1?.inbound - A0?.inbound,
+    contestadas: A1?.answered - A0?.answered,
+    atendidas: A1?.attendedByAdvisor - A0?.attendedByAdvisor,
+    asesorPrimera: A1?.advisorFirstReply?.persons - A0?.advisorFirstReply?.persons,
+    pendientes: r1.json?.pending?.data?.total - r0.json?.pending?.data?.total,
+  };
+  const esperado = {
+    personas: 8,
+    nuevas: 8,
+    recibidos: 9,
+    contestadas: respondidas.length,
+    atendidas: respondidas.length,
+    asesorPrimera: respondidas.length,
+    // Sin respuesta: w3, l1, b1, q1 + l2 (escribió después de la respuesta).
+    pendientes: 5,
+  };
+  ok(
+    "resumen: +8 personas (8 nuevas), +9 recibidos, contestadas = atendidas = tiempo de asesor = 4, +5 pendientes",
+    JSON.stringify(dA) === JSON.stringify(esperado),
+    JSON.stringify(dA)
+  );
+  ok(
+    "resumen: la mediana de «un asesor atendió en» es un número de segundos ≥ 0",
+    typeof A1?.advisorFirstReply?.p50Seconds === "number" && A1.advisorFirstReply.p50Seconds >= 0,
+    JSON.stringify(A1?.advisorFirstReply)
+  );
+  const adRow = r1.json?.byAd?.data?.rows?.find((r) => r.sourceId === AD_V);
+  ok(
+    "resumen por anuncio: el anuncio sembrado con 2 personas, 2 ventas (incluida la del bot) y 2,500.00",
+    adRow?.title === TIT_V && adRow?.persons === 2 && adRow?.won === 2 && adRow?.wonAmount?.amountCents === 250000,
+    JSON.stringify(adRow)
+  );
+  ok(
+    "resumen: el bloque de ventas es el mismo resumen que la pestaña Ventas",
+    r1.json?.sales?.data?.won === S1?.won && r1.json?.sales?.data?.wonAmount?.amountCents === S1?.wonAmount?.amountCents,
+    JSON.stringify({ resumen: r1.json?.sales?.data?.won, ventas: S1?.won })
+  );
+  const wa = (json) => json?.byChannel?.data?.rows?.find((r) => r.channel === "whatsapp")?.persons ?? 0;
+  ok("resumen por canal: WhatsApp +8 personas", wa(r1.json) - wa(r0.json) === 8, String(wa(r1.json) - wa(r0.json)));
+  const horas = r1.json?.byHour?.data?.rows ?? [];
+  ok(
+    "resumen por hora: 24 filas que suman los recibidos",
+    horas.length === 24 && horas.reduce((a, r) => a + r.inbound, 0) === A1?.inbound,
+    `filas=${horas.length}`
+  );
+
+  /* ---------- Rango «Hoy», inválido, Vendedor ---------- */
+  for (const kind of ["sales", "summary"]) {
+    const hoy = await reporte021(kind, "range=today");
+    ok(
+      `GET /api/reports/${kind}?range=today → 200 de un solo día`,
+      hoy.res.status === 200 && hoy.json?.range?.preset === "today" && hoy.json?.range?.days?.length === 1,
+      `${hoy.res.status} ${JSON.stringify(hoy.json?.range)}`
+    );
+    const malo = await reporte021(kind, "range=custom&from=2026-02-10&to=2026-01-01");
+    ok(
+      `GET /api/reports/${kind} con rango inválido → 422 invalid_range`,
+      malo.res.status === 422 && malo.json?.error?.code === "invalid_range",
+      `${malo.res.status} ${JSON.stringify(malo.json)}`
+    );
+  }
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email, password }),
+  });
+  const sellerCookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  ok("(setup) la vendedora inicia sesión", login.ok && !!sellerCookie, String(login.status));
+  for (const kind of ["sales", "summary"]) {
+    const r = await fetch(`${BASE}/api/reports/${kind}?range=7d`, { headers: { cookie: sellerCookie, origin: BASE } });
+    const j = await r.json().catch(() => null);
+    ok(`GET /api/reports/${kind} como Vendedor → 403 forbidden`, r.status === 403 && j?.error?.code === "forbidden", `${r.status}`);
+    const p = await fetch(`${BASE}/reports/${kind}`, { headers: { cookie: sellerCookie }, redirect: "manual" });
+    ok(`/reports/${kind} para el Vendedor → 404`, p.status === 404, String(p.status));
+  }
+
+  /* ---------- Pestañas reales y redirección ---------- */
+  const red = await fetch(`${BASE}/reports?range=7d`, { headers: { cookie }, redirect: "manual" });
+  ok(
+    "/reports → /reports/summary conservando el rango",
+    [303, 307, 308].includes(red.status) && /\/reports\/summary\?range=7d$/.test(red.headers.get("location") ?? ""),
+    `${red.status} ${red.headers.get("location")}`
+  );
+  const pg = await fetch(`${BASE}/reports/summary`, { headers: { cookie } });
+  const html = await pg.text();
+  const pos = (href) => html.indexOf(`href="${href}`);
+  const orden = ["/reports/summary", "/reports/agent", ...(agenda ? ["/reports/bookings"] : []), "/reports/sales", "/reports/ads"];
+  ok(
+    "las pestañas Resumen y Ventas son enlaces reales y ya no hay «Próximamente»",
+    pg.status === 200 && pos("/reports/summary") >= 0 && pos("/reports/sales") >= 0 && !html.includes("Próximamente"),
+    `status=${pg.status}`
+  );
+  ok(
+    `orden de pestañas: Resumen · Agente · ${agenda ? "Citas · " : ""}Ventas · Anuncios`,
+    orden.every((h, i) => i === 0 || pos(orden[i - 1]) < pos(h)) && (agenda ? true : pos("/reports/bookings") === -1),
+    JSON.stringify(orden.map(pos))
+  );
+  const ventasPg = await fetch(`${BASE}/reports/sales`, { headers: { cookie } });
+  ok("la pantalla /reports/sales existe", ventasPg.status === 200, String(ventasPg.status));
+
+  /* ---------- Impresión (Descargar PDF) ---------- */
+  let browser = null;
+  try {
+    const { chromium } = await import("playwright");
+    browser = await chromium.launch();
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.route("**/api/events*", (route) => route.abort());
+    const host = new URL(BASE);
+    await ctx.addCookies(
+      cookie
+        .split("; ")
+        .filter(Boolean)
+        .map((kv) => {
+          const i = kv.indexOf("=");
+          return { name: kv.slice(0, i), value: kv.slice(i + 1), domain: host.hostname, path: "/" };
+        })
+    );
+    for (const [ruta, kpi] of [
+      ["/reports/summary?range=7d", "kpi-summary-inbound"],
+      ["/reports/sales?range=7d", "kpi-sales-won"],
+    ]) {
+      const page = await ctx.newPage();
+      await page.goto(`${BASE}${ruta}`, { waitUntil: "load" });
+      await page.waitForSelector(`[data-testid="${kpi}"]:not([aria-busy])`, { timeout: 60000 });
+      await page.emulateMedia({ media: "print" });
+      const navOculta = !(await page.locator("aside").first().isVisible());
+      const pestanasOcultas = !(await page.getByRole("navigation", { name: "Tipos de reporte" }).isVisible());
+      const encabezado = await page.getByTestId("report-print-header").isVisible();
+      ok(
+        `impresión ${ruta}: navegación y pestañas ocultas, encabezado de impresión visible`,
+        navOculta && pestanasOcultas && encabezado,
+        JSON.stringify({ navOculta, pestanasOcultas, encabezado })
+      );
+      const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+      ok(`impresión ${ruta}: page.pdf() genera un PDF (> 20 KB)`, pdf.length > 20_000, `${pdf.length} bytes`);
+      await page.close();
+    }
+  } catch (err) {
+    ok("impresión con Playwright", false, String(err));
+  } finally {
+    await browser?.close();
+  }
+
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: iaAntes }) });
 }

@@ -455,7 +455,7 @@ async function main() {
     await page.goto(`${BASE}/inbox`, { waitUntil: "load" });
     ok("menú con «Reportes» para el Propietario", (await page.getByRole("link", { name: "Reportes" }).count()) > 0);
 
-    await page.goto(`${BASE}/reports?${WIN}`, { waitUntil: "load" });
+    await page.goto(`${BASE}/reports/agent?${WIN}`, { waitUntil: "load" });
     await page.getByText("Reparto de atención").first().waitFor({ timeout: 20000 });
     // Los títulos se pintan desde la carga («…»): esperar a que llegue el
     // reporte (en dev, la primera compilación de la ruta tarda varios s).
