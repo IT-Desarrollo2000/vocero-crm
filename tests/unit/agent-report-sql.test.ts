@@ -189,3 +189,26 @@ describe("M8 — volumen", () => {
     expect(sql).toContain("group by 1, 2, 3");
   });
 });
+
+describe("011 — la tarjeta de un lead externo no es un mensaje del cliente", () => {
+  const NOT_INTAKE = `"m"."type" <> 'lead_intake'`;
+  it("M1/M2: no activa la conversación (filtro dentro del CTE act)", () => {
+    const { sql } = byName("attentionSql");
+    const act = sql.slice(0, sql.indexOf("), esc as ("));
+    expect(act).toContain(NOT_INTAKE);
+  });
+  it("M4: fuera del CTE msgs, así no abre sesión ni cuenta en el lag", () => {
+    const { sql } = byName("responseTimesSql");
+    const msgs = sql.slice(0, sql.indexOf("), ses as ("));
+    expect(msgs).toContain("lag(");
+    expect(msgs).toContain(NOT_INTAKE);
+  });
+  it("M8: no es volumen", () => {
+    expect(byName("volumeSql").sql).toContain(NOT_INTAKE);
+  });
+  it("las métricas de salientes no lo necesitan (la tarjeta es entrante)", () => {
+    for (const name of ["failuresSql", "deliverySql"] as const) {
+      expect(byName(name).sql).toContain(`"m"."direction" = 'out'`);
+    }
+  });
+});

@@ -95,6 +95,13 @@ function ts(d: Date): SQL {
 /** Laboratorio fuera, siempre. */
 const notTest = sql`${c.isTest} = false`;
 
+/**
+ * 011 — La tarjeta de un lead externo (`lead_intake`) es un entrante en la BD
+ * pero no lo escribió el cliente en el chat: no activa una conversación (M1/
+ * M2), no abre sesión ni cuenta en el `lag` de M4, y no es volumen (M8).
+ */
+const notIntake = sql`${m.type} <> 'lead_intake'`;
+
 function msgRange(from: Date, to: Date): SQL {
   return sql`${m.createdAt} >= ${ts(from)} and ${m.createdAt} < ${ts(to)}`;
 }
@@ -125,7 +132,7 @@ export function attentionSql(p: AgentReportParams): SQL {
     bool_or(${m.direction} = 'out' and ${m.origin} = 'ai' and ${m.status} <> 'failed') as has_ai,
     bool_or(${m.direction} = 'out' and ${m.origin} in ${HUMAN_ORIGINS} and ${m.status} <> 'failed') as has_human
   from ${M} join ${C} on ${c.id} = ${m.conversationId}
-  where ${scoped(m.organizationId, p.organizationId, notTest, msgRange(p.fromUtc, p.toUtc))}
+  where ${scoped(m.organizationId, p.organizationId, notTest, notIntake, msgRange(p.fromUtc, p.toUtc))}
   group by ${m.conversationId}
 ), esc as (
   select distinct ${e.conversationId} as conversation_id
@@ -176,7 +183,7 @@ export function responseTimesSql(p: AgentReportParams): SQL {
   select ${m.conversationId} as conversation_id, ${m.direction} as direction, ${m.createdAt} as created_at,
     lag(${m.createdAt}) over (partition by ${m.conversationId} order by ${m.createdAt}) as prev_at
   from ${M} join ${C} on ${c.id} = ${m.conversationId}
-  where ${scoped(m.organizationId, p.organizationId, notTest, msgRange(lookback, p.toUtc))}
+  where ${scoped(m.organizationId, p.organizationId, notTest, notIntake, msgRange(lookback, p.toUtc))}
 ), ses as (
   select conversation_id, created_at as started_at from msgs
   where direction = 'in' and created_at >= ${ts(p.fromUtc)}
@@ -260,7 +267,7 @@ export function volumeSql(p: AgentReportParams): SQL {
   return sql`select to_char(((${m.createdAt} at time zone 'UTC') at time zone ${p.tz})::date, 'YYYY-MM-DD') as dia,
   ${c.channel} as channel, ${m.direction} as direction, count(*)::int as n
 from ${M} join ${C} on ${c.id} = ${m.conversationId}
-where ${scoped(m.organizationId, p.organizationId, notTest, msgRange(p.fromUtc, p.toUtc))}
+where ${scoped(m.organizationId, p.organizationId, notTest, notIntake, msgRange(p.fromUtc, p.toUtc))}
 group by 1, 2, 3`;
 }
 

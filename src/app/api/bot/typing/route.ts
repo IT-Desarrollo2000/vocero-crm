@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, notLike } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { apiError, parseBody } from "@/lib/api";
@@ -60,7 +60,10 @@ export async function POST(req: Request) {
         eq(schema.message.organizationId, organizationId),
         eq(schema.message.conversationId, conv.id),
         eq(schema.message.direction, "in"),
-        isNotNull(schema.message.waMessageId)
+        isNotNull(schema.message.waMessageId),
+        // 011: la tarjeta de un lead externo (`intake:<lead_id>`) no es un
+        // mensaje de Meta: marcarla leída haría fallar el "escribiendo…".
+        notLike(schema.message.waMessageId, "intake:%")
       )
     )
     .orderBy(desc(schema.message.createdAt))

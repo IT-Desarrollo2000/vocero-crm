@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import type { ChatMessage } from "@/lib/ai";
+import { LEAD_INTAKE_TYPE, leadCardForAgent } from "@/lib/lead-intake";
 import {
   sanitizeContextValue,
   sanitizeMessageText,
@@ -222,6 +223,15 @@ export function toChatHistory(rows: HistoryRow[]): {
   lastInboundText: string | null;
 } {
   const messages: ChatMessage[] = rows.map((row) => {
+    if (row.type === LEAD_INTAKE_TYPE) {
+      // 011: la tarjeta de un lead externo NO la escribió el cliente en el
+      // chat: va etiquetada («[Lead del sitio web] …») para que el agente la
+      // use como contexto sin atribuírsela a la conversación.
+      return {
+        role: "user" as const,
+        content: sanitizeMessageText(leadCardForAgent(row.text)),
+      };
+    }
     if (row.direction === "in") {
       return {
         role: "user" as const,
@@ -239,7 +249,11 @@ export function toChatHistory(rows: HistoryRow[]): {
     };
   });
 
-  const lastIn = [...rows].reverse().find((r) => r.direction === "in");
+  // 011: las notas de un lead externo no son "lo último que dijo el cliente":
+  // el regex de respaldo de handoff no debe correr sobre ellas.
+  const lastIn = [...rows]
+    .reverse()
+    .find((r) => r.direction === "in" && r.type !== LEAD_INTAKE_TYPE);
   const lastInboundText = lastIn
     ? lastIn.text || lastIn.media?.caption || null
     : null;
