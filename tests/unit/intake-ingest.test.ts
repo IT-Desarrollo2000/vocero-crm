@@ -57,7 +57,7 @@ vi.mock("@/server/inbox/identity", () => ({
     },
     isNew: true,
   })),
-  isFallbackName: () => false,
+  isFallbackName: vi.fn(() => false),
 }));
 vi.mock("@/server/inbox/ingest", () => ({
   getOrCreateConversation: vi.fn(async () => ({ id: "cv_1" })),
@@ -70,6 +70,7 @@ vi.mock("@/server/events/bus", () => ({ publish: vi.fn() }));
 vi.mock("@/server/intake/settings", () => ({ recordIntakeReceived: vi.fn() }));
 
 import { publish } from "@/server/events/bus";
+import { isFallbackName } from "@/server/inbox/identity";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
 import { intakeLeadSchema } from "@/server/intake/contract";
 import { ingestExternalLead } from "@/server/intake/ingest";
@@ -119,6 +120,28 @@ describe("011 — ingesta: tarjeta + Bandeja en una transacción", () => {
     expect(state.calls).not.toContain("tx.update");
     expect(createLeadForContact).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("sin nombre: el contacto conserva su nombre de respaldo (no se toca)", async () => {
+    vi.mocked(isFallbackName).mockReturnValue(true);
+    const noName = intakeLeadSchema.parse({
+      lead_id: "7a1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b",
+      origin: "fast_app",
+      first_name: "",
+      phone: "5512345678",
+    });
+    const r = await ingestExternalLead("org_1", noName, "525512345678");
+    expect(r.duplicate).toBe(false);
+    // Antes de la transacción no hubo update del contacto (el nombre).
+    expect(state.calls.slice(0, state.calls.indexOf("transaction"))).not.toContain("db.update");
+    vi.mocked(isFallbackName).mockReturnValue(false);
+  });
+
+  it("con nombre y nombre de respaldo, el nombre del lead va al contacto", async () => {
+    vi.mocked(isFallbackName).mockReturnValue(true);
+    await ingestExternalLead("org_1", LEAD, "525512345678");
+    expect(state.calls.slice(0, state.calls.indexOf("transaction"))).toContain("db.update");
+    vi.mocked(isFallbackName).mockReturnValue(false);
   });
 
   it("un paso accesorio que falla se anota con SOLO el mensaje y la ingesta sigue", async () => {

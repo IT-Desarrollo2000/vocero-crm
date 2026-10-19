@@ -110,7 +110,7 @@ Fuera de alcance (v1):
   | `lead_id` | sí | uuid del lead en el ERP; llave de idempotencia |
   | `origin` | sí | `website` \| `fast_app` |
   | `lead_code` | no | `LEAD-{SUC}-{AÑO}-{NNNN}` |
-  | `first_name`, `last_name` | sí / no | |
+  | `first_name`, `last_name` | no / no | sin nombre el lead NO se rechaza: el contacto conserva su nombre de respaldo (el teléfono) y la tarjeta dice «(sin nombre)» |
   | `phone` | sí | 10 dígitos MX, `52…`, `521…`, `+52…`, con o sin espacios |
   | `email` | no | |
   | `notes` | no | mensaje libre del prospecto / nota del promotor |

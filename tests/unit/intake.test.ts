@@ -13,7 +13,9 @@ import {
 import type { FichaFieldDef } from "@/lib/ficha-fields";
 import { toChatHistory, type HistoryRow } from "@/server/ai/history";
 import {
+  NO_NAME,
   buildLeadCardText,
+  fullName,
   intakeLeadSchema,
   type IntakeLead,
 } from "@/server/intake/contract";
@@ -125,7 +127,6 @@ describe("RF-3 — contrato", () => {
     [{ origin: "website", first_name: "A", phone: "5512345678" }, "sin lead_id"],
     [{ lead_id: "no-uuid", origin: "website", first_name: "A", phone: "1" }, "lead_id no uuid"],
     [{ lead_id: LEAD_ID, origin: "walk_in", first_name: "A", phone: "1" }, "origen fuera"],
-    [{ lead_id: LEAD_ID, origin: "website", first_name: " ", phone: "1" }, "sin nombre"],
     [{ lead_id: LEAD_ID, origin: "website", first_name: "A" }, "sin teléfono"],
   ])("rechaza %j (%s)", (raw, _motivo) => {
     expect(intakeLeadSchema.safeParse(raw).success).toBe(false);
@@ -167,6 +168,30 @@ describe("RF-3 — contrato", () => {
     it("las fechas pasadas se respetan (carga inicial de 30 días)", () => {
       expect(at("2026-09-19T10:00:00.000Z")?.toISOString()).toBe("2026-09-19T10:00:00.000Z");
     });
+  });
+});
+
+describe("first_name opcional", () => {
+  it.each([
+    [{}, "sin first_name"],
+    [{ first_name: null }, "first_name null"],
+    [{ first_name: "   " }, "first_name vacío"],
+  ])("%j se acepta (%s)", (extra, _motivo) => {
+    const lead = parse({ lead_id: LEAD_ID, origin: "website", phone: "5512345678", ...extra });
+    expect(lead.first_name).toBeUndefined();
+    expect(fullName(lead)).toBe("");
+    expect(buildLeadCardText(lead).split("\n")).toContain(`Nombre: ${NO_NAME}`);
+    expect(NO_NAME).toBe("(sin nombre)");
+  });
+
+  it("con solo el apellido, el nombre es el apellido", () => {
+    const lead = parse({ lead_id: LEAD_ID, origin: "website", phone: "5512345678", last_name: "Pérez" });
+    expect(fullName(lead)).toBe("Pérez");
+  });
+
+  it("el nombre se recorta y colapsa espacios", () => {
+    const lead = parse({ lead_id: LEAD_ID, origin: "website", phone: "5512345678", first_name: "  Ana   María ", last_name: "Ruiz" });
+    expect(fullName(lead)).toBe("Ana María Ruiz");
   });
 });
 

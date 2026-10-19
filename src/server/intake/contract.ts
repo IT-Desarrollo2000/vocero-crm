@@ -44,7 +44,9 @@ export const intakeLeadSchema = z.object({
   lead_id: z.string().uuid(),
   origin: z.enum(INTAKE_ORIGINS),
   lead_code: optText(64),
-  first_name: z.string().trim().min(1).max(TEXT_MAX),
+  // Opcional: un lead sin nombre no se pierde. El contacto conserva su nombre
+  // de respaldo (el teléfono) y la tarjeta dice «(sin nombre)».
+  first_name: optText(),
   last_name: optText(),
   phone: z.union([z.string(), z.number()]).transform((v) => String(v)),
   email: optText(254),
@@ -88,9 +90,13 @@ export function looksLikeEmail(v: string | undefined): v is string {
   return !!v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
+/** Nombre y apellido que vinieron; "" si no vino ninguno. */
 export function fullName(lead: IntakeLead): string {
-  return [lead.first_name.trim(), lead.last_name].filter(Boolean).join(" ");
+  return [lead.first_name, lead.last_name].filter(Boolean).join(" ");
 }
+
+/** Lo que dice la tarjeta cuando el lead no trae nombre. */
+export const NO_NAME = "(sin nombre)";
 
 const money = (n: number) =>
   `$${n.toLocaleString("es-MX", { maximumFractionDigits: 0 })}`;
@@ -111,7 +117,7 @@ export function buildLeadCardText(lead: IntakeLead): string {
     .filter(Boolean)
     .join(" / ");
   const rows: [string, string | undefined][] = [
-    ["Nombre", fullName(lead)],
+    ["Nombre", fullName(lead) || NO_NAME],
     ["Correo", lead.email],
     ["Vehículo", lead.vehicle],
     ["Sucursal", lead.branch],

@@ -19,6 +19,8 @@
  *      (el nombre del lead va a `name`, nunca a `profileName`)
  *   g2) (022) un lead nuevo desarchiva la conversación archivada; un
  *      `lead_id` repetido no
+ *   g3) lead sin nombre (falta o vacío) → 201: el contacto conserva su
+ *      nombre de respaldo (el teléfono) y la tarjeta dice «(sin nombre)»
  *   h) el Vendedor la ve (sin asignar) y lee sus mensajes
  *   i) el agente no corre: sin salientes y sin escalamiento (ventana)
  *   j) métricas del agente (M1/M4/M8) sin cambios por las tarjetas
@@ -397,6 +399,22 @@ async function onChecks() {
   ok("un lead_id repetido → duplicate", aDup.res.status === 200 && aDup.json?.duplicate === true, short(aDup));
   ok("…y NO desarchiva (sin efectos)", !!(await convById(owner, aConv))?.archivedAt);
   await archive(aConv, false);
+
+  console.log("\n== g3) Lead sin nombre ==");
+  for (const [label, over] of [
+    ["sin first_name", { origin: "fast_app", promoter: "Carlos" }],
+    ["first_name vacío", { first_name: "  " }],
+  ]) {
+    const nPhone = ten();
+    const payload = lead({ ...over, phone: nPhone });
+    if (label === "sin first_name") delete payload.first_name;
+    const cn = await postLead(KEY, payload);
+    ok(`${label} → 201 (no se rechaza)`, cn.res.status === 201 && cn.json?.created === true, short(cn));
+    const nConv = await convById(owner, cn.json?.conversationId);
+    ok(`${label}: el contacto conserva el nombre de respaldo (su teléfono)`, nConv?.contact?.name === `52${nPhone}`, JSON.stringify(nConv?.contact?.name));
+    const nCard = (await messagesOf(owner, cn.json?.conversationId)).find((m) => m.type === "lead_intake")?.text ?? "";
+    ok(`${label}: la tarjeta dice «Nombre: (sin nombre)»`, nCard.split("\n").includes("Nombre: (sin nombre)"), JSON.stringify(nCard));
+  }
 
   console.log("\n== h) El Vendedor la ve ==");
   const sellerList = (await seller.api("/api/conversations?assigned=unassigned")).json?.conversations ?? [];

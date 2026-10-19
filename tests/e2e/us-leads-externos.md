@@ -77,6 +77,9 @@ Con `LEADS_EXTERNOS` apagada:
 3. (022) Con la conversación **archivada**, un lead nuevo del mismo teléfono la
    desarchiva (archivedAt/motivo en null) y vuelve a «Todas», como un entrante
    de WhatsApp. Un `lead_id` repetido (duplicado) **no** la desarchiva.
+4. Un lead **sin nombre** (`first_name` ausente o vacío) → **201**, no se
+   rechaza: el contacto conserva su nombre de respaldo (el teléfono `52…`) y
+   la tarjeta dice «Nombre: (sin nombre)».
 
 ## US1c — Lo que NO hace
 
