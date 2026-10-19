@@ -17,7 +17,7 @@ function mk(
   return {
     id: `cv_${seq}`,
     channel: "whatsapp",
-    contact: { id: `ct_${seq}`, name: name ?? `Contacto ${seq}`, phone: phone ?? null },
+    contact: { id: `ct_${seq}`, name: name ?? `Contacto ${seq}`, phone: phone ?? null, profileName: null },
     stageName: "Nuevo",
     aiEnabled: true,
     handoffAt: null,

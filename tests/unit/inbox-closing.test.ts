@@ -37,7 +37,7 @@ function mk(over: Partial<ConversationDto> = {}): ConversationDto {
   return {
     id: `cv_${String(seq).padStart(3, "0")}`,
     channel: "whatsapp",
-    contact: { id: `ct_${seq}`, name: `Contacto ${seq}`, phone: null },
+    contact: { id: `ct_${seq}`, name: `Contacto ${seq}`, phone: null, profileName: null },
     stageName: null,
     aiEnabled: true,
     handoffAt: null,

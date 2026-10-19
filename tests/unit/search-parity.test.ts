@@ -46,25 +46,44 @@ function pgLike(value: string, pattern: string): boolean {
   return new RegExp(`^${re}$`, "u").test(value);
 }
 
+type SearchContact = { name: string; phone: string | null; profileName?: string | null };
+
 /** Evalúa el predicado que `contactSearchSql(q)` manda a Postgres. */
-function serverMatches(q: string, contact: { name: string; phone: string | null }): boolean {
+function serverMatches(q: string, contact: SearchContact): boolean {
   const cond = contactSearchSql(q);
   if (!cond) return true; // q vacía: no filtra
   const { sql, params } = dialect.sqlToQuery(cond);
   expect(sql).toMatch(/lower\(translate\("contact"\."name", \$1, \$2\)\)\s+like \$3/);
-  const [from, to, namePattern, phonePattern] = params as string[];
+  // 022: el nombre de perfil, con coalesce (NULL = desconocido).
+  expect(sql).toMatch(
+    /lower\(translate\(coalesce\("contact"\."profile_name", ''\), \$4, \$5\)\)\s+like \$6/
+  );
+  const [from, to, namePattern, pFrom, pTo, profilePattern, phonePattern] = params as string[];
   const byName = pgLike(pgLower(pgTranslate(contact.name, from!, to!)), namePattern!);
+  const byProfile = pgLike(
+    pgLower(pgTranslate(contact.profileName ?? "", pFrom!, pTo!)),
+    profilePattern!
+  );
   if (phonePattern === undefined) {
     expect(sql).not.toContain("regexp_replace");
-    return byName;
+    return byName || byProfile;
   }
-  expect(sql).toMatch(/regexp_replace\(coalesce\("contact"\."phone", ''\), '\\D', '', 'g'\)\s+like \$4/);
+  expect(sql).toMatch(/regexp_replace\(coalesce\("contact"\."phone", ''\), '\\D', '', 'g'\)\s+like \$7/);
   const digits = (contact.phone ?? "").replace(/\D/g, "");
-  return byName || pgLike(digits, phonePattern);
+  return byName || byProfile || pgLike(digits, phonePattern);
 }
 
-const CONTACTS = [
+/** El espejo, con los mismos campos que pasa la Bandeja (helpers.ts). */
+function clientMatches(q: string, c: SearchContact): boolean {
+  return matchesQuery(q, { text: [c.name, c.profileName], phone: c.phone });
+}
+
+const CONTACTS: SearchContact[] = [
   { name: "José Pérez", phone: "524621349768" },
+  // 022: renombrado por el equipo; el nickname del canal sigue buscándose.
+  { name: "Lucía Ramírez", phone: "5213331112222", profileName: "Dios es amor 🙏" },
+  { name: "Pedro", phone: null, profileName: "Ñoñito Güero" },
+  { name: "Marta", phone: null, profileName: null },
   { name: "JOSÉ ÑANDÚ", phone: null },
   { name: "Ñoño Güemes", phone: "+52 (477) 605-3008" },
   { name: "Müller Über", phone: "5215550001111" },
@@ -82,6 +101,7 @@ const QUERIES = [
   "uber", "decompuesto", "josé decomp", "%", "_", "100%", "real_name", "real%name", "\\",
   "back\\", "sime", "šime", "coric", "yago", "ýago", "oster", "istanbul", "+52 462 134",
   "462-134-9768", "(477) 605", "4776053008", "52", "529", "55 00", "   ", "ana", "a_a", "%%",
+  "dios", "DIOS ES", "amor", "lucia", "nonito", "ñoñito", "guero", "marta", "333 111",
 ];
 
 describe("búsqueda: el espejo del cliente ≡ el SQL del servidor", () => {
@@ -89,7 +109,7 @@ describe("búsqueda: el espejo del cliente ≡ el SQL del servidor", () => {
     const diffs: string[] = [];
     for (const q of QUERIES) {
       for (const c of CONTACTS) {
-        const client = matchesQuery(q, { text: [c.name], phone: c.phone });
+        const client = clientMatches(q, c);
         const server = serverMatches(q, c);
         if (client !== server) diffs.push(`${JSON.stringify(q)} vs ${c.name}: cliente ${client}, servidor ${server}`);
       }
@@ -122,5 +142,18 @@ describe("búsqueda: el espejo del cliente ≡ el SQL del servidor", () => {
   ] as const)("%j en %j → %s (Postgres)", (q, name, phone, expected) => {
     expect(serverMatches(q, { name, phone })).toBe(expected);
     expect(matchesQuery(q, { text: [name], phone })).toBe(expected);
+  });
+
+  // 022: renombrar no pierde el nickname, y un nombre de perfil desconocido
+  // (NULL) no encuentra nada por sí mismo.
+  it.each([
+    ["dios", { name: "Lucía Ramírez", phone: null, profileName: "Dios es amor" }, true],
+    ["lucia", { name: "Lucía Ramírez", phone: null, profileName: "Dios es amor" }, true],
+    ["guero", { name: "Pedro", phone: null, profileName: "Ñoñito Güero" }, true],
+    ["%", { name: "Pedro", phone: null, profileName: "Ñoñito Güero" }, false],
+    ["dios", { name: "Marta", phone: null, profileName: null }, false],
+  ] as const)("perfil: %j en %j → %s", (q, c, expected) => {
+    expect(serverMatches(q, c)).toBe(expected);
+    expect(clientMatches(q, c)).toBe(expected);
   });
 });

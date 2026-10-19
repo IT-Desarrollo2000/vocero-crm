@@ -16,7 +16,13 @@ export type ConversationDto = {
   id: string;
   /** 014: canal de la conversacion, para el distintivo de la bandeja. */
   channel: Channel;
-  contact: { id: string; name: string; phone: string | null };
+  contact: {
+    id: string;
+    name: string;
+    phone: string | null;
+    /** 022: nombre de perfil del canal (nickname); null = desconocido. */
+    profileName: string | null;
+  };
   stageName: string | null;
   aiEnabled: boolean;
   handoffAt: string | null;
@@ -294,6 +300,10 @@ export type FichaDto = Record<string, FichaValue>;
 export type ContactDto = {
   id: string;
   name: string;
+  /** 022: nombre de perfil del canal (nickname); null = desconocido. */
+  profileName: string | null;
+  /** 022: canal del contacto (etiqueta "WhatsApp: «nick»"). */
+  channel: Channel;
   /** null en contactos que llegaron solo con BSUID (003). */
   phone: string | null;
   notes: string | null;

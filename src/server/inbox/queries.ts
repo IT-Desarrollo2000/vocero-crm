@@ -610,7 +610,12 @@ export function serializeConversation(
   return {
     id: c.id,
     channel: c.channel,
-    contact: { id: contact.id, name: contact.name, phone: contact.phone },
+    contact: {
+      id: contact.id,
+      name: contact.name,
+      phone: contact.phone,
+      profileName: contact.profileName,
+    },
     stageName,
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronRight, Sparkles, UserRound } from "lucide-react";
+import { Check, ChevronRight, Pencil, Sparkles, UserRound } from "lucide-react";
 import type {
   AnuncioDto,
   ConversationDto,
@@ -24,6 +24,149 @@ import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
 import { AnuncioOrigen } from "@/components/anuncio-origen";
 import { SOURCE_LABELS, SOURCE_VALUES } from "@/server/contact-source";
+import { Input } from "@/components/ui/input";
+import { profileNameCaption } from "@/lib/channels";
+
+/** 022: el mismo tope que valida `PATCH /api/contacts/[id]`. */
+const NAME_MAX = 120;
+
+/**
+ * 022 (US-B1) — Nombre del contacto editable en línea: lápiz → campo, Enter
+ * guarda (por el PATCH de siempre), Esc descarta. Un error se muestra sin
+ * perder lo escrito. Debajo, en gris, el nombre de perfil del canal si
+ * difiere. Se monta con `key={contactId}`: cambiar de conversación descarta
+ * una edición a medias.
+ */
+export function ContactNameEditor({
+  contactId,
+  name,
+  caption,
+  onSaved,
+}: {
+  contactId: string;
+  name: string;
+  /** "WhatsApp: «nick»" o null (ver `profileNameCaption`). */
+  caption: string | null;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Lo guardado se ve al instante; el SSE trae después el DTO nuevo (fila,
+  // cabecera y demás usuarios) y el nombre del padre vuelve a mandar.
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => setSaved(null), [name]);
+  const shown = saved ?? name;
+
+  function start() {
+    setDraft(shown);
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+    setError(null);
+  }
+
+  async function save() {
+    const next = draft.trim();
+    if (!next) return setError("El nombre no puede quedar vacío.");
+    if (next.length > NAME_MAX) {
+      return setError(`Máximo ${NAME_MAX} caracteres.`);
+    }
+    if (next === shown) return cancel();
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/contacts/${contactId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: next }),
+    }).catch(() => null);
+    setSaving(false);
+    if (!res?.ok) {
+      const data = res ? await res.json().catch(() => null) : null;
+      setError(
+        res?.status === 400 || !data?.error?.message
+          ? "No se pudo guardar el nombre. Inténtalo de nuevo."
+          : String(data.error.message)
+      );
+      return;
+    }
+    setSaved(next);
+    setEditing(false);
+    onSaved();
+  }
+
+  if (!editing) {
+    return (
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1">
+          <p className="truncate text-sm font-[650]">{shown}</p>
+          <button
+            type="button"
+            onClick={start}
+            aria-label="Editar nombre"
+            className="shrink-0 rounded p-1 text-text-3 hover:bg-accent hover:text-foreground"
+          >
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.7} />
+          </button>
+        </div>
+        {caption && (
+          <p className="truncate text-[11px] text-text-3" data-testid="profile-name">
+            {caption}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="min-w-0 flex-1 space-y-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <Input
+        autoFocus
+        aria-label="Nombre del contacto"
+        value={draft}
+        disabled={saving}
+        aria-invalid={error ? true : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        className="h-8 text-[13px]"
+      />
+      {error && (
+        <p role="alert" className="text-[11px] text-danger-text">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-1.5">
+        <Button type="submit" size="sm" disabled={saving}>
+          {saving ? "Guardando…" : "Guardar"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={saving}
+          onClick={cancel}
+        >
+          Cancelar
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 /**
  * 020 (D3) — Fuente del prospecto, editable. "Automática" = la deducida (el
@@ -266,10 +409,18 @@ export function ContactPanel({
               seed={conversation.contact.id}
               size="md"
             />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-[650]">
-                {conversation.contact.name}
-              </p>
+            <div className="min-w-0 flex-1">
+              <ContactNameEditor
+                key={contactId}
+                contactId={contactId}
+                name={conversation.contact.name}
+                caption={profileNameCaption(
+                  conversation.channel,
+                  conversation.contact.name,
+                  conversation.contact.profileName
+                )}
+                onSaved={() => void refreshLive()}
+              />
               <p className="text-xs text-text-3">
                 {formatPhone(conversation.contact.phone)}
               </p>

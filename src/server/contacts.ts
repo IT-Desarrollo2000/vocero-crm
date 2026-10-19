@@ -16,6 +16,8 @@ export function serializeContact(
   return {
     id: c.id,
     name: c.name,
+    profileName: c.profileName,
+    channel: c.channel,
     phone: c.phone,
     notes: c.notes,
     stageName,

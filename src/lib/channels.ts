@@ -28,6 +28,21 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   messenger: "Messenger",
 };
 
+/**
+ * 022: línea gris bajo el nombre con el nombre de perfil del canal
+ * (`WhatsApp: «Dios es amor»`), o null si no se conoce o coincide con el
+ * nombre que puso el equipo. Compartida por la Bandeja y Contactos.
+ */
+export function profileNameCaption(
+  channel: Channel,
+  name: string,
+  profileName: string | null | undefined
+): string | null {
+  const nick = profileName?.trim();
+  if (!nick || nick === name.trim()) return null;
+  return `${CHANNEL_LABEL[channel]}: «${nick}»`;
+}
+
 export function isChannel(value: string): value is Channel {
   return (CHANNEL_ORDER as readonly string[]).includes(value);
 }

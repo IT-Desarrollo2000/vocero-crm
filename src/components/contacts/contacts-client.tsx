@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { ContactDto } from "@/lib/types";
 import { formatPhone } from "@/lib/utils";
+import { profileNameCaption } from "@/lib/channels";
 import { ContactAvatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -262,6 +263,7 @@ export function ContactsClient() {
                       </Badge>
                     )}
                   </div>
+                  <ProfileNameLine contact={c} />
                   <p className="text-xs text-muted-foreground">
                     {formatPhone(c.phone)}
                     {c.notes ? ` · ${c.notes.slice(0, 60)}` : ""}
@@ -443,5 +445,15 @@ function EditDialog({
         </div>
       </div>
     </div>
+  );
+}
+/** 022: el nombre de perfil del canal, en gris, si difiere del nombre. */
+function ProfileNameLine({ contact }: { contact: ContactDto }) {
+  const caption = profileNameCaption(contact.channel, contact.name, contact.profileName);
+  if (!caption) return null;
+  return (
+    <p className="truncate text-[11px] text-text-3" data-testid="profile-name">
+      {caption}
+    </p>
   );
 }

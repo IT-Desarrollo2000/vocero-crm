@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { normalizeMx } from "@/lib/meta/client";
-import { BSUID_PREFIX, isFallbackName, resolveIdentity } from "@/server/inbox/identity";
+import {
+  BSUID_PREFIX,
+  contactProfilePatch,
+  isFallbackName,
+  resolveIdentity,
+} from "@/server/inbox/identity";
 import type { WebhookMessage, WebhookValue } from "@/server/inbox/webhook";
 
 /** Feature 003: identidad resiliente de contacto (BSUID). */
@@ -104,5 +109,57 @@ describe("isFallbackName: el nombre de respaldo se reemplaza por el del perfil",
     expect(isFallbackName({ ...base, name: "Lucía Pérez" })).toBe(false);
     expect(isFallbackName({ ...base, name: "Cliente 529931307042" })).toBe(false);
     expect(isFallbackName({ ...base, name: "5511223344" })).toBe(false);
+  });
+});
+
+describe("022 isFallbackName: el genérico de los tres canales", () => {
+  const base = { phone: null, waIdentity: "ig:1789" };
+
+  it("«Contacto de WhatsApp|Instagram|Messenger» → respaldo", () => {
+    expect(isFallbackName({ ...base, name: "Contacto de WhatsApp" })).toBe(true);
+    expect(isFallbackName({ ...base, name: "Contacto de Instagram" })).toBe(true);
+    expect(isFallbackName({ ...base, name: " Contacto de Messenger " })).toBe(true);
+  });
+
+  it("un nombre que solo se le parece → se respeta", () => {
+    expect(isFallbackName({ ...base, name: "Contacto de Telegram" })).toBe(false);
+    expect(isFallbackName({ ...base, name: "Contacto de Instagram (Ana)" })).toBe(false);
+  });
+});
+
+describe("022 contactProfilePatch: el nickname se guarda aparte del nombre", () => {
+  const renamed = {
+    name: "Lucía Ramírez",
+    phone: "529931307042",
+    waIdentity: "529931307042",
+    profileName: "Dios es amor",
+  };
+
+  it("un nickname nuevo actualiza profileName y NO pisa un nombre editado", () => {
+    expect(contactProfilePatch(renamed, "  Dios es amor 🙏 ")).toEqual({
+      profileName: "Dios es amor 🙏",
+    });
+  });
+
+  it("el mismo nickname, vacío o ausente → sin cambios", () => {
+    expect(contactProfilePatch(renamed, "Dios es amor")).toEqual({});
+    expect(contactProfilePatch(renamed, "   ")).toEqual({});
+    expect(contactProfilePatch(renamed, null)).toEqual({});
+    expect(contactProfilePatch(renamed, undefined)).toEqual({});
+  });
+
+  it("con nombre de respaldo, el perfil reemplaza también el nombre", () => {
+    const echo = { ...renamed, name: "529931307042", profileName: null };
+    expect(contactProfilePatch(echo, "Kevin")).toEqual({
+      profileName: "Kevin",
+      name: "Kevin",
+    });
+    const generic = { ...renamed, name: "Contacto de Messenger", profileName: null };
+    expect(contactProfilePatch(generic, "Ana")).toEqual({ profileName: "Ana", name: "Ana" });
+  });
+
+  it("contacto previo a 022 (profileName NULL) con nombre ya igual al perfil", () => {
+    const legacy = { ...renamed, name: "Kevin", profileName: null };
+    expect(contactProfilePatch(legacy, "Kevin")).toEqual({ profileName: "Kevin" });
   });
 });

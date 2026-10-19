@@ -16,6 +16,7 @@ import {
   anuncioDelContacto,
   repararImagenSiFalta,
 } from "@/server/attribution/store";
+import { publish } from "@/server/events/bus";
 
 export const dynamic = "force-dynamic";
 
@@ -102,11 +103,43 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
 
   const updated = await updateContactFields(session.organizationId, id, body.data);
   if (!updated) return apiError(404, "not_found", "Contacto no encontrado");
+  // 022: renombrar repinta la fila y la cabecera de la Bandeja, también en
+  // los demás usuarios conectados (SSE → refetch por `?ids=`).
+  if (body.data.name !== undefined) {
+    await publishContactConversations(session.organizationId, id);
+  }
   const anuncio = await anuncioDelContacto(session.organizationId, id);
   return Response.json({
     contact: serializeContact(updated, null, null, tipoDeOrigen(anuncio)),
   });
 });
+
+/**
+ * 022: `conversation.updated` por cada conversación REAL del contacto (las
+ * del Laboratorio no viven en la Bandeja). Normalmente es una sola.
+ */
+async function publishContactConversations(
+  organizationId: string,
+  contactId: string
+): Promise<void> {
+  const rows = await getDb()
+    .select({ id: schema.conversation.id })
+    .from(schema.conversation)
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.contactId, contactId),
+        eq(schema.conversation.isTest, false)
+      )
+    );
+  for (const r of rows) {
+    publish(organizationId, {
+      type: "conversation.updated",
+      data: { conversation: { id: r.id } },
+    });
+  }
+}
 
 /**
  * Nombre, notas, archivado y (020) fuente. Separado de la puerta de la ficha

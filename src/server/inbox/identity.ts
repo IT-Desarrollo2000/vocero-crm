@@ -106,12 +106,15 @@ export async function getOrCreateContactByIdentity(
       .limit(1);
     const existingOther = found[0];
     if (existingOther) {
-      if (existingOther.archivedAt) {
+      const patch = contactProfilePatch(existingOther, resolved.profileName);
+      if (existingOther.archivedAt) patch.archivedAt = null;
+      if (Object.keys(patch).length > 0) {
+        patch.updatedAt = new Date();
         await db
           .update(schema.contact)
-          .set({ archivedAt: null, updatedAt: new Date() })
+          .set(patch)
           .where(eq(schema.contact.id, existingOther.id));
-        existingOther.archivedAt = null;
+        Object.assign(existingOther, patch);
       }
       return { contact: existingOther, isNew: false };
     }
@@ -126,6 +129,7 @@ export async function getOrCreateContactByIdentity(
         waUserId: null,
         name:
           resolved.profileName?.trim() || `Contacto de ${CHANNEL_LABEL[channel]}`,
+        profileName: resolved.profileName?.trim() || null,
       })
       .onConflictDoNothing({
         target: [
@@ -178,16 +182,10 @@ export async function getOrCreateContactByIdentity(
 
   const existing = rows[0];
   if (existing) {
-    const patch: Partial<typeof schema.contact.$inferInsert> = {};
+    const patch = contactProfilePatch(existing, resolved.profileName);
     if (resolved.waUserId && !existing.waUserId)
       patch.waUserId = resolved.waUserId;
     if (resolved.phone && !existing.phone) patch.phone = resolved.phone;
-    // Un contacto nacido de un echo (el equipo escribió primero desde la app
-    // del teléfono) se queda con su número como nombre: el echo no trae el
-    // perfil. Cuando el cliente escribe, su nombre de perfil reemplaza ese
-    // respaldo — nunca un nombre que alguien editó.
-    const profileName = resolved.profileName?.trim();
-    if (profileName && isFallbackName(existing)) patch.name = profileName;
     if (existing.archivedAt) patch.archivedAt = null;
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = new Date();
@@ -209,6 +207,7 @@ export async function getOrCreateContactByIdentity(
       phone: resolved.phone,
       waUserId: resolved.waUserId,
       name: resolved.profileName?.trim() || displayFallback(resolved),
+      profileName: resolved.profileName?.trim() || null,
     })
     .onConflictDoNothing({
       target: [
@@ -243,6 +242,41 @@ function displayFallback(resolved: ResolvedIdentity): string {
 }
 
 /**
+ * 022: qué cambia del contacto con el nombre de perfil que trae un entrante.
+ *
+ * - `profileName` (el nickname del canal) se actualiza siempre que venga no
+ *   vacío y distinto del guardado: WhatsApp lo manda en cada mensaje.
+ * - `name` solo se pisa si sigue siendo el de respaldo. Un contacto nacido de
+ *   un echo (el equipo escribió primero desde la app del teléfono) se queda
+ *   con su número como nombre: el echo no trae el perfil. Cuando el cliente
+ *   escribe, su nombre de perfil reemplaza ese respaldo — nunca un nombre que
+ *   alguien editó.
+ *
+ * Pura (sin BD) para el test unitario.
+ */
+export function contactProfilePatch(
+  existing: {
+    name: string;
+    phone: string | null;
+    waIdentity: string;
+    profileName: string | null;
+  },
+  incoming: string | null | undefined
+): Partial<typeof schema.contact.$inferInsert> {
+  const patch: Partial<typeof schema.contact.$inferInsert> = {};
+  const profileName = incoming?.trim();
+  if (!profileName) return patch;
+  if (profileName !== existing.profileName) patch.profileName = profileName;
+  if (isFallbackName(existing) && profileName !== existing.name) {
+    patch.name = profileName;
+  }
+  return patch;
+}
+
+/** 022: los genéricos "Contacto de <Canal>" que pone el alta sin perfil. */
+const GENERIC_FALLBACK = /^Contacto de (WhatsApp|Instagram|Messenger)$/;
+
+/**
  * ¿El nombre del contacto es el de respaldo (su número, su identidad o el
  * genérico) y no uno puesto por una persona? Exportada para el test unitario.
  */
@@ -252,7 +286,7 @@ export function isFallbackName(contact: {
   waIdentity: string;
 }): boolean {
   const name = contact.name.trim();
-  if (name === "" || name === "Contacto de WhatsApp") return true;
+  if (name === "" || GENERIC_FALLBACK.test(name)) return true;
   const digits = name.replace(/\D/g, "");
   if (!digits || digits.length !== name.replace(/[\s+()-]/g, "").length) {
     return false; // trae letras: lo escribió alguien

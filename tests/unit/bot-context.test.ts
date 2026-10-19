@@ -23,6 +23,7 @@ const contact = {
   phone: "5215550000000",
   waUserId: null,
   name: "Ana",
+  profileName: null,
   notes: "vieja\n[IA] reciente",
   ficha: { modelo_interes: "T03" },
   fichaMeta: null,

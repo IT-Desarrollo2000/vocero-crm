@@ -13,7 +13,8 @@ const PROFILE_TIMEOUT_MS = 5000;
  * plataforma deja el respaldo: jamás bloquea la ingesta.
  *
  * Devuelve el nombre para crear el contacto (o null para usar el respaldo).
- * Si el contacto ya existía con el respaldo, lo actualiza aquí mismo.
+ * Si el contacto ya existía con el respaldo, lo actualiza aquí mismo, junto
+ * con `profile_name` (022). En el alta, identity.ts guarda `profile_name`.
  */
 export async function resolveChannelProfileName(input: {
   organizationId: string;
@@ -48,7 +49,9 @@ export async function resolveChannelProfileName(input: {
   if (name && existing) {
     await db
       .update(schema.contact)
-      .set({ name, updatedAt: new Date() })
+      // 022: el nombre de Graph ES el de perfil; se guarda también como
+      // nickname (la búsqueda lo encuentra aunque luego se renombre).
+      .set({ name, profileName: name, updatedAt: new Date() })
       .where(
         scoped(
           schema.contact.organizationId,

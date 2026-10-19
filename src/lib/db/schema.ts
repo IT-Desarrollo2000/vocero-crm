@@ -157,6 +157,13 @@ export const contact = pgTable(
     /** Business-Scoped User ID si se conoce (003). */
     waUserId: text("wa_user_id"),
     name: text("name").notNull(),
+    /**
+     * 022: nombre de perfil del canal ("Dios es amor"), aparte del `name` que
+     * pone el equipo. WhatsApp lo manda en cada entrante y se actualiza; en
+     * Instagram/Messenger se captura cuando ya se consulta a Graph (o Zernio
+     * lo trae). NULL = desconocido. Renombrar nunca lo toca.
+     */
+    profileName: text("profile_name"),
     notes: text("notes"),
     /**
      * Ficha de calificación que levanta un cerebro externo por
@@ -212,6 +219,8 @@ export const pipelineStage = pgTable(
     kind: text("kind", { enum: ["open", "won", "lost"] })
       .notNull()
       .default("open"),
+    /** 022: "No archivar" — sus leads quedan fuera del archivo masivo/auto. */
+    keepActive: boolean("keep_active").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("stage_org_pos_idx").on(t.organizationId, t.position)]
@@ -365,6 +374,9 @@ export const HANDOFF_SOURCES = [
   "migracion",
 ] as const;
 
+/** 022: por qué se archivó una conversación (para deshacer en lote después). */
+export const ARCHIVED_REASONS = ["manual", "bulk", "auto"] as const;
+
 export const conversation = pgTable(
   "conversation",
   {
@@ -417,6 +429,16 @@ export const conversation = pgTable(
     }),
     /** 09: cuándo la tomó su responsable actual (NULL si sin asignar). */
     assignedAt: timestamp("assigned_at"),
+    /**
+     * 022: archivada = fuera de las vistas normales de la Bandeja. Archivar
+     * nunca borra; un entrante o un saliente exitoso la desarchiva.
+     */
+    archivedAt: timestamp("archived_at"),
+    archivedReason: text("archived_reason", { enum: ARCHIVED_REASONS }),
+    /** 022: quién la archivó (NULL en auto o si el usuario ya no existe). */
+    archivedBy: text("archived_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -441,6 +463,10 @@ export const conversation = pgTable(
       sql`(coalesce(${t.lastMessageAt}, ${t.createdAt})) DESC`,
       sql`${t.id} DESC`
     ),
+    // 022: vista "Archivadas". Parcial: la inmensa mayoría no está archivada.
+    index("conversation_org_archived_idx")
+      .on(t.organizationId, t.archivedAt)
+      .where(sql`${t.archivedAt} IS NOT NULL`),
   ]
 );
 
@@ -1671,3 +1697,20 @@ export const productFileUpload = pgTable(
     index("product_file_upload_org_idx").on(t.organizationId),
   ]
 );
+
+/* ============================================================
+ * 022 — Archivo de conversaciones (núcleo, sin bandera)
+ * ============================================================ */
+
+/**
+ * Ajustes de la Bandeja: una fila por organización. Sin fila = defaults
+ * (auto-archivo apagado, 14 días). Solo el Propietario los cambia.
+ */
+export const inboxSettings = pgTable("inbox_settings", {
+  organizationId: text("organization_id")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  autoArchiveEnabled: boolean("auto_archive_enabled").notNull().default(false),
+  autoArchiveDays: integer("auto_archive_days").notNull().default(14),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

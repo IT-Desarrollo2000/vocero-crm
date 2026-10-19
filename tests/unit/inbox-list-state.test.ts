@@ -32,7 +32,7 @@ function mk(
   return {
     id: `cv_${String(seq).padStart(3, "0")}`,
     channel: "whatsapp",
-    contact: { id: `ct_${seq}`, name: name ?? `Contacto ${seq}`, phone: phone ?? null },
+    contact: { id: `ct_${seq}`, name: name ?? `Contacto ${seq}`, phone: phone ?? null, profileName: null },
     stageName: null,
     aiEnabled: true,
     handoffAt: null,

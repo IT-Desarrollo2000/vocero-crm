@@ -86,7 +86,8 @@ export function filterConversations(
   const searched = conversations.filter(
     (c) =>
       matchesQuery(query, {
-        text: [c.contact.name],
+        // 022: también por el nombre de perfil (espejo de contactSearchSql).
+        text: [c.contact.name, c.contact.profileName],
         phone: c.contact.phone,
       }) && stageOk(c)
   );
