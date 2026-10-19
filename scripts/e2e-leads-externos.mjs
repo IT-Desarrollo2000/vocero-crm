@@ -370,8 +370,7 @@ async function onChecks() {
   ok("el nombre real no se reemplaza", det2?.contact?.name === NAME, String(det2?.contact?.name));
   ok("ni se inventa un nombre de perfil", (await convById(owner, convId))?.contact?.profileName === null);
 
-  console.log("
-== g2) Un lead desarchiva la conversación (022) ==");
+  console.log("\n== g2) Un lead desarchiva la conversación (022) ==");
   const archive = (id, archived) =>
     owner.api(`/api/conversations/${id}`, { method: "PATCH", body: body({ archived }) });
   const inAll = async (id) =>
