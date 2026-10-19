@@ -13,6 +13,7 @@ export function SettingsNav({
   instagram = false,
   messenger = false,
   almacenamiento = false,
+  leadsExternos = false,
 }: {
   role: Role;
   agenda?: boolean;
@@ -20,6 +21,7 @@ export function SettingsNav({
   instagram?: boolean;
   messenger?: boolean;
   almacenamiento?: boolean;
+  leadsExternos?: boolean;
 }) {
   const pathname = usePathname();
   // Qué pestañas existen lo decide el servidor y baja por prop: este es un
@@ -31,6 +33,7 @@ export function SettingsNav({
     instagram,
     messenger,
     almacenamiento,
+    leadsExternos,
   });
   return (
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-44 sm:flex-col sm:space-y-1 sm:overflow-visible sm:border-b-0 sm:border-r sm:p-3">

@@ -188,6 +188,7 @@ const MEDIA_LABELS: Record<string, string> = {
   location: "Ubicación",
   contacts: "Contacto compartido",
   template: "Plantilla",
+  lead_intake: "Lead externo",
 };
 
 export function mediaLabel(type: string): string {

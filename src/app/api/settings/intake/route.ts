@@ -1,4 +1,5 @@
 import { withAuth } from "@/lib/api";
+import { getEnv } from "@/lib/env";
 import { intakeDisabledResponse, intakeEnabled } from "@/server/intake/flag";
 import {
   getIntakeSettingsView,
@@ -15,10 +16,15 @@ export const dynamic = "force-dynamic";
  * Sin la bandera `LEADS_EXTERNOS` esto no existe: 404, no 403.
  */
 
+/** La URL que el ERP guarda en su Vault (`crm_intake_url`). */
+function endpointUrl(): string {
+  return `${getEnv().APP_BASE_URL.replace(/\/$/, "")}/api/intake/lead`;
+}
+
 export const GET = withAuth(async (session) => {
   if (!intakeEnabled()) return intakeDisabledResponse();
   const intake = await getIntakeSettingsView(session.organizationId);
-  return Response.json({ intake });
+  return Response.json({ intake, endpoint: endpointUrl() });
 }, { role: "owner" });
 
 /**

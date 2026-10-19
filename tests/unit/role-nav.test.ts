@@ -110,6 +110,21 @@ describe("settingsTabsFor", () => {
       { href: "/settings/account", label: "Mi cuenta" },
     ]);
   });
+
+  it("011 — Leads externos solo con LEADS_EXTERNOS, tras Anuncios, y nunca para el Vendedor", () => {
+    expect(
+      settingsTabsFor({ role: "owner" }).some((t) => t.href === "/settings/leads-externos")
+    ).toBe(false);
+    const tabs = settingsTabsFor({ role: "owner", atribucion: true, leadsExternos: true });
+    expect(tabs.map((t) => t.href).slice(-3)).toEqual([
+      "/settings/ads",
+      "/settings/leads-externos",
+      "/settings/account",
+    ]);
+    expect(settingsTabsFor({ role: "member", leadsExternos: true })).toEqual([
+      { href: "/settings/account", label: "Mi cuenta" },
+    ]);
+  });
 });
 
 describe("Mi cuenta — validación y errores", () => {

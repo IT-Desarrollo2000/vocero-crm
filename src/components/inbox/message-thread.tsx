@@ -21,7 +21,35 @@ import {
 } from "lucide-react";
 import type { MessageDto, MessageMediaDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LEAD_INTAKE_TYPE, parseLeadCard } from "@/lib/lead-intake";
 import { formatBytes, mediaLabel } from "./helpers";
+
+/**
+ * 011 — Tarjeta de un lead externo (formulario web / FastApp). No es un
+ * mensaje del cliente en el chat: se pinta como ficha con su origen arriba.
+ */
+function LeadIntakeCard({ text }: { text: string | null }) {
+  const card = parseLeadCard(text);
+  const icon = card.origin === "fast_app" ? "🧑‍💼" : "🌐";
+  return (
+    <span className="block min-w-[220px]" data-testid="lead-intake-card">
+      <span className="mb-1.5 flex items-center gap-1.5 border-b pb-1.5 text-[12.5px] font-semibold text-text-2">
+        <span aria-hidden>{icon}</span>
+        {card.header}
+      </span>
+      <span className="block space-y-0.5">
+        {card.fields.map((f, i) => (
+          <span key={i} className="block break-words text-[13px]">
+            {f.label && (
+              <span className="text-text-3">{f.label}: </span>
+            )}
+            {f.value}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
 
 function StatusTicks({ status }: { status: MessageDto["status"] }) {
   const cls = "h-[13px] w-[13px]";
@@ -413,7 +441,9 @@ export function MessageThread({
                   !grouped && (out ? "rounded-tr-[5px]" : "rounded-tl-[5px]")
                 )}
               >
-                {m.media ? (
+                {m.type === LEAD_INTAKE_TYPE ? (
+                  <LeadIntakeCard text={m.text} />
+                ) : m.media ? (
                   <span className="block">
                     <MediaBlock media={m.media} />
                     {m.media.caption && (
