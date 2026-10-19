@@ -512,6 +512,9 @@ export type SalesReportDto = {
  *  - PASADAS A ASESOR = conversaciones con un escalamiento (`opened`, sin
  *    `manual_reply`) en el rango, según la bitácora de escalamientos
  *    (`handoff_at` se limpia al devolverla a la IA).
+ *  - Las TARJETAS de leads externos (011, `type = 'lead_intake'`) no son
+ *    mensajes del cliente: no hacen persona ni son entrantes, y no arrancan
+ *    el reloj del asesor; sí cuentan en PENDIENTES.
  */
 
 export type SummaryAttentionFiguresDto = {

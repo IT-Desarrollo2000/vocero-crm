@@ -388,9 +388,12 @@ Lo que quedó distinto o más preciso que el plan, y por qué:
   ai-mock, que no las cuenta.
 - E2E: `tests/e2e/us-leads-externos.md` + `scripts/e2e-leads-externos.mjs`
   (completo) y sección `011` en `scripts/e2e-selftest.mjs` (`pnpm test:e2e`).
-- Tras la tarjeta, **todo** va en `step()` (incluido el `update` de la
-  Bandeja): un 500 después de insertar la tarjeta haría que el reintento del
-  ERP cayera en `duplicate` y la conversación nunca subiera ni avisara.
+- La tarjeta y el `update` de la Bandeja (no leídos, `lastMessageAt`,
+  desarchivo) van en **una transacción**: si el update falla, la tarjeta se
+  revierte y el endpoint da 500, así el reintento del ERP vuelve a entrar en
+  vez de caer en `duplicate` con la conversación sin subir ni avisar. Fuente,
+  lead, ficha y «último recibido» van en `step()` (accesorios; al log solo
+  `err.message`); los `publish`, tras el commit.
 
 ### Choques con 022 (resueltos al rebasar, 2026-10-19)
 
