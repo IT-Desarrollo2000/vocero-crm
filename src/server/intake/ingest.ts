@@ -39,7 +39,9 @@ import { recordIntakeReceived } from "./settings";
  * (RF-7). La tarjeta va ANTES que lo demás a propósito: su
  * `wa_message_id = intake:<lead_id>` es UNIQUE, así que un `lead_id` repetido
  * (el cron de conciliación del ERP reenvía las últimas 48 h) se descubre ahí y
- * corta sin volver a tocar fuente, lead ni ficha (RF-11).
+ * corta sin volver a tocar fuente, lead ni ficha (RF-11). La tarjeta y el
+ * update de la Bandeja van en una sola transacción; fuente, lead, ficha y
+ * «último recibido» son accesorios (`step`); los `publish`, tras el commit.
  *
  * Lo que NO hace, y es deliberado:
  * - no dispara el agente (`maybeRunAgentTurn`): con la ventana de 24 h
@@ -141,23 +143,51 @@ export async function ingestExternalLead(
   );
 
   const now = new Date();
-  const inserted = await db
-    .insert(schema.message)
-    .values({
-      id: newId("message"),
-      organizationId,
-      conversationId: conversation.id,
-      waMessageId: `${LEAD_INTAKE_WAMID_PREFIX}${lead.lead_id}`,
-      direction: "in",
-      type: LEAD_INTAKE_TYPE,
-      text: buildLeadCardText(lead),
-      status: "delivered",
-      // La hora en que el prospecto dejó sus datos (si el ERP la manda).
-      waTimestamp: lead.created_at ?? now,
-    })
-    .onConflictDoNothing({ target: [schema.message.waMessageId] })
-    .returning();
-  const message = inserted[0];
+  // La tarjeta y la Bandeja (no leídos, orden, desarchivo) van en UNA
+  // transacción: si el update falla, la tarjeta se revierte y el endpoint da
+  // 500, así el reintento del ERP vuelve a entrar en vez de caer en
+  // `duplicate` con la conversación sin subir ni avisar.
+  const message = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(schema.message)
+      .values({
+        id: newId("message"),
+        organizationId,
+        conversationId: conversation.id,
+        waMessageId: `${LEAD_INTAKE_WAMID_PREFIX}${lead.lead_id}`,
+        direction: "in",
+        type: LEAD_INTAKE_TYPE,
+        text: buildLeadCardText(lead),
+        status: "delivered",
+        // La hora en que el prospecto dejó sus datos (si el ERP la manda).
+        waTimestamp: lead.created_at ?? now,
+      })
+      .onConflictDoNothing({ target: [schema.message.waMessageId] })
+      .returning();
+    const row = inserted[0];
+    if (!row) return null; // duplicado: nada que subir ni desarchivar
+
+    // Sube no leídos y la sube en la lista; `greatest` para que un lead viejo
+    // (carga inicial, conciliación) no entierre una conversación más
+    // reciente. 022: la tarjeta es un entrante → desarchiva, como el de
+    // WhatsApp (tras el dedupe: un `lead_id` repetido no desarchiva).
+    await tx
+      .update(schema.conversation)
+      .set({
+        lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
+        unreadCount: sql`${schema.conversation.unreadCount} + 1`,
+        updatedAt: now,
+        ...UNARCHIVE_SET,
+      })
+      .where(
+        scoped(
+          schema.conversation.organizationId,
+          organizationId,
+          eq(schema.conversation.id, conversation.id)
+        )
+      );
+    return row;
+  });
   if (!message) {
     console.info(`${tag}: duplicado, sin efectos`);
     return {
@@ -211,31 +241,6 @@ export async function ingestExternalLead(
       fields,
     });
   });
-
-  // Sube no leídos y la sube en la lista; `greatest` para que un lead viejo
-  // (carga inicial, conciliación) no entierre una conversación más reciente.
-  // También va en `step`: con la tarjeta ya insertada, un 500 aquí haría que
-  // el reintento del ERP cayera en `duplicate` y la conversación nunca subiera
-  // ni avisara. Los `publish` de abajo salen siempre.
-  // 022: la tarjeta es un entrante → desarchiva, como el de WhatsApp (tras el
-  // dedupe de la tarjeta: un `lead_id` repetido no desarchiva).
-  await step("bandeja", () =>
-    db
-      .update(schema.conversation)
-      .set({
-        lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
-        unreadCount: sql`${schema.conversation.unreadCount} + 1`,
-        updatedAt: now,
-        ...UNARCHIVE_SET,
-      })
-      .where(
-        scoped(
-          schema.conversation.organizationId,
-          organizationId,
-          eq(schema.conversation.id, conversation.id)
-        )
-      )
-  );
 
   await step("último recibido", () =>
     recordIntakeReceived(organizationId, lead.origin, now)
