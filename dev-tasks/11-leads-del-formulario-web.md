@@ -1,12 +1,11 @@
 # 11 — Leads externos: formulario web (futuramexico.com/contacto) y FastApp
 
 > Estado: **aprobada por el dueño 2026-10-19 (D-11-1…9 según recomendación)** —
-> **lado CRM hecho en la rama `011-leads-externos` (2026-10-19), sin mergear**;
-> migración pendiente de renumerar (generada localmente como `0023`, NO
-> commiteada: se regenera como `0024` cuando 022 entre a `main`); lado ERP
+> **lado CRM hecho en la rama `011-leads-externos` (2026-10-19), rebasada sobre
+> `main` con 021 y 022, lista para el merge** (sin mergear); lado ERP
 > pendiente (requiere OK) · Prioridad: media · Esfuerzo: M (CRM) + S (ERP) ·
-> Migración: sí, **`0024`** (la `0023` la ocupa `022-archivo-y-nombres`, aún
-> sin commit) · Bandera: sí, `LEADS_EXTERNOS` (apagada por defecto, ADR-001)
+> Migración: sí, **`0024_leads_externos`** (commiteada; la `0023` es de 022) ·
+> Bandera: sí, `LEADS_EXTERNOS` (apagada por defecto, ADR-001)
 >
 > Se apoya en 00 (clave en Ajustes, solo Propietario), 04 (ficha), 05 (alerta),
 > 09 (entra sin asignar) y 020 (fuente del contacto).
@@ -216,8 +215,9 @@ Fuera de alcance (v1):
 - Tabla `intake_settings`: `organization_id` (UNIQUE, FK), `key_cipher`,
   `key_iv`, `key_tag`, `key_last4`, `last_received_at` (jsonb por origen),
   `created_at`, `updated_at`. Aditiva y re-ejecutable.
-- Se genera **después** de que `022-archivo-y-nombres` entre a `main` (su
-  `0023` está sin commit y toca `_journal.json` y el snapshot).
+- `drizzle/0024_leads_externos.sql`, generada sobre `main` con la `0023` de
+  022 ya dentro y editada a mano para ser re-ejecutable (IF NOT EXISTS + FK en
+  DO-block); solo crea `intake_settings`.
 
 ### Servidor (CRM)
 
@@ -342,7 +342,7 @@ Riesgos:
 - **Dos repos y dos BD**: el cambio del ERP va en su propio repo
   (`agenciaev`, migración nueva en `supabase/migrations/`) y se aplica al
   proyecto real `vqfctefthnqjwryhkbna`, no al que tiene ligado la carpeta.
-- **Numeración**: `0023` la tiene 022 sin commit.
+- **Numeración**: resuelta — `0023` es de 022, `0024` de esta tarea.
 - **Suposición «10 dígitos = México»**: válida para este ERP; otro negocio
   debe mandar lada.
 - **Clave**: vive solo en Vault del ERP y cifrada en el CRM; nunca en un
@@ -388,17 +388,31 @@ Lo que quedó distinto o más preciso que el plan, y por qué:
   Bandeja): un 500 después de insertar la tarjeta haría que el reintento del
   ERP cayera en `duplicate` y la conversación nunca subiera ni avisara.
 
-### Pendiente antes del merge (bloquea el merge, no la rama)
+### Choques con 022 (resueltos al rebasar, 2026-10-19)
 
-1. Rebase sobre `main` cuando entre **022** y regenerar la migración como
-   `0024` (la `0023_tranquil_the_fury.sql` local NO se commitea).
-2. 022 añade `contact.profile_name`: verificar que un contacto **nuevo** por
-   intake recibe `name` = nombre completo del lead (hoy se pasa como
-   `profileName` a `getOrCreateContactByIdentity`) y no un respaldo.
-3. 022 añade `conversation.archived_*`: un lead para un contacto con la
-   conversación **archivada** debe desarchivarla (es un entrante), igual que
-   el camino de WhatsApp real. Añadir caso E2E.
-4. Re-gate + `e2e-leads-externos` ON/OFF + `e2e-selftest`.
+- **Nombre**: `contact.profile_name` es el nombre de perfil del CANAL (nick de
+  WhatsApp) y el formulario no lo es. `ingestExternalLead` llama a
+  `getOrCreateContactByIdentity` con `profileName: null` y pone el nombre
+  completo del lead en `name` solo si el actual es de respaldo
+  (`isFallbackName`: contacto nuevo → su teléfono), antes de la tarjeta. Si se
+  pasara como `profileName`, un lead de FastApp pisaría el nick real y la
+  línea «WhatsApp: «…»» mentiría tras renombrar. Cuando el prospecto escribe
+  por WhatsApp, su nick va a `profile_name` y el nombre del lead se queda.
+- **Archivo**: la tarjeta es un entrante → el `update` de la Bandeja mezcla
+  `UNARCHIVE_SET` (como el entrante de WhatsApp). Va tras el dedupe de la
+  tarjeta: un `lead_id` repetido no desarchiva. `conversation.updated` ya se
+  publicaba.
+- E2E: `profileName` null en e) y g), el nick en m), y la sección g2)
+  (archivar → lead nuevo desarchiva → duplicado no).
+
+### Antes del merge
+
+Hecho: rebase sobre `main` (021 + 022), migración `0024_leads_externos`,
+choques con 022 y re-verificación en la BD aislada (`vocero011`, migraciones
+2×, más la `0024` aplicada 2× a mano): gate verde; `e2e-leads-externos`
+103/103 (ON) y 8/8 (OFF); `e2e-selftest` 488/488 (ON) y 482/482 (OFF);
+`e2e-archivo` 66/66 y `e2e-archivo-ui` 46/46. Falta solo el merge y, con el
+deploy, aplicar la bandera `LEADS_EXTERNOS` donde se use.
 
 ### Fase ERP — ajustes de diseño acordados antes de pedir OK
 
@@ -418,4 +432,5 @@ Lo que quedó distinto o más preciso que el plan, y por qué:
 - **09**: conversación nueva sin asignar, visible para todos los vendedores.
 - **02**: exclusión del tipo `lead_intake` en las métricas.
 - **020**: fuente del contacto y reporte «por fuente».
-- **022** (en curso, otra sesión): reserva la migración `0023`.
+- **022** (ya en `main`): migración `0023`, `contact.profile_name` y archivo
+  de conversaciones (ver «Choques con 022» arriba).

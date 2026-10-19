@@ -67,6 +67,7 @@ sigue el orden de implementación. Si el orden cambia, se renumera aquí.
 | 02 (+05) | `0017` | Índice `message(organization_id, created_at)` + tabla `conversation_handoff_event` (V2) con siembra — **creada en el contrato 05/02-0** |
 | 10 | `0018` | `booking_reminder`, `agenda_offer_log`, ajustes de recordatorio |
 | 08 | `0019` | `lab_persona`, `lab_suggestion_application`, snapshot por corrida |
+| 11 | `0024` | Tabla `intake_settings` (clave de leads externos) — `0020`–`0023` son de 018, 019, 020 y 022 |
 
 Todas aditivas y re-ejecutables, probadas 2× en la BD aislada antes del deploy
 (se aplican solas al arrancar el contenedor contra la BD de producción).
@@ -123,9 +124,10 @@ por defecto.
 campañas de Click-to-WhatsApp; reutilizará la pantalla de Reportes de 02.
 
 **[11 — Leads externos: formulario web (futuramexico.com/contacto) y FastApp](11-leads-del-formulario-web.md)** — borrador de especificación y plan (2026-10-19, rev. 2 con el proyecto Supabase real), decisiones D-11-1…9 aprobadas (2026-10-19). **Lado CRM hecho en la rama
-`011-leads-externos` (2026-10-19), sin mergear; migración pendiente de
-renumerar a `0024` cuando 022 entre a `main` (no está commiteada). Lado ERP
-pendiente (requiere OK).** Endpoint de
+`011-leads-externos` (2026-10-19), rebasada sobre `main` (021 + 022) y lista
+para el merge: migración `0024_leads_externos`, choques con 022 (nombre de
+perfil y archivo) resueltos y re-verificados. Lado ERP pendiente (requiere
+OK).** Endpoint de
 entrada en el CRM con clave secreta + reenvío desde la función de Supabase del
 sitio (el equipo tiene acceso). Va **después de todo lo planeado**; no afecta a
 las tareas actuales. Se apoya en 00 (clave en Ajustes), 04 (ficha), 05
