@@ -189,20 +189,25 @@ export async function ingestExternalLead(
 
   // Sube no leídos y la sube en la lista; `greatest` para que un lead viejo
   // (carga inicial, conciliación) no entierre una conversación más reciente.
-  await db
-    .update(schema.conversation)
-    .set({
-      lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
-      unreadCount: sql`${schema.conversation.unreadCount} + 1`,
-      updatedAt: now,
-    })
-    .where(
-      scoped(
-        schema.conversation.organizationId,
-        organizationId,
-        eq(schema.conversation.id, conversation.id)
+  // También va en `step`: con la tarjeta ya insertada, un 500 aquí haría que
+  // el reintento del ERP cayera en `duplicate` y la conversación nunca subiera
+  // ni avisara. Los `publish` de abajo salen siempre.
+  await step("bandeja", () =>
+    db
+      .update(schema.conversation)
+      .set({
+        lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
+        unreadCount: sql`${schema.conversation.unreadCount} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        scoped(
+          schema.conversation.organizationId,
+          organizationId,
+          eq(schema.conversation.id, conversation.id)
+        )
       )
-    );
+  );
 
   await step("último recibido", () =>
     recordIntakeReceived(organizationId, lead.origin, now)

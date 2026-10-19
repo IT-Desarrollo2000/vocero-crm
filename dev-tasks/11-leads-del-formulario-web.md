@@ -278,7 +278,7 @@ Sin tocar ninguna Edge Function. Una migración en el ERP:
    → `net.http_post(url, body, headers {X-API-Key}, timeout_milliseconds :=
    5000)`. `pg_net` es asíncrono: el INSERT nunca espera ni falla por el CRM.
    `EXCEPTION WHEN OTHERS` → solo `RAISE WARNING` (jamás bloquear el alta).
-4. Cron de conciliación `crm-lead-reconcile` (p. ej. cada 15 min): reenvía
+4. Cron de conciliación `crm-lead-reconcile` (cada hora): reenvía
    los leads de esas fuentes de las **últimas 48 h**. El CRM los descarta por
    idempotencia, así que no hace falta guardar estado; cubre caídas del CRM,
    deploys y rotación de clave. Volumen ~1/día → costo despreciable.
@@ -384,6 +384,31 @@ Lo que quedó distinto o más preciso que el plan, y por qué:
   ai-mock, que no las cuenta.
 - E2E: `tests/e2e/us-leads-externos.md` + `scripts/e2e-leads-externos.mjs`
   (completo) y sección `011` en `scripts/e2e-selftest.mjs` (`pnpm test:e2e`).
+- Tras la tarjeta, **todo** va en `step()` (incluido el `update` de la
+  Bandeja): un 500 después de insertar la tarjeta haría que el reintento del
+  ERP cayera en `duplicate` y la conversación nunca subiera ni avisara.
+
+### Pendiente antes del merge (bloquea el merge, no la rama)
+
+1. Rebase sobre `main` cuando entre **022** y regenerar la migración como
+   `0024` (la `0023_tranquil_the_fury.sql` local NO se commitea).
+2. 022 añade `contact.profile_name`: verificar que un contacto **nuevo** por
+   intake recibe `name` = nombre completo del lead (hoy se pasa como
+   `profileName` a `getOrCreateContactByIdentity`) y no un respaldo.
+3. 022 añade `conversation.archived_*`: un lead para un contacto con la
+   conversación **archivada** debe desarchivarla (es un entrante), igual que
+   el camino de WhatsApp real. Añadir caso E2E.
+4. Re-gate + `e2e-leads-externos` ON/OFF + `e2e-selftest`.
+
+### Fase ERP — ajustes de diseño acordados antes de pedir OK
+
+- El `WHEN` del trigger y el cron exigen teléfono con 10, 12 o 13 dígitos
+  tras quitar no-dígitos (FastApp no limpia el formato); si no, un lead
+  inválido devolvería 422 en cada vuelta durante 48 h.
+- Cron de conciliación **horario** (no cada 15 min): a ~1 lead/día basta, y
+  evita ~190 «duplicado, sin efectos» por lead en el log del CRM.
+- La carga inicial (D-11-9, ~17 leads) hace aparecer ~17 conversaciones y
+  alertas de golpe: avisar a los vendedores o hacerla a una hora acordada.
 
 ## 3. Dependencias con otras tareas
 
