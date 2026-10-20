@@ -50,7 +50,7 @@ Plan: [plan.md](plan.md). Rama `023-agenda-presencial` (worktree
 - [x] Gate: typecheck + lint + build + test (155 archivos / 2011 tests).
 
 ## Pendiente para desplegar (requiere OK del dueño)
-- [ ] Rebase sobre origin/main, commit y push.
-- [ ] Confirmar que `booking` en prod está vacía (la 0025 quita el índice
+- [x] Commit ca8a3bf, FF a main y push (20-oct).
+- [x] Confirmado: `booking` en prod estaba vacía (la 0025 quita el índice
   único de la 015).
-- [ ] Deploy; encender `AGENDA=on` en Coolify cuando el dueño lo decida.
+- [x] Desplegado ca8a3bf (deploy hxwrlq4ae1pxyiuykpwqgkw2) con `AGENDA=on` en Coolify (20-oct, OK del dueño).
