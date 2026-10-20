@@ -1252,6 +1252,8 @@ async function agendaChecks() {
     "/api/calendar/settings",
     "/api/calendar/availability",
     "/api/bookings",
+    // 023 — El catálogo de tipos de cita también es agenda.
+    "/api/calendar/types",
   ];
 
   if (!encendida) {
@@ -1262,6 +1264,17 @@ async function agendaChecks() {
       const { res } = await api(ruta);
       ok(`${ruta} → 404 con la agenda apagada`, res.status === 404, `status=${res.status}`);
     }
+    // 023 — Escribir tipos tampoco existe (la bandera va antes de la sesión).
+    const tipoNuevo = await api("/api/calendar/types", {
+      method: "POST",
+      body: JSON.stringify({ name: "Tipo fantasma", durationMinutes: 30 }),
+    });
+    ok("POST /api/calendar/types → 404 con la agenda apagada", tipoNuevo.res.status === 404, `status=${tipoNuevo.res.status}`);
+    const tipoEdit = await api("/api/calendar/types/apt_inexistente", {
+      method: "PATCH",
+      body: JSON.stringify({ active: false }),
+    });
+    ok("PATCH /api/calendar/types/[id] → 404 con la agenda apagada", tipoEdit.res.status === 404, `status=${tipoEdit.res.status}`);
     const botAvail = await bot("/api/bot/availability?conversationId=x");
     ok(
       "/api/bot/availability → 404 con la agenda apagada",
@@ -1327,6 +1340,19 @@ async function agendaChecks() {
     JSON.stringify(disp[0])
   );
 
+  // 023 — Tipos de cita (siembra perezosa): la Prueba de manejo es exclusiva
+  // (una a la vez en todo el negocio) y Servicio no.
+  const tipos = (await api("/api/calendar/types")).json?.types ?? [];
+  const PRUEBA = tipos.find((t) => t.exclusive);
+  const SERVICIO = tipos.find((t) => !t.exclusive);
+  ok(
+    "023: el catálogo sembrado trae un tipo exclusivo y uno que no lo es",
+    Boolean(PRUEBA && SERVICIO),
+    JSON.stringify(tipos.map((t) => [t.name, t.exclusive, t.durationMinutes]))
+  );
+  if (!PRUEBA || !SERVICIO) return;
+  const tipoQ = `&type=${encodeURIComponent(PRUEBA.name)}`;
+
   console.log("\n== 015: las dos garantías (US3) ==");
   const LEAD_A = "5214627015001";
   await api("/api/dev/wa-mock/inbound", {
@@ -1358,11 +1384,20 @@ async function agendaChecks() {
   ok("dos conversaciones de prueba listas", Boolean(convA && convB));
   if (!convA || !convB) return;
 
+  // 023 — Se ofrece con el tipo EXCLUSIVO: así el check del hueco reservado
+  // mide la regla nueva (otra Prueba de manejo no cabe; un Servicio sí, con
+  // advertencia).
   const ofertaA = await bot(
-    `/api/bot/availability?conversationId=${convA.id}&limit=12&perDay=3&days=5`
+    `/api/bot/availability?conversationId=${convA.id}&limit=12&perDay=3&days=5${tipoQ}`
   );
   const slotsA = ofertaA.json?.slots ?? [];
   ok("ofrecer horarios devuelve huecos", slotsA.length > 0, `slots=${slotsA.length}`);
+  ok(
+    "023: la oferta del bot dice con qué tipo se calculó",
+    ofertaA.json?.type?.id === PRUEBA.id &&
+      ofertaA.json?.type?.durationMinutes === PRUEBA.durationMinutes,
+    JSON.stringify(ofertaA.json?.type)
+  );
   ok(
     "el reparto cubre más de un día (no todo hoy)",
     (ofertaA.json?.diasConAgenda ?? []).length > 1,
@@ -1409,8 +1444,27 @@ async function agendaChecks() {
 
   const dispTrasReserva = (await api("/api/calendar/availability")).json?.slots ?? [];
   ok(
-    "el hueco reservado desaparece de la disponibilidad",
+    "el hueco reservado desaparece de la disponibilidad (sin tipo: estricta)",
     !dispTrasReserva.some((s) => s.startUtc === elegido)
+  );
+  // 023 — Con el MISMO tipo exclusivo el hueco no aparece (rechazo duro)…
+  const dispMismoTipo =
+    (await api(`/api/calendar/availability?typeId=${PRUEBA.id}`)).json?.slots ?? [];
+  ok(
+    "023: con el mismo tipo exclusivo el hueco reservado desaparece",
+    dispMismoTipo.length > 0 && !dispMismoTipo.some((s) => s.startUtc === elegido),
+    `slots=${dispMismoTipo.length}`
+  );
+  // …y con otro tipo aparece, pero con el choque en `conflicts` (advertencia).
+  const dispOtroTipo =
+    (await api(`/api/calendar/availability?typeId=${SERVICIO.id}`)).json?.slots ?? [];
+  const huecoCompartido = dispOtroTipo.find((s) => s.startUtc === elegido);
+  ok(
+    "023: con otro tipo el hueco sigue, marcado con la cita que choca",
+    (huecoCompartido?.conflicts ?? []).some(
+      (c) => c.bookingId === creada.json?.bookingId && c.typeName === PRUEBA.name
+    ),
+    JSON.stringify(huecoCompartido)
   );
 
   const lista = (await api("/api/bookings")).json?.bookings ?? [];
@@ -1473,8 +1527,9 @@ async function agendaChecks() {
   }
 
   // Reprogramar por la superficie del bot: 200, no 201.
+  // Mismo tipo que la cita: los huecos se calculan con SU duración.
   const ofertaMover = await bot(
-    `/api/bot/availability?conversationId=${convA.id}&limit=12&perDay=3&days=5`
+    `/api/bot/availability?conversationId=${convA.id}&limit=12&perDay=3&days=5${tipoQ}`
   );
   const destino = (ofertaMover.json?.slots ?? [])[0];
   if (destino) {

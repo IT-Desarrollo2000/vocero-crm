@@ -283,6 +283,24 @@ describe("renderContactContext", () => {
     expect(out).toMatch(/Última cita pasada: «[^»]*01\/10\/2026[^»]*» — no asistió/);
   });
 
+  it("023 (A12): la próxima cita muestra su tipo", () => {
+    const out = renderContactContext(
+      ctx({
+        bookings: {
+          next: {
+            scheduledAt: new Date("2026-10-13T16:00:00Z"),
+            durationMinutes: 60,
+            moreCount: 0,
+            typeName: "Prueba de manejo",
+          },
+          last: null,
+        },
+      })
+    );
+    expect(out).toContain("» («Prueba de manejo», 60 min)");
+    expect(out).toContain("Próxima cita: «");
+  });
+
   it("recurrente: 'sí (compró antes el dd/mm/aaaa)'", () => {
     const out = renderContactContext(ctx({ recurrent: { since: new Date("2026-03-05T18:00:00Z") } }));
     expect(out).toContain("Cliente recurrente: sí (compró antes el 05/03/2026)");

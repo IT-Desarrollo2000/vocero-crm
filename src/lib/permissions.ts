@@ -91,12 +91,22 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "DELETE /api/pipeline/stages/[id]": "owner",
 
   // ── Agenda ─────────────────────────────────────────────────────────────
-  "GET /api/bookings": "any",
-  "POST /api/bookings": "any",
-  "PATCH /api/bookings/[id]": "any",
+  // 023: el Vendedor ve sus citas, las que creó y las sin asignar (404 a las
+  // ajenas); `assignedUserId` al crear y la acción `assign` son del
+  // Propietario (403).
+  "GET /api/bookings": "any*",
+  "POST /api/bookings": "any*",
+  "PATCH /api/bookings/[id]": "any*",
   // 10: reintentar un recordatorio fallido (los dos roles operan Citas).
-  "POST /api/bookings/[id]/reminders/[reminderId]/retry": "any",
-  "GET /api/calendar/availability": "any",
+  "POST /api/bookings/[id]/reminders/[reminderId]/retry": "any*",
+  // 023: `sellerId` solo cuenta para el Propietario (al Vendedor se le
+  // fija el suyo).
+  "GET /api/calendar/availability": "any*",
+  // 023: catálogo de tipos de cita. Lectura para todos (`?all=1` solo
+  // Propietario); alta y edición del Propietario.
+  "GET /api/calendar/types": "any*",
+  "POST /api/calendar/types": "owner",
+  "PATCH /api/calendar/types/[id]": "owner",
   "GET /api/calendar/settings": "owner",
   "PUT /api/calendar/settings": "owner",
 

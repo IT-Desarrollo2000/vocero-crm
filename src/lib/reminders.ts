@@ -71,6 +71,10 @@ export const REMINDER_FIELDS = [
   "booking_datetime",
   "meeting_link",
   "business_name",
+  // 023 (A8) — agenda presencial. Al FINAL: el índice de cada campo no importa
+  // (el mapeo guarda nombres), pero el orden del selector sí se conserva.
+  "appointment_type",
+  "address",
 ] as const;
 export type ReminderField = (typeof REMINDER_FIELDS)[number];
 
@@ -79,10 +83,16 @@ export const REMINDER_FIELD_LABEL: Record<ReminderField, string> = {
   booking_datetime: "Fecha y hora de la cita",
   meeting_link: "Enlace de la reunión",
   business_name: "Nombre del negocio",
+  appointment_type: "Tipo de cita",
+  address: "Dirección del negocio",
 };
 
 /** `meeting_link` sin enlace: Meta rechaza parámetros vacíos (132000). */
 export const MEETING_LINK_FALLBACK = "te lo compartimos por este medio";
+/** 023 — `appointment_type` de una cita sin tipo (015). */
+export const APPOINTMENT_TYPE_FALLBACK = "tu cita";
+/** 023 — `address` sin dirección configurada. */
+export const ADDRESS_FALLBACK = "nuestra sucursal";
 
 // ── Anticipaciones ───────────────────────────────────────────────────────
 

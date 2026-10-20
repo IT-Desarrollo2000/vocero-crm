@@ -63,6 +63,9 @@ const putSchema = z.object({
     })
     .optional(),
   meetingLink: z.string().nullish(),
+  // 023 — Dirección del negocio ("Te esperamos en …"). El servicio la recorta,
+  // vacía ⇒ null, y rechaza más de 300 caracteres (422).
+  address: z.string().nullish(),
   // 10 — Recordatorios (contrato 10-0). La FORMA se valida aquí; plantilla
   // aprobada de WhatsApp y un campo por cada {{n}} los valida el servicio
   // (422 `invalid_body` con mensaje).
@@ -126,6 +129,7 @@ export const PUT = withAuth(async (session, req: Request) => {
       // `undefined` = no lo tocaron; `null` = lo vaciaron a propósito.
       meetingLink:
         agenda.meetingLink === undefined ? undefined : agenda.meetingLink,
+      address: agenda.address === undefined ? undefined : agenda.address,
     });
     // `upsertSettings` garantiza la fila; los recordatorios van encima.
     if (reminderPlan) {

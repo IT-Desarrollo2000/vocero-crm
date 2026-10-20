@@ -19,12 +19,19 @@ import {
 } from "@/lib/agenda-connectors";
 import { ConnectorCredentials } from "@/components/settings/connector-credentials";
 import { RemindersCard } from "@/components/settings/reminders-card";
+import { AppointmentTypesCard } from "@/components/settings/appointment-types-card";
 import type { ReminderSettingsDto } from "@/lib/reminders";
 
 /**
  * 015 — Ajustes → Agenda: cuándo atiende el negocio y cómo se entrega la
  * reunión.
+ *
+ * 023 — Agenda presencial: tipos de cita (cada uno con su duración), dirección
+ * del negocio y `slotMinutes` como paso de la rejilla.
  */
+
+// 023: conectores remotos ocultos (decisión del dueño 20-oct); el código y la API siguen
+const REMOTE_CONNECTORS_VISIBLE = false;
 
 type Interval = { start: string; end: string };
 type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -39,6 +46,8 @@ type Settings = {
   timezone: string;
   connector: ConnectorId;
   meetingLink: string | null;
+  /** 023 — "Te esperamos en …" en la confirmación al cliente. */
+  address: string | null;
 };
 
 const DAYS: { key: DayKey; label: string }[] = [
@@ -153,6 +162,7 @@ export function AgendaClient() {
         meetingLink: settings.meetingLink?.trim()
           ? settings.meetingLink.trim()
           : null,
+        address: settings.address?.trim() ? settings.address.trim() : null,
       }),
     }).catch(() => null);
     setSaving(false);
@@ -252,7 +262,7 @@ export function AgendaClient() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label htmlFor="slot">Duración de la cita (min)</Label>
+            <Label htmlFor="slot">Cada cuánto empieza un horario (min)</Label>
             <Input
               id="slot"
               type="number"
@@ -260,7 +270,11 @@ export function AgendaClient() {
               max={240}
               value={settings.slotMinutes}
               onChange={(e) => patch({ slotMinutes: Number(e.target.value) })}
+              aria-describedby="slot-help"
             />
+            <p id="slot-help" className="text-xs text-text-3">
+              La duración de cada cita la da su tipo.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="buffer">Respiro entre citas (min)</Label>
@@ -309,52 +323,79 @@ export function AgendaClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Cómo se entrega la reunión</CardTitle>
+          <CardTitle>Dirección del negocio</CardTitle>
           <CardDescription>
-            El enlace fijo no depende de nadie. Los demás conectan con tu propia
-            cuenta del proveedor y, si alguna vez falla, la cita se agenda igual
-            y el enlace queda pendiente de reintentar.
+            Se muestra en la confirmación al cliente: “Te esperamos en …”. Si
+            la dejas vacía, la confirmación no menciona dirección.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {CONNECTOR_ORDER.map((id) => {
-            const meta = CONNECTOR_META[id];
-            const active = settings.connector === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => patch({ connector: id })}
-                className={cn(
-                  "block w-full rounded-sm border px-3 py-2.5 text-left transition-colors",
-                  active
-                    ? "border-brand bg-brand-tint"
-                    : "border-border hover:bg-accent"
-                )}
-              >
-                <span
-                  className={cn(
-                    "block text-sm font-semibold",
-                    active && "text-brand-text"
-                  )}
-                >
-                  {meta.label}
-                  {!meta.external && (
-                    <span className="ml-2 text-[11px] font-normal text-text-3">
-                      sin dependencias
-                    </span>
-                  )}
-                </span>
-                <span className="mt-0.5 block text-xs text-text-2">
-                  {meta.description}
-                </span>
-              </button>
-            );
-          })}
+        <CardContent>
+          <Label htmlFor="address" className="sr-only">
+            Dirección del negocio
+          </Label>
+          <Input
+            id="address"
+            data-testid="agenda-address"
+            value={settings.address ?? ""}
+            maxLength={300}
+            onChange={(e) => patch({ address: e.target.value })}
+            placeholder="Av. Siempre Viva 742, Col. Centro  (opcional)"
+          />
         </CardContent>
       </Card>
 
-      {settings.connector === "enlace-fijo" && (
+      {/* 023: conectores remotos ocultos (decisión del dueño 20-oct); el código y la API siguen */}
+      {REMOTE_CONNECTORS_VISIBLE && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cómo se entrega la reunión</CardTitle>
+            <CardDescription>
+              El enlace fijo no depende de nadie. Los demás conectan con tu propia
+              cuenta del proveedor y, si alguna vez falla, la cita se agenda igual
+              y el enlace queda pendiente de reintentar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {CONNECTOR_ORDER.map((id) => {
+              const meta = CONNECTOR_META[id];
+              const active = settings.connector === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => patch({ connector: id })}
+                  className={cn(
+                    "block w-full rounded-sm border px-3 py-2.5 text-left transition-colors",
+                    active
+                      ? "border-brand bg-brand-tint"
+                      : "border-border hover:bg-accent"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "block text-sm font-semibold",
+                      active && "text-brand-text"
+                    )}
+                  >
+                    {meta.label}
+                    {!meta.external && (
+                      <span className="ml-2 text-[11px] font-normal text-text-3">
+                        sin dependencias
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-text-2">
+                    {meta.description}
+                  </span>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 023: la sala fija también es de citas remotas; oculta con los conectores. */}
+      {REMOTE_CONNECTORS_VISIBLE && settings.connector === "enlace-fijo" && (
         <Card>
           <CardHeader>
             <CardTitle>Tu sala de siempre</CardTitle>
@@ -382,13 +423,17 @@ export function AgendaClient() {
         {error && <span className="text-sm text-destructive">{error}</span>}
       </div>
 
+      {/* 023 — Los tipos se guardan por su cuenta (cada cambio, al instante). */}
+      <AppointmentTypesCard />
+
       {/* Los recordatorios también se guardan por su cuenta: si el servidor
           aún no los acepta, el horario de arriba se sigue guardando. */}
       {reminders && <RemindersCard initial={reminders} />}
 
       {/* Las credenciales se guardan por su cuenta, no con el botón de arriba:
           se validan contra el proveedor antes de tocar la base. */}
-      {settings.connector !== "enlace-fijo" && (
+      {/* 023: conectores remotos ocultos (decisión del dueño 20-oct); el código y la API siguen */}
+      {REMOTE_CONNECTORS_VISIBLE && settings.connector !== "enlace-fijo" && (
         <ConnectorCredentials connector={settings.connector} />
       )}
 

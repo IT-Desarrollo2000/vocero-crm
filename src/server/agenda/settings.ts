@@ -43,6 +43,11 @@ export type CalendarSettings = {
   connector: ConnectorId;
   /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
   meetingLink: string | null;
+  /**
+   * 023 — Dirección del negocio para citas presenciales ("Te esperamos en
+   * …"). null ⇒ la confirmación no la menciona.
+   */
+  address: string | null;
 };
 
 /** Lo que ve una instancia recién encendida: útil sin configurar nada. */
@@ -55,6 +60,7 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   timezone: DEFAULT_TIMEZONE,
   connector: DEFAULT_CONNECTOR,
   meetingLink: null,
+  address: null,
 };
 
 export const LIMITS = {
@@ -62,6 +68,8 @@ export const LIMITS = {
   bufferMinutes: { min: 0, max: 120 },
   minNoticeHours: { min: 0, max: 72 },
   maxDaysAhead: { min: 1, max: 60 },
+  /** 023 — Largo máximo de la dirección del negocio. */
+  addressMaxLength: 300,
 } as const;
 
 export async function getSettings(
@@ -89,6 +97,7 @@ export async function getSettings(
     // puede dejar la agenda inservible: se degrada al soberano.
     connector: isConnectorId(row.connector) ? row.connector : DEFAULT_CONNECTOR,
     meetingLink: row.meetingLink,
+    address: row.address ?? null,
   };
 }
 
@@ -158,7 +167,15 @@ export async function upsertSettings(
     meetingLink: normalizeLink(
       input.meetingLink !== undefined ? input.meetingLink : current.meetingLink
     ),
+    address: normalizeLink(
+      input.address !== undefined ? input.address : current.address
+    ),
   };
+  if (next.address && next.address.length > LIMITS.addressMaxLength) {
+    throw new CalendarSettingsError(
+      `La dirección no puede pasar de ${LIMITS.addressMaxLength} caracteres`
+    );
+  }
 
   const db = getDb();
   const values = {
@@ -170,6 +187,7 @@ export async function upsertSettings(
     timezone: next.timezone,
     connector: next.connector,
     meetingLink: next.meetingLink,
+    address: next.address,
   };
   await db
     .insert(schema.calendarSettings)

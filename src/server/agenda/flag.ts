@@ -49,3 +49,17 @@ export function agendaEnabled(): boolean {
 export function agendaDisabledResponse(): Response {
   return new Response(null, { status: 404 });
 }
+
+/**
+ * 023 — Envuelve un handler para que la bandera se evalúe ANTES que la
+ * sesión: con la agenda apagada la ruta no existe (404) ni siquiera para
+ * quien no tiene sesión — un 401 delataría que existe.
+ *
+ *   export const GET = agendaFirst(withAuth(async (session, req) => { … }));
+ */
+export function agendaFirst<Args extends unknown[]>(
+  handler: (...args: Args) => Promise<Response>
+): (...args: Args) => Promise<Response> {
+  return async (...args: Args) =>
+    agendaEnabled() ? handler(...args) : agendaDisabledResponse();
+}

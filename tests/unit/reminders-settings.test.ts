@@ -137,3 +137,50 @@ describe("renderReminderVariables", () => {
     expect(out.every((v) => v.trim().length > 0)).toBe(true);
   });
 });
+
+describe("023 — variables de agenda presencial (A8)", () => {
+  const base = {
+    contactName: "Ana",
+    scheduledAt: new Date("2026-10-20T16:00:00.000Z"),
+    timezone: "America/Mexico_City",
+    meetingLink: null,
+    businessName: "Autos Sol",
+  };
+
+  it("tipo de cita y dirección del negocio", () => {
+    const out = renderReminderVariables(["appointment_type", "address"], {
+      ...base,
+      appointmentType: "Prueba de manejo",
+      address: "Av. Juárez 100, Centro",
+    });
+    expect(out).toEqual(["Prueba de manejo", "Av. Juárez 100, Centro"]);
+  });
+
+  it("con respaldo no vacío: «tu cita» y «nuestra sucursal»", () => {
+    const out = renderReminderVariables(["appointment_type", "address"], {
+      ...base,
+      appointmentType: "  ",
+      address: null,
+    });
+    expect(out).toEqual(["tu cita", "nuestra sucursal"]);
+    // Sin los campos en el contexto (llamadores de la 015), igual.
+    expect(renderReminderVariables(["appointment_type", "address"], base)).toEqual([
+      "tu cita",
+      "nuestra sucursal",
+    ]);
+  });
+
+  it("forman parte del catálogo cerrado, con etiqueta", async () => {
+    const { REMINDER_FIELDS, REMINDER_FIELD_LABEL } = await import("@/lib/reminders");
+    expect(REMINDER_FIELDS).toContain("appointment_type");
+    expect(REMINDER_FIELDS).toContain("address");
+    expect(REMINDER_FIELD_LABEL.appointment_type).toBe("Tipo de cita");
+    expect(REMINDER_FIELD_LABEL.address).toBe("Dirección del negocio");
+    const { normalizeVariables } = await import("@/server/agenda/reminder-store");
+    expect(normalizeVariables(["contact_name", "appointment_type", "address"])).toEqual([
+      "contact_name",
+      "appointment_type",
+      "address",
+    ]);
+  });
+});

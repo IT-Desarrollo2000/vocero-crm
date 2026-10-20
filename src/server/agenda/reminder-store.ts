@@ -33,6 +33,8 @@ export type ReminderOrgConfig = {
   variables: ReminderField[];
   /** Zona del negocio (`calendar_settings.timezone`) para `booking_datetime`. */
   timezone: string;
+  /** 023 (A8) — `calendar_settings.address` para la variable `address`. */
+  address?: string | null;
 };
 
 export type ReminderContact = {
@@ -52,6 +54,8 @@ export type ReminderBooking = {
   createdAt: Date;
   conversationId: string | null;
   meetingLink: string | null;
+  /** 023 (A8) — Nombre del tipo de cita (null en citas sin tipo). */
+  appointmentTypeName?: string | null;
   contact: ReminderContact | null;
 };
 
@@ -147,6 +151,7 @@ const configColumns = {
   offsets: schema.calendarSettings.reminderOffsetsMinutes,
   variables: schema.calendarSettings.reminderVariables,
   timezone: schema.calendarSettings.timezone,
+  address: schema.calendarSettings.address,
 };
 
 function toConfig(r: {
@@ -157,6 +162,7 @@ function toConfig(r: {
   offsets: unknown;
   variables: unknown;
   timezone: string;
+  address?: string | null;
 }): ReminderOrgConfig {
   return {
     organizationId: r.organizationId,
@@ -166,6 +172,7 @@ function toConfig(r: {
     offsetsMinutes: normalizeOffsets(r.offsets),
     variables: normalizeVariables(r.variables),
     timezone: r.timezone,
+    address: r.address ?? null,
   };
 }
 
@@ -178,6 +185,7 @@ const bookingColumns = {
   createdAt: schema.booking.createdAt,
   conversationId: schema.booking.conversationId,
   meetingLink: schema.booking.meetingLink,
+  appointmentTypeName: schema.appointmentType.name,
   contactId: schema.contact.id,
   contactName: schema.contact.name,
   contactChannel: schema.contact.channel,
@@ -194,6 +202,7 @@ type BookingSelectRow = {
   createdAt: Date;
   conversationId: string | null;
   meetingLink: string | null;
+  appointmentTypeName: string | null;
   contactId: string | null;
   contactName: string | null;
   contactChannel: "whatsapp" | "instagram" | "messenger" | null;
@@ -211,6 +220,7 @@ function toBooking(r: BookingSelectRow): ReminderBooking {
     createdAt: r.createdAt,
     conversationId: r.conversationId,
     meetingLink: r.meetingLink,
+    appointmentTypeName: r.appointmentTypeName ?? null,
     contact: r.contactId
       ? {
           id: r.contactId,
@@ -240,6 +250,10 @@ export async function listCandidateBookings(
     .select(bookingColumns)
     .from(schema.booking)
     .leftJoin(schema.contact, eq(schema.booking.contactId, schema.contact.id))
+    .leftJoin(
+      schema.appointmentType,
+      eq(schema.booking.appointmentTypeId, schema.appointmentType.id)
+    )
     .where(
       scoped(
         schema.booking.organizationId,
@@ -265,6 +279,10 @@ export async function getReminderBooking(
     .select(bookingColumns)
     .from(schema.booking)
     .leftJoin(schema.contact, eq(schema.booking.contactId, schema.contact.id))
+    .leftJoin(
+      schema.appointmentType,
+      eq(schema.booking.appointmentTypeId, schema.appointmentType.id)
+    )
     .where(
       scoped(
         schema.booking.organizationId,
@@ -286,6 +304,10 @@ export async function getReminderBookings(
     .select(bookingColumns)
     .from(schema.booking)
     .leftJoin(schema.contact, eq(schema.booking.contactId, schema.contact.id))
+    .leftJoin(
+      schema.appointmentType,
+      eq(schema.booking.appointmentTypeId, schema.appointmentType.id)
+    )
     .where(
       scoped(
         schema.booking.organizationId,

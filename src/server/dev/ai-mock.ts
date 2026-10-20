@@ -126,6 +126,19 @@ export function aiMockCompletion(messages: InMessage[]): string {
     });
   }
 
+  // 023 — Marcadores del E2E de agenda (scripts/e2e-agenda-presencial.mjs).
+  // No se dispara con "agendar": el selftest ya usa esa palabra en sus textos
+  // y cambiaría sus respuestas. La reserva lleva el ISO porque las ofertas no
+  // viajan en el prompt: el guion lo toma de la oferta registrada.
+  const agendaTipo = /\[e2e-agenda ([^\]]+)\]/i.exec(lastUser)?.[1];
+  if (agendaTipo) {
+    return JSON.stringify({ action: "offer_slots", type: agendaTipo.trim() });
+  }
+  const reservaIso = /\[e2e-reserva (\S+?)\]/i.exec(lastUser)?.[1];
+  if (reservaIso) {
+    return JSON.stringify({ action: "book_slot", startUtc: reservaIso });
+  }
+
   // Persona pide_humano (el regex de respaldo captura la frase canónica; esta
   // rama cubre variantes que llegan al modelo).
   if (text.includes("humano") || text.includes("asesor")) {

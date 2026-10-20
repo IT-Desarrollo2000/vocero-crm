@@ -1,24 +1,62 @@
 import { z } from "zod";
-import { parseBody, withAuth } from "@/lib/api";
-import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
+import { parseBody, requireOwner, withAuth } from "@/lib/api";
+import { isOwner } from "@/lib/roles";
+import { agendaFirst } from "@/server/agenda/flag";
 import { listBookings } from "@/server/agenda/queries";
 import { getSettings } from "@/server/agenda/settings";
 import { createBlock, createSessionBooking } from "@/server/agenda/service";
-import { bookingErrorResponse, bookingPayload } from "@/server/agenda/http";
+import {
+  bookingErrorResponse,
+  bookingPayload,
+  conflictPayload,
+} from "@/server/agenda/http";
+import { appointmentTypeDto, listTypes } from "@/server/agenda/types-store";
+import { listMembers } from "@/server/team/members";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async (session) => {
-  if (!agendaEnabled()) return agendaDisabledResponse();
-  const [bookings, settings] = await Promise.all([
-    listBookings(session.organizationId),
+/**
+ * 015 — Citas del negocio.
+ *
+ * 023 — Visibilidad por vendedor: el Vendedor ve las suyas, las que creó y
+ * las sin asignar (incluye bloqueos); el Propietario, todo. Filtros:
+ * `sellerId` (`none` = sin asignar) y `typeId`. Además viajan `types` (tipos
+ * activos) y, solo para el Propietario, `sellers` (miembros `{id, name}`),
+ * para que la pantalla no necesite otra llamada.
+ */
+export const GET = agendaFirst(withAuth(async (session, req: Request) => {
+  const url = new URL(req.url);
+  const sellerParam = url.searchParams.get("sellerId");
+  const typeId = url.searchParams.get("typeId") || undefined;
+  const owner = isOwner(session);
+
+  const [bookings, settings, types, members] = await Promise.all([
+    listBookings(session.organizationId, {
+      viewer: { userId: session.userId, role: session.role },
+      sellerId:
+        sellerParam === null || sellerParam === ""
+          ? undefined
+          : sellerParam === "none"
+            ? null
+            : sellerParam,
+      typeId,
+    }),
     getSettings(session.organizationId),
+    listTypes(session.organizationId),
+    owner ? listMembers(session.organizationId) : Promise.resolve(null),
   ]);
   // 10 — `businessTimezone` (aditivo): el Vendedor no puede leer
   // `/api/calendar/settings` y la UI formatea en la zona del NEGOCIO la hora
   // de envío de cada recordatorio pendiente, no en la del navegador.
-  return Response.json({ bookings, businessTimezone: settings.timezone });
-});
+  return Response.json({
+    bookings,
+    businessTimezone: settings.timezone,
+    types: types.map(appointmentTypeDto),
+    ...(members
+      ? { sellers: members.map((m) => ({ id: m.userId, name: m.name })) }
+      : {}),
+  });
+}));
 
 const postSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -27,6 +65,12 @@ const postSchema = z.discriminatedUnion("kind", [
     conversationId: z.string().min(1).nullish(),
     startUtc: z.string().min(1),
     notes: z.string().nullish(),
+    // 023 — El tipo es obligatorio para humanos (A2).
+    typeId: z.string().min(1),
+    // 023 — Solo el Propietario elige vendedor (A5); `null` = sin asignar.
+    assignedUserId: z.string().min(1).nullish(),
+    // 023 — Ya vio la advertencia `overlap_warning` y confirma.
+    confirmOverlap: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("block"),
@@ -43,23 +87,34 @@ const postSchema = z.discriminatedUnion("kind", [
  * contrato, no un detalle.
  *
  * A diferencia del agente, el operador NO pasa por `offered_slot`: elige de la
- * disponibilidad que está viendo en pantalla. La re-validación y el candado
- * anti doble-booking sí aplican igual.
+ * disponibilidad que está viendo en pantalla. La re-validación bajo el candado
+ * por organización sí aplica igual.
+ *
+ * 023 — Choques: incompatible ⇒ 409 `slot_taken`; compatible sin
+ * `confirmOverlap` ⇒ 409 `overlap_warning` con `conflicts`. Un bloqueo encima
+ * de citas se permite y responde `affected` (las citas que pisa).
  */
-export const POST = withAuth(async (session, req: Request) => {
-  if (!agendaEnabled()) return agendaDisabledResponse();
+export const POST = agendaFirst(withAuth(async (session, req: Request) => {
   const body = await parseBody(req, postSchema);
   if (!body.ok) return body.response;
 
   try {
     if (body.data.kind === "block") {
-      const block = await createBlock({
+      const { block, affected } = await createBlock({
         organizationId: session.organizationId,
         startUtc: body.data.startUtc,
         durationMinutes: body.data.durationMinutes,
         notes: body.data.notes ?? null,
       });
-      return Response.json({ booking: { id: block.id } }, { status: 201 });
+      return Response.json(
+        { booking: { id: block.id }, affected: affected.map(conflictPayload) },
+        { status: 201 }
+      );
+    }
+
+    if (body.data.assignedUserId !== undefined) {
+      const denied = requireOwner(session);
+      if (denied) return denied;
     }
 
     const result = await createSessionBooking({
@@ -70,6 +125,10 @@ export const POST = withAuth(async (session, req: Request) => {
       notes: body.data.notes ?? null,
       source: "manual",
       requireOffer: false,
+      typeId: body.data.typeId,
+      assignedUserId: body.data.assignedUserId,
+      actorUserId: session.userId,
+      confirmOverlap: body.data.confirmOverlap ?? false,
     });
     return Response.json(
       { booking: { id: result.booking.id }, ...bookingPayload(result) },
@@ -78,4 +137,4 @@ export const POST = withAuth(async (session, req: Request) => {
   } catch (err) {
     return bookingErrorResponse(err);
   }
-});
+}));

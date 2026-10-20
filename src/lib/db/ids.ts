@@ -49,6 +49,8 @@ const prefixes = {
   productFileUpload: "pfu",
   // 011 — leads externos
   intakeSettings: "intk",
+  // 023 — agenda presencial
+  appointmentType: "apt",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

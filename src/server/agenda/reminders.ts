@@ -4,6 +4,8 @@ import { scoped } from "@/lib/db/tenant";
 import { MetaApiError } from "@/lib/meta/client";
 import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
+  ADDRESS_FALLBACK,
+  APPOINTMENT_TYPE_FALLBACK,
   MEETING_LINK_FALLBACK,
   REMINDER_MAX_MANUAL_RETRIES,
   REMINDER_MAX_OFFSETS,
@@ -113,6 +115,10 @@ export type ReminderVariableContext = {
   timezone: string;
   meetingLink: string | null;
   businessName: string | null;
+  /** 023 (A8) — Nombre del tipo de cita; vacío ⇒ "tu cita". */
+  appointmentType?: string | null;
+  /** 023 (A8) — Dirección del negocio; vacía ⇒ "nuestra sucursal". */
+  address?: string | null;
 };
 
 /** Un texto por `{{n}}` (índice = n − 1). Nunca devuelve un valor vacío. */
@@ -133,6 +139,10 @@ export function renderReminderVariables(
         return nonEmpty(ctx.meetingLink) ?? MEETING_LINK_FALLBACK;
       case "business_name":
         return nonEmpty(ctx.businessName) ?? BUSINESS_NAME_FALLBACK;
+      case "appointment_type":
+        return nonEmpty(ctx.appointmentType) ?? APPOINTMENT_TYPE_FALLBACK;
+      case "address":
+        return nonEmpty(ctx.address) ?? ADDRESS_FALLBACK;
     }
   });
 }
@@ -256,6 +266,8 @@ async function attemptDelivery(
     timezone: config.timezone,
     meetingLink: booking.meetingLink,
     businessName: needsBusiness ? await ctx.businessName() : null,
+    appointmentType: booking.appointmentTypeName ?? null,
+    address: config.address ?? null,
   });
 
   // Segunda barrera del sandbox: si la conversación es de prueba,

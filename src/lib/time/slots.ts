@@ -169,16 +169,21 @@ export function addDaysISO(dayISODate: string, days: number): string {
  * Expande los intervalos hábiles de UN día (hora de pared en tz) a slots UTC.
  * Avanza `slot + buffer` por paso y solo emite el slot si CABE completo dentro
  * del intervalo.
+ *
+ * 023 — `stepMinutes` (opcional) separa la REJILLA del LARGO: cada slot dura
+ * `slotMinutes` (la duración del tipo de cita) y la rejilla avanza
+ * `stepMinutes`. Sin él, idéntico a la 015.
  */
 export function expandWorkingDayToUtc(
   dayISODate: string,
   intervals: Interval[],
   tz: string,
   slotMinutes: number,
-  bufferMinutes: number
+  bufferMinutes: number,
+  stepMinutes?: number
 ): SlotUtc[] {
   const out: SlotUtc[] = [];
-  const step = slotMinutes + Math.max(0, bufferMinutes);
+  const step = stepMinutes ?? slotMinutes + Math.max(0, bufferMinutes);
   if (slotMinutes <= 0 || step <= 0) return out;
 
   for (const iv of intervals) {

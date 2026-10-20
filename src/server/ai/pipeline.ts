@@ -26,7 +26,8 @@ import { upsertFicha } from "@/server/bot/ficha";
 import type { FichaFieldDef } from "@/lib/ficha-fields";
 import { loadHistoryRows, toChatHistory } from "@/server/ai/history";
 import { agendaEnabled } from "@/server/agenda/flag";
-import { bookSlot, offerSlots } from "@/server/agenda/agent";
+import { bookSlot, isTypeQuestion, offerSlots } from "@/server/agenda/agent";
+import { listTypes } from "@/server/agenda/types-store";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -161,6 +162,17 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .orderBy(asc(schema.pipelineStage.position));
 
   const agenda = agendaEnabled();
+  // 023 — Tipos de cita activos para la línea de offer_slots. Solo con agenda
+  // y tolerante: si la lectura falla, el prompt va sin tipos y el motor
+  // pregunta el tipo al ofrecer.
+  let appointmentTypes: string[] = [];
+  if (agenda) {
+    try {
+      appointmentTypes = (await listTypes(organizationId)).map((t) => t.name);
+    } catch (err) {
+      console.warn(`[agente] no pude leer los tipos de cita: ${err}`);
+    }
+  }
   // 04 — Definición de campos (NULL = el agente no llena nada, RF-04-02).
   const fichaFields = profile.fichaFields ?? null;
   const contactBlock = await safeContactBlock(
@@ -176,6 +188,7 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
         kb,
         stages,
         agenda,
+        appointmentTypes,
         contactBlock,
         fichaFields,
       }),
@@ -196,7 +209,17 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   }
 
   const chosen: AgentActionType = result.data;
-  await executeAction(chosen, { organizationId, conversation, stages, agenda });
+  // 023 — Lo último que dijo el agente (para no repetir la pregunta del tipo).
+  const lastAgentText =
+    [...history].reverse().find((m) => m.direction === "out" && m.aiGenerated)
+      ?.text ?? null;
+  await executeAction(chosen, {
+    organizationId,
+    conversation,
+    stages,
+    agenda,
+    lastAgentText,
+  });
 
   // 04 — La ficha va DESPUÉS de entregar la respuesta (RF-04-10): el cliente
   // ya tiene su mensaje pase lo que pase aquí.
@@ -216,6 +239,8 @@ async function executeAction(
     conversation: Conversation;
     stages: { id: string; name: string }[];
     agenda: boolean;
+    /** 023 — Último texto saliente del agente en la conversación. */
+    lastAgentText?: string | null;
   }
 ): Promise<void> {
   const { organizationId, conversation, stages, agenda } = t;
@@ -235,13 +260,25 @@ async function executeAction(
                 organizationId,
                 conversationId,
                 intro: action.reply,
+                typeName: action.type,
               })
             : await bookSlot({
                 organizationId,
                 conversationId,
                 startUtc: action.startUtc,
-                confirmation: action.reply,
               });
+        // 023 — Tope a la pregunta del tipo: si ya se hizo en el turno
+        // anterior y el tipo sigue sin resolverse, preguntar otra vez sería
+        // un bucle. Pasa a un humano.
+        if (!turn.ok && isTypeQuestion(turn.text) && isTypeQuestion(t.lastAgentText)) {
+          await applyHandoff(
+            conversationId,
+            organizationId,
+            "modelo",
+            "No se pudo determinar el tipo de cita"
+          );
+          return;
+        }
         await deliverReply(conversation, turn.text);
         if (turn.ok) {
           publish(organizationId, {

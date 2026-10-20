@@ -1,6 +1,7 @@
 import { InboxClient } from "@/components/inbox/inbox-client";
 import { CHANNEL_ORDER } from "@/lib/channels";
 import { enabledChannels } from "@/server/channels/enabled";
+import { agendaEnabled } from "@/server/agenda/flag";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,7 @@ export default function InboxPage() {
   const enabled = enabledChannels();
   const channels = CHANNEL_ORDER.filter((c) => enabled.has(c));
 
-  return <InboxClient channels={channels} />;
+  // 023 — Igual que los canales: el botón "Agendar" existe solo si la agenda
+  // está encendida en esta instancia.
+  return <InboxClient channels={channels} agenda={agendaEnabled()} />;
 }

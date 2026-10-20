@@ -176,6 +176,13 @@
       "when": 1792438620421,
       "tag": "0024_leads_externos",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792520084985,
+      "tag": "0025_agenda_presencial",
+      "breakpoints": true
     }
   ]
 }

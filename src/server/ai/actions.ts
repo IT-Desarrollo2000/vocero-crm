@@ -53,6 +53,16 @@ const baseActions = [
 const agendaActions = [
   z.object({
     action: z.literal("offer_slots"),
+    /**
+     * 023 — Nombre del tipo de cita. TOLERANTE: vacío, nulo o de otro tipo
+     * se vuelve ausente (el motor pregunta el tipo); nunca tumba el turno.
+     */
+    type: z
+      .unknown()
+      .transform((v) =>
+        typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined
+      )
+      .optional(),
     reply: z.string().optional(),
     ficha: FichaPatch,
   }),

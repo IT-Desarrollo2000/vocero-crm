@@ -8,6 +8,12 @@ import { computeAvailability } from "@/server/agenda/availability";
 import { getSettings } from "@/server/agenda/settings";
 import { daysWithAgenda, spreadByDay } from "@/server/agenda/spread";
 import { replaceOffers } from "@/server/agenda/offers";
+import {
+  getType,
+  listTypes,
+  resolveFallbackType,
+  resolveTypeByName,
+} from "@/server/agenda/types-store";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +28,13 @@ export const dynamic = "force-dynamic";
  * El catálogo reservable (`limit`) es más ancho que el menú que el agente
  * enseña: guardar solo los tres que se muestran deja al agente sin nada
  * legítimo que aceptar cuando el cliente pide otro día.
+ *
+ * 023 — `type` (opcional): id o nombre del tipo de cita (nombre exacto
+ * normalizado o prefijo único). Sin `type`, el único tipo activo o el primer
+ * activo NO exclusivo. Si no resuelve ⇒ 422 `unknown_type` con `types` (los
+ * activos) como hermano del error, para que el cerebro pregunte. Los huecos
+ * son `strict` (no pisan ninguna cita) con la duración del tipo, y la oferta
+ * guarda el tipo: `POST /api/bot/bookings` reserva ESE tipo.
  */
 
 const LIMITS = {
@@ -75,7 +88,36 @@ export async function GET(req: Request) {
 
   const settings = await getSettings(organizationId);
   const now = new Date();
-  const all = await computeAvailability(organizationId, { settings, now });
+  const typeParam = url.searchParams.get("type")?.trim() || null;
+  let type = null;
+  if (typeParam) {
+    const byId = await getType(organizationId, typeParam);
+    type = byId?.active ? byId : await resolveTypeByName(organizationId, typeParam);
+  } else {
+    type = await resolveFallbackType(organizationId);
+  }
+  if (!type) {
+    const active = await listTypes(organizationId);
+    return Response.json(
+      {
+        error: {
+          code: "unknown_type",
+          message: typeParam
+            ? "Tipo de cita desconocido o ambiguo"
+            : "No hay un tipo de cita por omisión: indica `type`",
+        },
+        types: active.map((t) => ({ id: t.id, name: t.name })),
+      },
+      { status: 422 }
+    );
+  }
+
+  // Sin `ctx`: modo `strict`, el cerebro externo no pisa ninguna cita.
+  const all = await computeAvailability(organizationId, {
+    settings,
+    now,
+    durationMinutes: type.durationMinutes,
+  });
   const slots = spreadByDay(all, {
     timezone: settings.timezone,
     limit,
@@ -87,7 +129,8 @@ export async function GET(req: Request) {
   await replaceOffers(
     organizationId,
     conversationId,
-    slots.map((s) => ({ startUtc: s.startUtc, label: s.label }))
+    slots.map((s) => ({ startUtc: s.startUtc, label: s.label })),
+    type.id
   );
 
   return Response.json({
@@ -102,6 +145,8 @@ export async function GET(req: Request) {
     // Los días que NO están aquí no tienen agenda: es la lista que evita que
     // el modelo invente un jueves que el negocio tiene cerrado.
     diasConAgenda: daysWithAgenda(slots),
+    // 023 (aditivo) — El tipo con que se calcularon y registraron los huecos.
+    type: { id: type.id, name: type.name, durationMinutes: type.durationMinutes },
   });
 }
 

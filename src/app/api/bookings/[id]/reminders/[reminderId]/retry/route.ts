@@ -1,5 +1,6 @@
 import { apiError, withAuth } from "@/lib/api";
-import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
+import { agendaFirst } from "@/server/agenda/flag";
+import { getVisibleBooking } from "@/server/agenda/queries";
 import {
   ReminderError,
   reminderErrorStatus,
@@ -23,9 +24,14 @@ type Params = { params: Promise<{ id: string; reminderId: string }> };
  *   · 409 `booking_not_active` la cita no está `agendada` o faltan < 15 min
  *   · 404 sin cuerpo con AGENDA apagada.
  */
-export const POST = withAuth(async (session, _req: Request, ctx: Params) => {
-  if (!agendaEnabled()) return agendaDisabledResponse();
+export const POST = agendaFirst(withAuth(async (session, _req: Request, ctx: Params) => {
   const { id, reminderId } = await ctx.params;
+  // 023 — La cita de otro vendedor no existe para el Vendedor (404).
+  const visible = await getVisibleBooking(session.organizationId, id, {
+    userId: session.userId,
+    role: session.role,
+  });
+  if (!visible) return apiError(404, "not_found", "Cita no encontrada");
 
   try {
     const reminder = await retryReminder({
@@ -41,4 +47,4 @@ export const POST = withAuth(async (session, _req: Request, ctx: Params) => {
     }
     throw err;
   }
-});
+}));

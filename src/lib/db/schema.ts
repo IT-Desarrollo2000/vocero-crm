@@ -939,6 +939,8 @@ export const calendarSettings = pgTable(
     connector: text("connector").notNull().default("enlace-fijo"),
     /** Sala fija del conector `enlace-fijo`; null ⇒ citas sin link. */
     meetingLink: text("meeting_link"),
+    /** 023 — Dirección del negocio para citas presenciales; null ⇒ sin frase. */
+    address: text("address"),
     /* ── 10 — Recordatorios de cita (contrato 10-0, migración 0018) ── */
     /** Apagado por defecto: activarlo exige plantilla aprobada y mapeo completo. */
     reminderEnabled: boolean("reminder_enabled").notNull().default(false),
@@ -968,6 +970,34 @@ export const calendarSettings = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("calendar_settings_org_uq").on(t.organizationId)]
+);
+
+/**
+ * 023 — Tipo de cita (Prueba de manejo, Servicio…): nombre, duración y si es
+ * EXCLUSIVO (un recurso compartido: dos del mismo tipo no pueden traslaparse
+ * aunque las agenden vendedores distintos). Se desactiva, no se borra: las
+ * citas viejas lo referencian. `seed_key` marca los de la siembra perezosa y
+ * su UNIQUE la hace idempotente aunque dos requests la disparen a la vez.
+ */
+export const appointmentType = pgTable(
+  "appointment_type",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    exclusive: boolean("exclusive").notNull().default(false),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    seedKey: text("seed_key"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("appointment_type_org_seed_uq").on(t.organizationId, t.seedKey),
+  ]
 );
 
 /**
@@ -1024,6 +1054,26 @@ export const booking = pgTable(
     /** Conversación del Laboratorio: jamás llama a un conector real. */
     isTest: boolean("is_test").notNull().default(false),
     notes: text("notes"),
+    /* ── 023 — Agenda presencial ── */
+    /** Tipo de cita. NULL en bloqueos y en citas de la 015. */
+    appointmentTypeId: text("appointment_type_id").references(
+      () => appointmentType.id,
+      { onDelete: "set null" }
+    ),
+    /** El vendedor que atiende la cita; NULL ⇒ sin asignar. */
+    assignedUserId: text("assigned_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** Quien la creó (visibilidad del Vendedor); NULL si la agendó la IA. */
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * COPIA de `appointment_type.exclusive` al crear (mismo patrón que
+     * `duration_minutes`): la necesita el índice parcial y no cambia si el
+     * Propietario edita el tipo después.
+     */
+    exclusive: boolean("exclusive").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1031,18 +1081,26 @@ export const booking = pgTable(
     index("booking_org_when_idx").on(t.organizationId, t.scheduledAt),
     index("booking_org_status_idx").on(t.organizationId, t.status),
     /**
-     * Anti doble-booking ATÓMICO. La re-validación al confirmar deja una
-     * ventana entre leer y escribir; esto la cierra en la BASE: dos
-     * confirmaciones simultáneas del mismo instante no pueden ganar las dos, y
-     * la perdedora recibe un 23505 que el servicio traduce a `slot_taken` con
-     * alternativas frescas. Las citas de prueba quedan fuera: no consumen la
-     * agenda real.
+     * 023 — Red de seguridad en la BASE. La 015 tenía un único índice
+     * `(org, scheduled_at)` que impedía a dos vendedores coincidir; ahora:
+     *  - dos citas del mismo tipo EXCLUSIVO no arrancan a la vez;
+     *  - un vendedor no tiene dos sesiones que arranquen a la vez.
+     * Solo ven el mismo instante de inicio: el cierre real (traslapes
+     * parciales, carrera de dos reservas de IA) es el candado consultivo por
+     * organización del servicio. Un 23505 sigue traduciéndose a `slot_taken`.
+     * Las citas de prueba quedan fuera: no consumen la agenda real.
      */
-    uniqueIndex("booking_org_active_slot_uq")
-      .on(t.organizationId, t.scheduledAt)
+    uniqueIndex("booking_type_exclusive_slot_uq")
+      .on(t.organizationId, t.appointmentTypeId, t.scheduledAt)
       .where(
-        sql`${t.status} in ('agendada','realizada') and ${t.isTest} = false`
+        sql`${t.exclusive} and ${t.status} in ('agendada','realizada') and ${t.isTest} = false`
       ),
+    uniqueIndex("booking_seller_slot_uq")
+      .on(t.organizationId, t.assignedUserId, t.scheduledAt)
+      .where(
+        sql`${t.assignedUserId} is not null and ${t.kind} = 'session' and ${t.status} in ('agendada','realizada') and ${t.isTest} = false`
+      ),
+    index("booking_org_assignee_idx").on(t.organizationId, t.assignedUserId),
   ]
 );
 
@@ -1068,6 +1126,11 @@ export const offeredSlot = pgTable(
     startUtc: timestamp("start_utc").notNull(),
     /** La etiqueta EXACTA que se le mostró al cliente. */
     label: text("label").notNull(),
+    /** 023 — El tipo ofrecido: `book_slot` reserva ESE sin que se repita. */
+    appointmentTypeId: text("appointment_type_id").references(
+      () => appointmentType.id,
+      { onDelete: "set null" }
+    ),
     offeredAt: timestamp("offered_at").notNull().defaultNow(),
   },
   (t) => [index("offered_slot_conv_idx").on(t.conversationId, t.startUtc)]

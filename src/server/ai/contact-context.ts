@@ -161,7 +161,13 @@ export type ContactContext = {
   } | null;
   /** `undefined` = AGENDA apagada (ni una palabra de citas). */
   bookings?: {
-    next: { scheduledAt: Date; durationMinutes: number; moreCount: number } | null;
+    next: {
+      scheduledAt: Date;
+      durationMinutes: number;
+      moreCount: number;
+      /** 023 (A12) — Tipo de la cita; null en citas sin tipo (015). */
+      typeName?: string | null;
+    } | null;
     last: { scheduledAt: Date; status: string } | null;
   } | null;
   /** Compra previa: `lead_stage_event` won (o, con AGENDA, cita realizada). */
@@ -406,7 +412,7 @@ export function renderContactContext(
       if (next) {
         const more = next.moreCount > 0 ? ` y ${next.moreCount} más` : "";
         lines.push(
-          `Próxima cita: ${q(fmtDateTime(next.scheduledAt, tz), 80)} (${next.durationMinutes} min)${more}`
+          `Próxima cita: ${q(fmtDateTime(next.scheduledAt, tz), 80)} (${next.typeName ? `${q(next.typeName, 60)}, ` : ""}${next.durationMinutes} min)${more}`
         );
       }
       if (last) {
@@ -557,8 +563,13 @@ export async function loadContactContext(input: {
             .select({
               scheduledAt: schema.booking.scheduledAt,
               durationMinutes: schema.booking.durationMinutes,
+              typeName: schema.appointmentType.name,
             })
             .from(schema.booking)
+            .leftJoin(
+              schema.appointmentType,
+              eq(schema.booking.appointmentTypeId, schema.appointmentType.id)
+            )
             .where(
               scoped(
                 schema.booking.organizationId,
@@ -654,6 +665,7 @@ export async function loadContactContext(input: {
               scheduledAt: next.scheduledAt,
               durationMinutes: next.durationMinutes,
               moreCount: Math.max(0, total - 1),
+              typeName: next.typeName ?? null,
             }
           : null,
         last: lastRows?.[0]

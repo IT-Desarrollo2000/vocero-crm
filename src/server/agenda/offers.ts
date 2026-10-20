@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
+import type { AgendaDb } from "@/server/agenda/db";
 
 /**
  * 015 — Memoria de lo ofrecido a una conversación (requisito INNEGOCIABLE).
@@ -11,13 +12,25 @@ import { scoped } from "@/lib/db/tenant";
  * en cada ronda (la vigente es siempre la última) y se limpia al reservar.
  */
 
-export type OfferedSlot = { startUtc: string; label: string };
+export type OfferedSlot = {
+  startUtc: string;
+  label: string;
+  /**
+   * 023 — El tipo de cita ofrecido. Al reservar, el tipo sale de AQUÍ: el
+   * modelo no tiene que repetirlo. null/ausente en ofertas legacy.
+   */
+  typeId?: string | null;
+};
 
-/** Reemplaza TODA la oferta de la conversación, en una transacción. */
+/**
+ * Reemplaza TODA la oferta de la conversación, en una transacción. 023 —
+ * `typeId` (opcional) es el tipo de cita de toda la ronda.
+ */
 export async function replaceOffers(
   organizationId: string,
   conversationId: string,
-  slots: OfferedSlot[]
+  slots: OfferedSlot[],
+  typeId: string | null = null
 ): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
@@ -38,6 +51,7 @@ export async function replaceOffers(
         conversationId,
         startUtc: new Date(s.startUtc),
         label: s.label,
+        appointmentTypeId: typeId,
       }))
     );
   });
@@ -89,13 +103,14 @@ export async function logOfferRound(
 
 export async function getOffers(
   organizationId: string,
-  conversationId: string
+  conversationId: string,
+  db: AgendaDb = getDb()
 ): Promise<OfferedSlot[]> {
-  const db = getDb();
   const rows = await db
     .select({
       startUtc: schema.offeredSlot.startUtc,
       label: schema.offeredSlot.label,
+      typeId: schema.offeredSlot.appointmentTypeId,
     })
     .from(schema.offeredSlot)
     .where(
@@ -110,6 +125,7 @@ export async function getOffers(
   return rows.map((r) => ({
     startUtc: r.startUtc.toISOString(),
     label: r.label,
+    typeId: r.typeId ?? null,
   }));
 }
 

@@ -79,6 +79,11 @@ export function buildAgentSystemPrompt(input: {
    */
   agenda?: boolean;
   /**
+   * 023 — Nombres de los tipos de cita ACTIVOS (solo con agenda). Van en la
+   * línea de offer_slots; sin ellos el prompt no menciona "type".
+   */
+  appointmentTypes?: readonly string[];
+  /**
    * 03 — Bloque "DATOS DEL CONTACTO" ya renderizado y delimitado
    * (`renderContactContext`). Va DESPUÉS de lo estable (perfil + KB + etapas,
    * que aprovecha la caché de prompt del proveedor) y ANTES del formato de
@@ -95,9 +100,12 @@ export function buildAgentSystemPrompt(input: {
   const { profile } = input;
   const fichaSection = renderFichaFieldsSection(input.fichaFields);
   const stageNames = input.stages.map((s) => s.name).join(" | ");
+  const typeNames = (input.appointmentTypes ?? []).filter(Boolean);
+  const typeField =
+    typeNames.length > 0 ? `"type":"<${typeNames.join(" | ")}>",` : "";
   const agendaLines = input.agenda
     ? [
-        '- {"action":"offer_slots","reply":"..."} — ofrecer horarios para agendar (reply es solo la frase de entrada; los horarios los pone el sistema).',
+        `- {"action":"offer_slots",${typeField}"reply":"..."} — ofrecer horarios para agendar (reply es solo la frase de entrada; los horarios los pone el sistema).`,
         '- {"action":"book_slot","startUtc":"<uno de los horarios que el sistema ofreció, en ISO UTC>","reply":"..."} — agendar el horario que el cliente eligió.',
       ]
     : [];
@@ -105,11 +113,16 @@ export function buildAgentSystemPrompt(input: {
     ? [
         "- NUNCA escribas tú los horarios ni los inventes: usa offer_slots y el sistema pega los reales.",
         "- book_slot solo acepta un horario que el sistema ofreció antes en ESTA conversación. Si el cliente pide otro, vuelve a ofrecer con offer_slots.",
+        ...(typeNames.length > 1
+          ? [
+              '- Antes de ofrecer horarios necesitas el tipo de cita: dedúcelo de lo que el cliente ya dijo o pregúntaselo, y mándalo en "type" con uno de los nombres exactos. Si no está claro, pregunta en vez de adivinar.',
+            ]
+          : []),
         "- Si el cliente quiere CANCELAR una cita → handoff: esa decisión no es tuya.",
       ]
     : [];
   return [
-    `Eres "${profile.name}", el asistente de WhatsApp de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
+    `Eres "${profile.name}", el asistente de mensajería de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
     profile.tone ? `Tono: ${profile.tone}` : null,
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules

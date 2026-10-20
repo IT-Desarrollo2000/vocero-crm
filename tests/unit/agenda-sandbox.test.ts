@@ -27,6 +27,7 @@ const settings = {
   timezone: "America/Mexico_City",
   connector: "zoom" as const,
   meetingLink: null,
+  address: null,
 };
 
 const SLOT = "2026-08-05T15:00:00.000Z";
@@ -47,8 +48,28 @@ const bindConnector = vi.fn(async () => ({
 
 vi.mock("@/server/agenda/settings", () => ({ getSettings: async () => settings }));
 vi.mock("@/server/agenda/availability", () => ({
-  findSlot: async () => ({ startUtc: SLOT, endUtc: "…", label: "mié 5 ago, 09:00" }),
+  findSlot: async () => ({
+    startUtc: SLOT,
+    endUtc: "…",
+    label: "mié 5 ago, 09:00",
+    conflicts: [],
+  }),
   computeAvailability: async () => [],
+  conflictsAt: async () => ({ hard: [], soft: [] }),
+}));
+// 023 — El tipo de la cita (oferta sin tipo ⇒ tipo por omisión).
+const SERVICIO = {
+  id: "apt_serv",
+  name: "Servicio",
+  durationMinutes: 30,
+  exclusive: false,
+  active: true,
+  position: 1,
+};
+vi.mock("@/server/agenda/types-store", () => ({
+  getType: async () => SERVICIO,
+  listTypes: async () => [SERVICIO],
+  resolveFallbackType: async () => SERVICIO,
 }));
 vi.mock("@/server/agenda/offers", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/server/agenda/offers")>();
@@ -73,6 +94,13 @@ let lastInsert: Record<string, unknown> | null = null;
 /** La fila que devuelve un `update(...).returning()`. */
 let updatedRow: Record<string, unknown> = {};
 
+/** 023 — el candado por organización: la transacción es la misma base. */
+function withTx(db: Record<string, unknown>) {
+  db.execute = async () => {};
+  db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+  return db;
+}
+
 function chain(rows: unknown[]) {
   const c: Record<string, unknown> = {};
   for (const m of ["from", "where", "orderBy", "leftJoin"]) c[m] = () => c;
@@ -81,7 +109,7 @@ function chain(rows: unknown[]) {
 }
 
 vi.mock("@/lib/db", () => ({
-  getDb: () => ({
+  getDb: () => withTx({
     select: () => chain(selectRows.shift() ?? []),
     insert: () => ({
       values: (v: Record<string, unknown>) => ({
@@ -108,6 +136,7 @@ vi.mock("@/lib/db", () => ({
     lead: { organizationId: "organizationId", contactId: "contactId" },
     pipelineStage: { organizationId: "organizationId" },
     offeredSlot: {},
+    member: { organizationId: "organizationId", userId: "userId", id: "id" },
   },
 }));
 
@@ -125,6 +154,11 @@ const CITA_DE_PRUEBA = {
   linkPending: false,
   notes: null,
   contactId: "ct_1",
+  kind: "session",
+  appointmentTypeId: null,
+  assignedUserId: null,
+  createdByUserId: null,
+  exclusive: false,
 };
 
 describe("una cita del Laboratorio jamás llega al proveedor", () => {
@@ -141,8 +175,8 @@ describe("una cita del Laboratorio jamás llega al proveedor", () => {
   it("al CREAR: la cita se registra como de prueba y no se crea reunión", async () => {
     const { createSessionBooking } = await import("@/server/agenda/service");
     selectRows.push([{ contactId: "ct_1", isTest: true }]); // la conversación
-    selectRows.push([{ name: "Persona simulada" }]); // el contacto
     selectRows.push([]); // sin lead
+    selectRows.push([{ name: "Persona simulada" }]); // el contacto
 
     const result = await createSessionBooking({
       organizationId: "org_1",
@@ -186,8 +220,8 @@ describe("una cita del Laboratorio jamás llega al proveedor", () => {
   it("una cita REAL sí llega al proveedor (el guardarraíl no apaga todo)", async () => {
     const { createSessionBooking } = await import("@/server/agenda/service");
     selectRows.push([{ contactId: "ct_1", isTest: false }]);
+    selectRows.push([]); // sin lead
     selectRows.push([{ name: "Cliente real" }]);
-    selectRows.push([]);
 
     await createSessionBooking({
       organizationId: "org_1",

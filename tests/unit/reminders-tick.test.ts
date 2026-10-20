@@ -516,3 +516,40 @@ describe("remindersForBookings (DTO de Citas)", () => {
     expect(map.get("bk_1")).toEqual([]);
   });
 });
+
+describe("023 — tipo de cita y dirección en la plantilla (A8)", () => {
+  it("el tipo sale de la cita y la dirección de la agenda del negocio", async () => {
+    db.configs = [
+      config({
+        variables: ["contact_name", "appointment_type", "address"],
+        address: "Av. Juárez 100",
+      }),
+    ];
+    db.bookings = [booking({ appointmentTypeName: "Prueba de manejo" })];
+    db.templates = [
+      { id: "tpl_1", status: "approved", body: "Hola {{1}}, tu {{2}} es en {{3}}" },
+    ];
+
+    await runReminderTick(at(DUE_24, MIN));
+    const call = sendTemplate.mock.calls[0]![0];
+    expect(call.variables).toEqual(["Ana", "Prueba de manejo", "Av. Juárez 100"]);
+  });
+
+  it("Instagram/Messenger siguen sin recordatorio (decisión 7)", async () => {
+    db.bookings = [
+      booking({
+        appointmentTypeName: "Servicio",
+        contact: {
+          id: "ct_1",
+          name: "Ana",
+          channel: "messenger",
+          phone: null,
+          waUserId: null,
+        },
+      }),
+    ];
+    await runReminderTick(at(DUE_24, MIN));
+    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(db.rows[0]).toMatchObject({ status: "skipped", reason: "channel_not_whatsapp" });
+  });
+});

@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Archive, ArchiveRestore, ChevronLeft, Info, PanelRight, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  CalendarPlus,
+  ChevronLeft,
+  Info,
+  PanelRight,
+  X,
+} from "lucide-react";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
@@ -25,6 +33,7 @@ import { ContactPanel } from "./contact-panel";
 import { AssignmentControl, type TeamOption } from "./assignment-control";
 import { useInboxList } from "./use-inbox-list";
 import { filtersFromSearchParams } from "./list-state";
+import { BookingDialog } from "@/components/bookings/booking-dialog";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
 const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
@@ -61,7 +70,14 @@ const PANEL_MEDIA_QUERY = "(min-width: 1280px)";
 const isWideEnoughForPanel = () =>
   typeof window !== "undefined" && window.matchMedia(PANEL_MEDIA_QUERY).matches;
 
-export function InboxClient({ channels }: { channels: readonly Channel[] }) {
+export function InboxClient({
+  channels,
+  agenda = false,
+}: {
+  channels: readonly Channel[];
+  /** 023 — Agenda encendida (`AGENDA`): muestra "Agendar" en el hilo. */
+  agenda?: boolean;
+}) {
   const multiChannel = channels.length > 1;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /**
@@ -120,6 +136,15 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
     const t = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(t);
   }, [notice]);
+
+  // 023 — "Agendar" desde el hilo. El diálogo pide los tipos activos
+  // (`GET /api/calendar/types`) al abrirse, no en cada carga de la Bandeja;
+  // los vendedores del Propietario son el equipo que ya se cargó arriba.
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const bookingSellers = useMemo(
+    () => (owner && team ? team.map((t) => ({ id: t.userId, name: t.name })) : undefined),
+    [owner, team]
+  );
 
   // Solo el Propietario elige responsable: el equipo es owner-only.
   useEffect(() => {
@@ -683,6 +708,21 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
                   {selected.archivedAt != null ? "Desarchivar" : "Archivar"}
                 </span>
               </button>
+              {/* 023: agendar una cita para este contacto (solo con la
+                  agenda encendida). Mismo estilo que Archivar. */}
+              {agenda && (
+                <button
+                  type="button"
+                  data-testid="inbox-schedule"
+                  onClick={() => setBookingOpen(true)}
+                  aria-label="Agendar cita"
+                  title="Agendar una cita para este contacto"
+                  className="flex shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-1.5 text-[12.5px] font-medium text-text-2 hover:bg-accent hover:text-foreground md:px-2.5"
+                >
+                  <CalendarPlus className="h-4 w-4" strokeWidth={1.7} />
+                  <span className="max-md:sr-only">Agendar</span>
+                </button>
+              )}
               {!panelOpen && (
                 <button
                   onClick={() => togglePanel(true)}
@@ -777,6 +817,22 @@ export function InboxClient({ channels }: { channels: readonly Channel[] }) {
           </div>
         )}
       </section>
+
+      {agenda && bookingOpen && selected && (
+        <BookingDialog
+          key={selected.id}
+          viewer={viewer}
+          contact={{ id: selected.contact.id, name: selected.contact.name }}
+          conversationId={selected.id}
+          defaultSellerId={selected.assignedTo?.userId ?? null}
+          sellers={bookingSellers}
+          onClose={() => setBookingOpen(false)}
+          onDone={({ label }) => {
+            setBookingOpen(false);
+            setNotice(`Cita agendada para ${label}`);
+          }}
+        />
+      )}
 
       {/* 09: aviso no bloqueante (pérdida de acceso, carrera al tomar…). */}
       {notice && (

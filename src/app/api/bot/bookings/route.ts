@@ -21,6 +21,10 @@ export const dynamic = "force-dynamic";
  * Y el sobre del error va ANIDADO (`{"error":{"code":…}}`) con `slots` como
  * hermano: un mock con la forma plana escondió el camino de re-oferta durante
  * semanas en ese mismo sistema.
+ *
+ * 023 — Reservar toma el TIPO de la oferta (o el tipo por omisión si la
+ * oferta no lo tiene); mover conserva el tipo de la cita. Ambos en modo
+ * `strict`: no se pisa ninguna cita. Contrato sin cambios.
  */
 
 const createSchema = z.object({
@@ -32,6 +36,8 @@ const createSchema = z.object({
 const rescheduleSchema = z.object({
   conversationId: z.string().min(1),
   startUtc: z.string().min(1),
+  // 023 (A9) — Cuál mover (de esa conversación); sin él, la próxima activa.
+  bookingId: z.string().min(1).nullish(),
 });
 
 export async function POST(req: Request) {
@@ -69,6 +75,7 @@ export async function PATCH(req: Request) {
       organizationId: gate.organizationId,
       conversationId: body.data.conversationId,
       startUtc: body.data.startUtc,
+      bookingId: body.data.bookingId ?? null,
     });
     // 200 y no 201: mover una cita no crea un recurso nuevo.
     return Response.json(bookingPayload(result));

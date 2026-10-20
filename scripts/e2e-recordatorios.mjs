@@ -181,6 +181,9 @@ function slotNear(slots, targetMs, taken) {
   return t;
 }
 
+/** 023 — El tipo de cita es obligatorio en el alta manual (A2). */
+let TYPE_ID = null;
+
 function createBooking(contact, startMs, conversationId = contact.conversationId) {
   return owner.api("/api/bookings", {
     method: "POST",
@@ -189,6 +192,10 @@ function createBooking(contact, startMs, conversationId = contact.conversationId
       contactId: contact.contactId,
       conversationId,
       startUtc: iso(startMs),
+      typeId: TYPE_ID,
+      // 023 — Sin vendedor: el Vendedor ve las sin asignar (las que el owner
+      // se asigna a sí mismo ya no), y este guion le hace ver y reintentar.
+      assignedUserId: null,
     }),
   });
 }
@@ -245,6 +252,11 @@ async function main() {
     }),
   });
   ok("agenda abierta 24/7, 7 días", agenda.res.ok, short(agenda));
+  // 023 — Un tipo NO exclusivo de 30 min (Servicio en la siembra): la rejilla
+  // y las citas de este guion conservan la forma de la 015.
+  const tipos = (await owner.api("/api/calendar/types")).json?.types ?? [];
+  TYPE_ID = (tipos.find((t) => !t.exclusive && t.durationMinutes === 30) ?? tipos.find((t) => !t.exclusive))?.id ?? null;
+  ok("023: tipo de cita para el alta manual", !!TYPE_ID, JSON.stringify(tipos.map((t) => t.name)));
 
   console.log("\n== c) Plantilla aprobada y ajustes de recordatorio ==");
   const tplName = `recordatorio_cita_${S}`;
