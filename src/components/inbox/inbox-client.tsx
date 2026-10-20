@@ -697,7 +697,9 @@ export function InboxClient({
                     ? "Devolver a la Bandeja"
                     : "Sacar de la Bandeja (vuelve si el cliente escribe)"
                 }
-                className="flex shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-1.5 text-[12.5px] font-medium text-text-2 hover:bg-accent hover:text-foreground md:px-2.5"
+                // 023b: teñido con el acento para que no se pierda en el fondo,
+                // pero un escalón por debajo de Agendar (la acción comercial).
+                className="flex shrink-0 items-center gap-1.5 rounded-sm border border-brand-soft bg-brand-tint px-1.5 py-1.5 text-[12.5px] font-medium text-brand-text transition-colors hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:px-2.5"
               >
                 {selected.archivedAt != null ? (
                   <ArchiveRestore className="h-4 w-4" strokeWidth={1.7} />
@@ -709,7 +711,8 @@ export function InboxClient({
                 </span>
               </button>
               {/* 023: agendar una cita para este contacto (solo con la
-                  agenda encendida). Mismo estilo que Archivar. */}
+                  agenda encendida). 023b: sólido con el acento de la marca —
+                  es la acción que ventas no debe pasar por alto. */}
               {agenda && (
                 <button
                   type="button"
@@ -717,7 +720,7 @@ export function InboxClient({
                   onClick={() => setBookingOpen(true)}
                   aria-label="Agendar cita"
                   title="Agendar una cita para este contacto"
-                  className="flex shrink-0 items-center gap-1.5 rounded-sm border px-1.5 py-1.5 text-[12.5px] font-medium text-text-2 hover:bg-accent hover:text-foreground md:px-2.5"
+                  className="flex shrink-0 items-center gap-1.5 rounded-sm border border-brand bg-brand px-1.5 py-1.5 text-[12.5px] font-medium text-brand-fg shadow-sm transition-colors hover:border-brand-hover hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 md:px-2.5"
                 >
                   <CalendarPlus className="h-4 w-4" strokeWidth={1.7} />
                   <span className="max-md:sr-only">Agendar</span>
