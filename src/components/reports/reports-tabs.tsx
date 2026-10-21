@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * Pestañas de Reportes, en este orden: «Resumen» (021, para dirección),
- * «Agente» (02), «Citas» (10, solo con `AGENDA` encendida), «Ventas» (021) y
- * «Anuncios» (020). Al cambiar de pestaña se conserva el rango de la URL.
+ * «Agente» (02), «Citas» (10, solo con `AGENDA` encendida), «Ventas» (021),
+ * «Vendedores» (024) y «Anuncios» (020). Al cambiar de pestaña se conserva el rango de la URL.
  */
 export function ReportsTabs({ bookings }: { bookings: boolean }) {
   const pathname = usePathname();
@@ -23,6 +23,7 @@ export function ReportsTabs({ bookings }: { bookings: boolean }) {
       {tab("/reports/agent", "Agente")}
       {bookings && tab("/reports/bookings", "Citas")}
       {tab("/reports/sales", "Ventas")}
+      {tab("/reports/sellers", "Vendedores")}
       {tab("/reports/ads", "Anuncios")}
     </nav>
   );

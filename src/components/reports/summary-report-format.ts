@@ -6,6 +6,7 @@
  */
 
 import type {
+  BookingCountsDto,
   ReportRangeDto,
   SummaryAdOriginRowDto,
   SummaryOriginFiguresDto,
@@ -24,6 +25,8 @@ export const SUMMARY_BLOCKS = [
   "pending",
   "sales",
   "responseTimes",
+  // 024 — «Equipo». `bookings` NO: es null sin AGENDA.
+  "team",
 ] as const satisfies readonly (keyof SummaryReportDto)[];
 
 /**
@@ -125,7 +128,13 @@ export function originTotals(report: SummaryReportDto): SummaryOriginFiguresDto 
   return report.byOrigin.ok ? report.byOrigin.data.totals : null;
 }
 
-export type Highlight = { key: string; text: string; agentLink?: boolean };
+export type Highlight = {
+  key: string;
+  text: string;
+  agentLink?: boolean;
+  /** 024 — enlace «ver Vendedores» (solo en pantalla). */
+  sellersLink?: boolean;
+};
 
 /** «3 leads» / «1 lead». */
 function leadsText(n: number): string {
@@ -214,6 +223,13 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
     });
   }
 
+  // 024 — Un vendedor concentra los pendientes: solo si hay al menos
+  // `TEAM_PENDING_MIN` y él tiene `TEAM_PENDING_SHARE` o más.
+  {
+    const top = teamPendingHighlight(report);
+    if (top) out.push({ key: "team-pending", text: top, sellersLink: true });
+  }
+
   if (report.sales.ok && report.sales.data.won > 0) {
     const s = report.sales.data;
     out.push({
@@ -221,5 +237,28 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
       text: `${s.won === 1 ? "1 venta" : `${formatCount(s.won)} ventas`} por ${formatWonAmount(s.wonAmount)}${s.closeRate !== null ? ` (cierre ${formatPercent(s.closeRate)})` : ""}.`,
     });
   }
+  // 024 — Citas del periodo (solo con AGENDA y si hubo alguna).
+  if (report.agendaEnabled && report.bookings?.ok && report.bookings.data.total > 0) {
+    out.push({ key: "bookings", text: bookingsPeriodText(report.bookings.data) });
+  }
   return out;
+}
+
+/** Mínimo de pendientes para hablar de concentración (con 2 no es noticia). */
+export const TEAM_PENDING_MIN = 3;
+/** Parte de los pendientes que un vendedor debe concentrar para la viñeta. */
+export const TEAM_PENDING_SHARE = 0.4;
+
+/** «Ericka tiene 18 de 33 pendientes.» o null si nadie los concentra. */
+export function teamPendingHighlight(report: SummaryReportDto): string | null {
+  if (!report.team.ok) return null;
+  const top = report.team.data.topPending;
+  if (!top || top.ofTotal < TEAM_PENDING_MIN || top.pending <= 0) return null;
+  if (top.pending / top.ofTotal < TEAM_PENDING_SHARE) return null;
+  return `${top.name} tiene ${formatCount(top.pending)} de ${formatCount(top.ofTotal)} pendientes de respuesta (según la asignación actual).`;
+}
+
+/** «Citas del periodo: 6 agendadas · 3 realizadas · asistencia 75 %.» */
+export function bookingsPeriodText(b: BookingCountsDto): string {
+  return `Citas del periodo: ${formatCount(b.total)} ${b.total === 1 ? "agendada" : "agendadas"} · ${formatCount(b.realizada)} ${b.realizada === 1 ? "realizada" : "realizadas"} · asistencia ${formatPercent(b.rate)}.`;
 }

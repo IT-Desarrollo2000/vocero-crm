@@ -54,6 +54,7 @@ const TAB_LABEL: Record<string, string> = {
   agent: "Agente",
   bookings: "Citas",
   sales: "Ventas",
+  sellers: "Vendedores",
   summary: "Resumen",
   ads: "Anuncios",
 };

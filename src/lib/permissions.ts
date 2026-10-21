@@ -218,6 +218,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // 021: ventas por fecha de cierre (D1/D2) y resumen para dirección.
   "GET /api/reports/sales": "owner",
   "GET /api/reports/summary": "owner",
+  // 024: cartera, atención, ventas y citas por vendedor.
+  "GET /api/reports/sellers": "owner",
 
   // ── Cerebro externo (BOT_API_KEY) ──────────────────────────────────────
   "GET /api/bot/availability": "bot",

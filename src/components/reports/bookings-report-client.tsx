@@ -4,7 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Clock, Hourglass, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { AttendanceSliceDto, BookingReportDto } from "@/lib/reports";
+import type {
+  AttendanceSliceDto,
+  BookingCountsDto,
+  BookingReportDto,
+  BookingToSalesDto,
+  BookingsBySellerDto,
+  BookingsByTypeDto,
+} from "@/lib/reports";
+import { formatWonAmount, wonAmountNote } from "./ads-report-format";
 import {
   BOOKING_REPORT_SOON_MESSAGE,
   attendanceDetail,
@@ -15,7 +23,7 @@ import {
   pendingToMarkLabel,
   type BookingReportOutcome,
 } from "./bookings-report-format";
-import { formatCount, formatPercent } from "./format";
+import { EMPTY_VALUE, formatCount, formatPercent } from "./format";
 import { KpiTile } from "./kpi-tile";
 import { RangePicker } from "./range-picker";
 import {
@@ -123,7 +131,9 @@ export function BookingsReportClient() {
         <>
           <Kpis report={report} loading={loading} />
 
-          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+          {/* 024 — En papel también lado a lado: con las tres secciones nuevas,
+              apiladas dejaban una línea suelta en una tercera hoja. */}
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 print:grid-cols-2">
             <ReportSection
               title="Oferta → cita"
               description="Conversaciones a las que la IA les ofreció horarios y que terminaron en una cita agendada por la IA."
@@ -182,13 +192,257 @@ export function BookingsReportClient() {
             )}
           </ReportSection>
 
+          <ReportSection
+            title="Por tipo de cita"
+            description="Citas con hora en el rango, por su tipo. «Agendadas» = todas las del rango, en cualquier estado."
+            block={report?.byType}
+            loading={loading}
+            // Tablas cortas: en papel no dejan una fila suelta en otra hoja.
+            className="print:break-inside-avoid"
+          >
+            {(data) => <ByTypeTable data={data} />}
+          </ReportSection>
+
+          <ReportSection
+            title="Por vendedor"
+            description="Por el vendedor de la cita (no por quién atiende la conversación), y cómo se agendaron: a mano o por la IA."
+            block={report?.bySeller}
+            loading={loading}
+            // Tablas cortas: en papel no dejan una fila suelta en otra hoja.
+            className="print:break-inside-avoid"
+          >
+            {(data) => <BySellerTable data={data} />}
+          </ReportSection>
+
+          <ReportSection
+            title="Citas que terminaron en venta"
+            description="De las citas realizadas en el rango, cuántos leads están en Ganado: ganado al momento de generar el reporte (la venta pudo ser de otro periodo)."
+            block={report?.toSales}
+            loading={loading}
+            className="print:break-inside-avoid"
+          >
+            {(data) => <ToSales data={data} />}
+          </ReportSection>
+
+          {/* En papel lo dice el encabezado de impresión (rango, zona y «no
+              incluye el Laboratorio»): sola, esta línea caía en otra hoja. */}
           {range && (
-            <p className="text-xs text-text-3">
+            <p className="text-xs text-text-3 print:hidden">
               Excluye el Laboratorio. Días en {range.tz}.
             </p>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+const TH = "pb-2 pr-3 text-right font-medium";
+const TD = "py-2 pr-3 text-right tabular-nums";
+
+/** Las cinco cifras de un conjunto de citas, como celdas. */
+function CountCells({ c }: { c: BookingCountsDto }) {
+  return (
+    <>
+      <td className={`${TD} font-semibold`}>{formatCount(c.total)}</td>
+      <td className={TD}>{formatCount(c.realizada)}</td>
+      <td className={TD}>{formatCount(c.noShow)}</td>
+      <td className={TD}>{formatCount(c.cancelada)}</td>
+      <td className="py-2 text-right tabular-nums">{formatPercent(c.rate)}</td>
+    </>
+  );
+}
+
+function CountHeads() {
+  return (
+    <>
+      <th scope="col" className={TH}>Agendadas</th>
+      <th scope="col" className={TH}>Realizadas</th>
+      <th scope="col" className={TH}>No asistió</th>
+      <th scope="col" className={TH}>Canceladas</th>
+      <th scope="col" className="pb-2 text-right font-medium">Asistencia</th>
+    </>
+  );
+}
+
+function CountStats({ c }: { c: BookingCountsDto }) {
+  return (
+    <>
+      <MobileStat label="Agendadas" value={formatCount(c.total)} />
+      <MobileStat label="Realizadas" value={formatCount(c.realizada)} />
+      <MobileStat label="No asistió" value={formatCount(c.noShow)} />
+      <MobileStat label="Canceladas" value={formatCount(c.cancelada)} />
+      <MobileStat label="Asistencia" value={formatPercent(c.rate)} />
+    </>
+  );
+}
+
+function MobileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="truncate text-text-3">{label}</dt>
+      <dd className="truncate font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+type TypeRow = BookingsByTypeDto["rows"][number];
+type SellerRow = BookingsBySellerDto["rows"][number];
+
+function TypeLabel({ r }: { r: TypeRow }) {
+  return (
+    <>
+      {r.name}
+      {r.typeId && !r.active && (
+        <span className="ml-1.5 text-xs font-normal text-text-3">(inactivo)</span>
+      )}
+    </>
+  );
+}
+
+/** 024 — Por tipo de cita: todos los tipos activos (también en cero) y «Sin tipo». */
+function ByTypeTable({ data }: { data: BookingsByTypeDto }) {
+  if (data.rows.length === 0) {
+    return <p className="text-sm text-muted-foreground">No hay tipos de cita.</p>;
+  }
+  return (
+    <>
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Citas por tipo">
+        {data.rows.map((r) => (
+          <li key={r.typeId ?? "none"} className="rounded-md border bg-subtle p-3">
+            <p className={`text-sm font-medium ${r.typeId ? "" : "text-text-3"}`}>
+              <TypeLabel r={r} />
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+              <CountStats c={r} />
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <table
+        className="hidden w-full text-sm sm:table print:table"
+        aria-label="Citas por tipo"
+        data-testid="bookings-by-type"
+      >
+        <thead>
+          <tr className="text-left text-xs text-muted-foreground">
+            <th scope="col" className="pb-2 pr-3 font-medium">Tipo</th>
+            <CountHeads />
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((r) => (
+            <tr
+              key={r.typeId ?? "none"}
+              data-type={r.typeId ?? "none"}
+              className={`border-t align-top ${r.typeId ? "" : "text-text-3"}`}
+            >
+              <th scope="row" className="py-2 pr-3 text-left font-medium">
+                <TypeLabel r={r} />
+              </th>
+              <CountCells c={r} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** «3 · 1»: manual · IA. */
+function sourceText(r: SellerRow): string {
+  return `${formatCount(r.bySource.manual)} · ${formatCount(r.bySource.ai)}`;
+}
+
+function SellerLabel({ r }: { r: SellerRow }) {
+  return (
+    <>
+      {r.name}
+      {r.userId && !r.isMember && (
+        <span className="ml-1.5 text-xs font-normal text-text-3">(ya no es miembro)</span>
+      )}
+    </>
+  );
+}
+
+/** 024 — Por vendedor de la cita (todos los miembros y «Sin vendedor»). */
+function BySellerTable({ data }: { data: BookingsBySellerDto }) {
+  if (data.rows.length === 0) {
+    return <p className="text-sm text-muted-foreground">Sin vendedores.</p>;
+  }
+  return (
+    <>
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Citas por vendedor">
+        {data.rows.map((r) => (
+          <li key={r.userId ?? "none"} className="rounded-md border bg-subtle p-3">
+            <p className={`text-sm font-medium ${r.userId ? "" : "text-text-3"}`}>
+              <SellerLabel r={r} />
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+              <CountStats c={r} />
+              <MobileStat label="Manual · IA" value={sourceText(r)} />
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <table
+        className="hidden w-full text-sm sm:table print:table"
+        aria-label="Citas por vendedor"
+        data-testid="bookings-by-seller"
+      >
+        <thead>
+          <tr className="text-left text-xs text-muted-foreground">
+            <th scope="col" className="pb-2 pr-3 font-medium">Vendedor</th>
+            <th scope="col" className={TH}>Manual · IA</th>
+            <CountHeads />
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((r) => (
+            <tr
+              key={r.userId ?? "none"}
+              data-seller={r.userId ?? "none"}
+              className={`border-t align-top ${r.userId ? "" : "text-text-3"}`}
+            >
+              <th scope="row" className="py-2 pr-3 text-left font-medium">
+                <SellerLabel r={r} />
+              </th>
+              <td className={`${TD} text-text-2`}>{sourceText(r)}</td>
+              <CountCells c={r} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** 024 — Citas realizadas → leads hoy en Ganado. */
+function ToSales({ data }: { data: BookingToSalesDto }) {
+  if (data.bookingsDone === 0) {
+    return <p className="text-sm text-muted-foreground">Ninguna cita realizada en este rango.</p>;
+  }
+  const note = data.won > 0 ? wonAmountNote(data.wonAmount) : null;
+  const sinLead =
+    data.withoutLead === 1
+      ? " 1 cita realizada no tiene lead y no cuenta."
+      : data.withoutLead > 1
+        ? ` ${formatCount(data.withoutLead)} citas realizadas no tienen lead y no cuentan.`
+        : "";
+  return (
+    <div className="space-y-2 text-sm" data-testid="bookings-to-sales">
+      <Row label="Citas realizadas" value={formatCount(data.bookingsDone)} />
+      <Row label="Leads con cita realizada" value={formatCount(data.leads)} />
+      <Row label="Hoy en Ganado" value={formatCount(data.won)} />
+      <Row label="Tasa" value={formatPercent(data.rate)} />
+      <Row
+        label="Monto ganado"
+        value={data.won > 0 ? formatWonAmount(data.wonAmount) : EMPTY_VALUE}
+      />
+      {note && <p className="text-xs text-warning-text">{note}</p>}
+      <p className="text-xs text-text-3">
+        Ganado al momento de generar el reporte: la venta pudo cerrarse en otro periodo.{sinLead}
+      </p>
     </div>
   );
 }

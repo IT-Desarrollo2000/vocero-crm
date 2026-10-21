@@ -9,13 +9,16 @@ import {
   shapeSummaryByChannel,
   shapeSummaryByHour,
   shapeSummaryByOrigin,
+  shapeTeam,
+  teamSql,
   summaryReport,
   type SummaryReportParams,
 } from "@/server/reports/summary";
 import { responseTimesSql } from "@/server/reports/agent";
 import { parseReportRange } from "@/server/reports/range";
 import type { ReportExec } from "@/server/reports/run";
-import { ADS_REPORT_MAX_ROWS, SUMMARY_PENDING_MAX_ROWS } from "@/lib/reports";
+import { ADS_REPORT_MAX_ROWS, SUMMARY_PENDING_MAX_ROWS, SUMMARY_TEAM_MAX_ROWS } from "@/lib/reports";
+import { attendanceSql } from "@/server/reports/bookings";
 import { LEAD_INTAKE_HEADER } from "@/lib/lead-intake";
 
 /**
@@ -423,5 +426,117 @@ describe("ejecución", () => {
     expect(dto.byChannel.ok).toBe(true);
     expect(dto.pending.ok && dto.pending.data).toEqual({ total: 0, rows: [] });
     expect(dto.range.preset).toBe("today");
+  });
+});
+
+describe("024 — Equipo y citas del periodo", () => {
+  const on = dialect.sqlToQuery(teamSql(P, { currency: "MXN", agenda: true }));
+  const off = dialect.sqlToQuery(teamSql(P, { currency: "MXN", agenda: false }));
+
+  it("SQL: UNA consulta con tenant, límites ::timestamp, Laboratorio fuera y nada de now()", () => {
+    for (const [name, q] of [["on", on], ["off", off]] as const) {
+      expect(q.params, name).toContain("org_1");
+      expect(q.sql, name).toMatch(/"organization_id" = \$\d+/);
+      expect(q.sql, name).not.toMatch(/now\(\)|current_timestamp/i);
+      expect(q.params, name).toContain("2026-10-16 06:00:00.000");
+      expect(q.params, name).toContain("2026-10-17 06:00:00.000");
+      expect(q.params.some((v) => v instanceof Date), name).toBe(false);
+      expect(q.sql, name).toContain(`"c"."is_test" = false`);
+      expect(q.sql, name).toContain("lab.is_test = true"); // ventas: regla de contacto
+      expect(q.sql.match(/^with /gm), name).toHaveLength(1);
+      // Pendientes CON tarjetas; atendidas SIN ellas (las del Resumen).
+      expect(q.sql, name).toContain("persons_all as (");
+      expect(q.sql, name).toContain("from persons_all\n");
+      // Ventas D1 + D2 en la moneda principal (parámetro ligado).
+      expect(q.sql, name).toContain("closed.kind = 'won'");
+      expect(q.params, name).toContain("MXN");
+    }
+    expect(on.sql).toContain(`"booking"."kind" = 'session'`);
+    expect(on.sql).toContain(`"booking"."is_test" = false`);
+    expect(on.sql).toContain(`"booking"."status" = 'realizada'`);
+    expect(off.sql).not.toContain(`"booking"`);
+    expect(off.sql).toContain("null::int as bookings_done");
+  });
+
+  it("forma: tope de filas + «Otros», «Sin asignar» aparte, totales y el que concentra pendientes", () => {
+    const sellers = Array.from({ length: SUMMARY_TEAM_MAX_ROWS + 2 }, (_, i) => ({
+      user_id: `u_${String(i).padStart(2, "0")}`,
+      name: `V${String(i).padStart(2, "0")}`,
+      assigned: 1,
+      pending: i === 11 ? 7 : 0,
+      attended: 1,
+      won: i < 3 ? 3 - i : 0,
+      cents: i < 3 ? String((3 - i) * 1000) : 0,
+      bookings_done: 1,
+    }));
+    const dto = shapeTeam([...sellers, { user_id: null, pending: 3, attended: 0, won: 1, cents: 0 }], "MXN", true);
+    expect(dto.rows).toHaveLength(SUMMARY_TEAM_MAX_ROWS);
+    expect(dto.rows.slice(0, 3).map((r) => r.name)).toEqual(["V00", "V01", "V02"]);
+    // Sin ventas, el de más pendientes va primero.
+    expect(dto.rows[3]!.name).toBe("V11");
+    expect(dto.others).toMatchObject({ sellers: 2, assignedInRange: 2, attended: 2, bookingsDone: 2 });
+    expect(dto.unassigned).toMatchObject({ userId: null, name: "Sin asignar", pending: 3, won: 1, bookingsDone: 0 });
+    expect(dto.totals).toEqual({
+      assignedInRange: 12,
+      pending: 10,
+      attended: 12,
+      bookingsDone: 12,
+      won: 7,
+      wonAmountCents: 6000,
+    });
+    expect(dto.topPending).toEqual({ userId: "u_11", name: "V11", pending: 7, ofTotal: 10 });
+    // Sin AGENDA: columna de citas null; nadie con pendientes → sin viñeta.
+    const off = shapeTeam([{ user_id: "u_1", name: "Ana", bookings_done: null }], "MXN", false);
+    expect(off.rows[0]!.bookingsDone).toBeNull();
+    expect(off.totals.bookingsDone).toBeNull();
+    expect(off.unassigned.bookingsDone).toBeNull();
+    expect(off.others).toBeNull();
+    expect(off.topPending).toBeNull();
+  });
+
+  it("ejecución: AGENDA apagada no consulta citas; encendida reutiliza la asistencia de Citas", async () => {
+    const range = (() => {
+      const r = parseReportRange({ range: "today" }, "America/Mexico_City", new Date("2026-10-16T18:00:00Z"));
+      if (!r.ok) throw new Error(r.message);
+      return r.range;
+    })();
+    const now = new Date("2026-10-16T18:00:00Z");
+    const att = dialect.sqlToQuery(
+      attendanceSql({ organizationId: "org_1", fromUtc: range.fromUtc, toUtc: range.toUtc, now })
+    ).sql;
+    const run = (seen: string[]) =>
+      async <T,>(fn: (exec: ReportExec) => Promise<T>) =>
+        fn((async (query: SQL) => {
+          const s = dialect.sqlToQuery(query).sql;
+          seen.push(s);
+          if (s === att) return [{ total: 5, agendada: 1, realizada: 3, no_show: 1, cancelada: 0, pending_to_mark: 0 }];
+          return [];
+        }) as ReportExec);
+    const seenOff: string[] = [];
+    const offDto = await summaryReport("org_1", range, "MXN", {
+      runReadOnly: run(seenOff),
+      now: () => now,
+      intakeEnabled: () => false,
+      agendaEnabled: () => false,
+    });
+    expect(offDto.agendaEnabled).toBe(false);
+    expect(offDto.bookings).toBeNull();
+    expect(seenOff.some((s) => s.includes(`"booking"`))).toBe(false);
+    expect(offDto.team.ok && offDto.team.data.unassigned.name).toBe("Sin asignar");
+
+    const seenOn: string[] = [];
+    const onDto = await summaryReport("org_1", range, "MXN", {
+      runReadOnly: run(seenOn),
+      now: () => now,
+      intakeEnabled: () => false,
+      agendaEnabled: () => true,
+    });
+    expect(onDto.agendaEnabled).toBe(true);
+    expect(seenOn).toContain(att);
+    expect(onDto.bookings).toEqual({
+      ok: true,
+      data: { total: 5, scheduled: 1, realizada: 3, noShow: 1, rate: 0.75, cancelada: 0, pendingToMark: 0 },
+    });
+    expect(onDto.team.ok && onDto.team.data.totals.bookingsDone).toBe(0);
   });
 });

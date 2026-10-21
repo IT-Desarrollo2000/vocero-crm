@@ -7,9 +7,14 @@ import { CHANNEL_ORDER, isChannel, type Channel } from "@/lib/channels";
 import { LEAD_INTAKE_HEADER, LEAD_INTAKE_TYPE } from "@/lib/lead-intake";
 import {
   ADS_REPORT_MAX_ROWS,
+  NO_ASSIGNEE_LABEL,
   LEAD_ORIGIN_LABEL,
   SUMMARY_PENDING_MAX_ROWS,
+  SUMMARY_TEAM_MAX_ROWS,
   ratio,
+  type BookingCountsDto,
+  type ResponseTimesDto,
+  type SalesSummaryDto,
   type SummaryAdOriginRowDto,
   type SummaryAttentionDto,
   type SummaryAttentionFiguresDto,
@@ -22,7 +27,12 @@ import {
   type SummaryOriginFiguresDto,
   type SummaryPendingDto,
   type SummaryReportDto,
+  type SummaryTeamDto,
+  type SummaryTeamFiguresDto,
+  type SummaryTeamRowDto,
+  type ReportBlock,
 } from "@/lib/reports";
+import { agendaEnabled } from "@/server/agenda/flag";
 import { intakeEnabled } from "@/server/intake/flag";
 import { responseTimesSql, shapeResponseTimes, type AgentReportParams } from "./agent";
 import {
@@ -39,6 +49,12 @@ import {
 } from "./common";
 import { previousRange, toRangeDto, type ReportRange } from "./range";
 import { runBlocks, runReadOnly, type ReportExec, type RunBlocksOptions } from "./run";
+import {
+  attendanceSql,
+  sessionsInRange,
+  shapeAttendance,
+  type BookingReportParams,
+} from "./bookings";
 import { closedCte, closedInRange, salesSummaryOf } from "./sales";
 
 /**
@@ -190,11 +206,22 @@ function outboundAfter(p: SummaryReportParams, conv: SQL, after: SQL, extra?: SQ
  * Por defecto las tarjetas de leads externos no hacen persona ni arrancan el
  * reloj (`first_in_at`); `withLeadIntake` las incluye (solo PENDIENTES).
  */
-function personsCte(
+export function personsCte(
   p: SummaryReportParams,
-  opts: { withLeadIntake?: boolean } = {}
+  opts: {
+    withLeadIntake?: boolean;
+    /**
+     * 024 — Nombres de los dos CTE (constantes del código): una misma consulta
+     * puede necesitar las personas con y sin tarjetas (Equipo, Vendedores).
+     * Por defecto `pin` / `persons`: el SQL renderizado no cambia.
+     */
+    names?: { pin: string; persons: string };
+  } = {}
 ): SQL {
-  return sql`pin as (
+  const pinName = opts.names?.pin ?? "pin";
+  const personsName = opts.names?.persons ?? "persons";
+  const pin = (col: string) => sql.raw(`${pinName}.${col}`);
+  return sql`${sql.raw(pinName)} as (
   select ${m.conversationId} as conversation_id,
     min(${m.createdAt}) as first_in_at,
     count(*)::int as inbound
@@ -208,17 +235,17 @@ function personsCte(
     msgRange(p)
   )}
   group by ${m.conversationId}
-), persons as (
-  select pin.conversation_id,
+), ${sql.raw(personsName)} as (
+  select ${pin("conversation_id")},
     ${c.contactId} as contact_id,
     ${c.channel} as channel,
-    pin.first_in_at,
-    pin.inbound,
+    ${pin("first_in_at")},
+    ${pin("inbound")},
     (${ct.createdAt} >= ${ts(p.fromUtc)} and ${ct.createdAt} < ${ts(p.toUtc)}) as is_new,
-    ${outboundAfter(p, sql`pin.conversation_id`, sql`pin.first_in_at`)} as answered,
-    ${outboundAfter(p, sql`pin.conversation_id`, sql`pin.first_in_at`, sql`rr.origin in ${ADVISOR_ORIGINS}`)} as by_advisor
-  from pin
-  join ${C} on ${c.id} = pin.conversation_id
+    ${outboundAfter(p, pin("conversation_id"), pin("first_in_at"))} as answered,
+    ${outboundAfter(p, pin("conversation_id"), pin("first_in_at"), sql`rr.origin in ${ADVISOR_ORIGINS}`)} as by_advisor
+  from ${sql.raw(pinName)}
+  join ${C} on ${c.id} = ${pin("conversation_id")}
   join ${CT} on ${ct.id} = ${c.contactId} and ${ct.organizationId} = ${c.organizationId}
   where ${scoped(c.organizationId, p.organizationId)}
 )`;
@@ -307,7 +334,19 @@ from persons`;
  * (aunque antes haya contestado la IA). Mediana y p90 en segundos.
  */
 export function advisorFirstReplySql(p: SummaryReportParams): SQL {
-  return sql`with ${personsCte(p)}, fr as (
+  return sql`with ${personsCte(p)}, ${advisorReplyCte(p)}
+select count(*)::int as persons,
+  percentile_cont(0.5) within group (order by secs) as p50_s,
+  percentile_cont(0.9) within group (order by secs) as p90_s
+from fr`;
+}
+
+/**
+ * `fr` = por persona atendida por asesor, segundos desde su primer entrante
+ * del rango hasta el primer saliente de asesor posterior. Requiere `persons`.
+ */
+export function advisorReplyCte(p: SummaryReportParams): SQL {
+  return sql`fr as (
   select persons.conversation_id,
     extract(epoch from (min(rr.created_at) - persons.first_in_at)) as secs
   from persons
@@ -317,11 +356,7 @@ export function advisorFirstReplySql(p: SummaryReportParams): SQL {
     and rr.origin in ${ADVISOR_ORIGINS}
     and rr.created_at > persons.first_in_at
   group by persons.conversation_id, persons.first_in_at
-)
-select count(*)::int as persons,
-  percentile_cont(0.5) within group (order by secs) as p50_s,
-  percentile_cont(0.9) within group (order by secs) as p90_s
-from fr`;
+)`;
 }
 
 /** Conversaciones reales con un escalamiento `opened` (sin manual_reply) en el rango. */
@@ -409,6 +444,25 @@ group by 1, 2, 6, 7`;
  * de la tarjeta al primer saliente no fallido.
  */
 export function externalLeadsSql(p: SummaryReportParams): SQL {
+  const secs = sql`extract(epoch from (first_out_at - card_at))`;
+  return sql`with ${externalCardsCtes(p)}
+select origin,
+  count(*)::int as received,
+  count(first_out_at)::int as contacted,
+  (count(*) filter (where replied))::int as replied,
+  percentile_cont(0.5) within group (order by ${secs}) filter (where first_out_at is not null) as p50_s,
+  percentile_cont(0.9) within group (order by ${secs}) filter (where first_out_at is not null) as p90_s
+from ext
+group by origin`;
+}
+
+/**
+ * `cards0` → `cards` → `ext`: por contacto y origen de tarjeta, su PRIMERA
+ * tarjeta del rango, su primer saliente no fallido posterior (`first_out_at`,
+ * NULL = sin contactar) y si respondió. 024: también lo usan Equipo y
+ * Vendedores (sin contactar por vendedor), por eso `ext` trae el contacto.
+ */
+export function externalCardsCtes(p: SummaryReportParams): SQL {
   const firstOut = sql`(
     select min(rr.created_at) from ${MSG} rr
     join ${schema.conversation} rc on rc.id = rr.conversation_id
@@ -418,8 +472,7 @@ export function externalLeadsSql(p: SummaryReportParams): SQL {
       and rr.direction = 'out' and rr.status <> 'failed'
       and rr.created_at > cards.card_at
   )`;
-  const secs = sql`extract(epoch from (first_out_at - card_at))`;
-  return sql`with cards0 as (
+  return sql`cards0 as (
   select ${c.contactId} as contact_id,
     ${m.id} as id,
     ${m.createdAt} as card_at,
@@ -432,19 +485,11 @@ export function externalLeadsSql(p: SummaryReportParams): SQL {
   where origin is not null
   order by contact_id, origin, card_at asc, id asc
 ), ext as (
-  select cards.origin, cards.card_at,
+  select cards.contact_id, cards.origin, cards.card_at,
     ${firstOut} as first_out_at,
     ${contactMessageAfter(p, sql`cards.contact_id`, sql`cards.card_at`, "in", sql`rr.type <> ${sql.raw(`'${LEAD_INTAKE_TYPE}'`)}`)} as replied
   from cards
-)
-select origin,
-  count(*)::int as received,
-  count(first_out_at)::int as contacted,
-  (count(*) filter (where replied))::int as replied,
-  percentile_cont(0.5) within group (order by ${secs}) filter (where first_out_at is not null) as p50_s,
-  percentile_cont(0.9) within group (order by ${secs}) filter (where first_out_at is not null) as p90_s
-from ext
-group by origin`;
+)`;
 }
 
 /** Personas del rango por canal. */
@@ -476,17 +521,7 @@ group by 1`;
 export function pendingSql(p: SummaryReportParams): SQL {
   // Con las tarjetas: un lead externo sin atender SÍ está pendiente.
   return sql`with ${firstOriginCte(p)}, ${personsCte(p, { withLeadIntake: true })},
-pend as (
-  select persons.conversation_id, persons.contact_id, persons.channel,
-    li.last_in_at
-  from persons
-  join lateral (
-    select max(li1.created_at) as last_in_at from ${MSG} li1
-    where li1.organization_id = ${p.organizationId}
-      and li1.conversation_id = persons.conversation_id and li1.direction = 'in'
-  ) li on true
-  where not ${outboundAfter(p, sql`persons.conversation_id`, sql`li.last_in_at`)}
-)
+${pendCte(p)}
 select pend.conversation_id, pend.contact_id, pend.channel,
   ${ct.name} as contact_name,
   to_char(pend.last_in_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_in_at,
@@ -498,6 +533,204 @@ join ${CT} on ${ct.id} = pend.contact_id and ${ct.organizationId} = ${p.organiza
 left join fa on fa.contact_id = pend.contact_id
 order by pend.last_in_at asc, pend.conversation_id asc
 limit ${SUMMARY_PENDING_MAX_ROWS}`;
+}
+
+/**
+ * `pend` = personas (CTE `persons`, construido CON tarjetas) sin saliente no
+ * fallido posterior a su ÚLTIMO entrante. `persons` = nombre de ese CTE.
+ */
+export function pendCte(p: SummaryReportParams, persons = "persons"): SQL {
+  const col = (name: string) => sql.raw(`${persons}.${name}`);
+  return sql`pend as (
+  select ${col("conversation_id")}, ${col("contact_id")}, ${col("channel")},
+    li.last_in_at
+  from ${sql.raw(persons)}
+  join lateral (
+    select max(li1.created_at) as last_in_at from ${MSG} li1
+    where li1.organization_id = ${p.organizationId}
+      and li1.conversation_id = ${col("conversation_id")} and li1.direction = 'in'
+  ) li on true
+  where not ${outboundAfter(p, col("conversation_id"), sql`li.last_in_at`)}
+)`;
+}
+
+// ── 024: por vendedor (Equipo y Vendedores) ─────────────────────────────
+
+/** Personas CON tarjetas (base de pendientes) junto a `pin`/`persons`. */
+const PERSONS_ALL = { pin: "pin_all", persons: "persons_all" } as const;
+
+const sc = alias(schema.conversation, "sc");
+const SC = sql`${schema.conversation} ${sql.identifier("sc")}`;
+const mb = alias(schema.member, "mb");
+const MB = sql`${schema.member} ${sql.identifier("mb")}`;
+
+/** La conversación real `sc` de un CTE por su `conversation_id`. */
+function joinSc(p: SummaryReportParams, cte: string): SQL {
+  return sql`join ${SC} on ${sc.id} = ${sql.raw(`${cte}.conversation_id`)} and ${scoped(sc.organizationId, p.organizationId)}`;
+}
+
+/**
+ * 024 — Métricas por RESPONSABLE VIGENTE de la conversación
+ * (`conversation.assigned_user_id`; NULL = «Sin asignar»), sobre los MISMOS
+ * CTE del Resumen: la suma de filas da sus totales de personas, atendidas y
+ * pendientes por construcción.
+ *  - `s_conv`: cartera (conversaciones reales asignadas hoy) y asignadas en
+ *    el periodo (`assigned_at` en el rango).
+ *  - `s_att`: personas y atendidas por asesor (`persons`).
+ *  - `s_pend`: pendientes (`pend` sobre `persons_all`).
+ * Requiere `persons`, `persons_all` y `pend` antes.
+ */
+function sellerAttentionCtes(p: SummaryReportParams): SQL {
+  return sql`s_conv as (
+  select ${sc.assignedUserId} as user_id,
+    count(*)::int as portfolio,
+    (count(*) filter (where ${sc.assignedAt} >= ${ts(p.fromUtc)} and ${sc.assignedAt} < ${ts(p.toUtc)}))::int as assigned
+  from ${SC}
+  where ${scoped(sc.organizationId, p.organizationId, sql`${sc.isTest} = false`)}
+  group by 1
+), s_att as (
+  select ${sc.assignedUserId} as user_id,
+    count(*)::int as persons,
+    (count(*) filter (where persons.by_advisor))::int as attended
+  from persons ${joinSc(p, "persons")}
+  group by 1
+), s_pend as (
+  select ${sc.assignedUserId} as user_id, count(*)::int as pending
+  from pend ${joinSc(p, "pend")}
+  group by 1
+)`;
+}
+
+/** Los miembros de la organización (vendedores y propietarios). */
+function membersKeys(p: SummaryReportParams): SQL {
+  return sql`select ${mb.userId} as user_id from ${MB} where ${scoped(mb.organizationId, p.organizationId)}`;
+}
+
+/** Nombre visible: `user.name`, si no el email. */
+const USER_NAME = sql.raw(`coalesce(nullif(u.name, ''), u.email)`);
+
+/** `k.user_id` (con NULL) contra la llave de un CTE por vendedor. */
+function sameUser(cte: string): SQL {
+  return sql.raw(`${cte}.user_id is not distinct from k.user_id`);
+}
+
+/**
+ * 024 — Vendedores → `roster`: una fila por miembro (también en cero), por
+ * ex-miembro con datos y «Sin asignar» (siempre). Cartera, asignadas en el
+ * periodo, cartera activa (no archivada con el lead en etapa `open`),
+ * personas, atendidas, tiempo hasta asesor (p50/p90, `advisorFirstReply`
+ * restringido a su cartera), pendientes y leads externos sin contactar.
+ */
+export function rosterSql(p: SummaryReportParams): SQL {
+  return sql`with ${personsCte(p)}, ${personsCte(p, { withLeadIntake: true, names: PERSONS_ALL })},
+${advisorReplyCte(p)}, ${pendCte(p, PERSONS_ALL.persons)}, ${externalCardsCtes(p)},
+${sellerAttentionCtes(p)}, s_active as (
+  select ${sc.assignedUserId} as user_id, count(*)::int as active
+  from ${SC}
+  join ${schema.lead} sl on sl.organization_id = ${sc.organizationId} and sl.contact_id = ${sc.contactId}
+  join ${schema.pipelineStage} ss on ss.id = sl.stage_id and ss.organization_id = sl.organization_id
+  where ${scoped(sc.organizationId, p.organizationId, sql`${sc.isTest} = false`, sql`${sc.archivedAt} is null`, sql`ss.kind = 'open'`)}
+  group by 1
+), s_fr as (
+  select ${sc.assignedUserId} as user_id,
+    count(*)::int as n,
+    percentile_cont(0.5) within group (order by fr.secs) as p50_s,
+    percentile_cont(0.9) within group (order by fr.secs) as p90_s
+  from fr ${joinSc(p, "fr")}
+  group by 1
+), s_ext as (
+  select ${sc.assignedUserId} as user_id, count(*)::int as not_contacted
+  from ext
+  join ${SC} on ${sc.contactId} = ext.contact_id and ${scoped(sc.organizationId, p.organizationId, sql`${sc.isTest} = false`)}
+  where ext.first_out_at is null
+  group by 1
+), k as (
+  ${membersKeys(p)}
+  union select user_id from s_conv
+  union select user_id from s_att
+  union select user_id from s_pend
+  union select user_id from s_ext
+  union select null::text
+)
+select k.user_id,
+  ${USER_NAME} as name,
+  km.role,
+  (km.user_id is not null) as is_member,
+  coalesce(s_conv.portfolio, 0)::int as portfolio,
+  coalesce(s_conv.assigned, 0)::int as assigned,
+  coalesce(s_active.active, 0)::int as active,
+  coalesce(s_att.persons, 0)::int as persons,
+  coalesce(s_att.attended, 0)::int as attended,
+  coalesce(s_fr.n, 0)::int as fr_n,
+  s_fr.p50_s,
+  s_fr.p90_s,
+  coalesce(s_pend.pending, 0)::int as pending,
+  coalesce(s_ext.not_contacted, 0)::int as not_contacted
+from k
+left join ${schema.member} km on km.user_id = k.user_id and km.organization_id = ${p.organizationId}
+left join ${schema.user} u on u.id = k.user_id
+left join s_conv on ${sameUser("s_conv")}
+left join s_active on ${sameUser("s_active")}
+left join s_att on ${sameUser("s_att")}
+left join s_fr on ${sameUser("s_fr")}
+left join s_pend on ${sameUser("s_pend")}
+left join s_ext on ${sameUser("s_ext")}`;
+}
+
+/**
+ * 024 — Resumen → `team` («Equipo»), UNA consulta: por responsable vigente,
+ * asignadas en el periodo, pendientes y atendidas (los CTE del Resumen); por
+ * asesor D2, ventas del periodo y monto en la moneda principal (`closed` de
+ * Ventas); con AGENDA, citas realizadas del periodo por `booking.assigned_user_id`.
+ * NULL = «Sin asignar» (une «Sin asesor» y «Sin vendedor»).
+ */
+export function teamSql(
+  p: SummaryReportParams,
+  opts: { currency: string; agenda: boolean }
+): SQL {
+  const main = sql`coalesce(closed.currency, ${opts.currency}) = ${opts.currency}`;
+  const book = opts.agenda
+    ? sql`, t_book as (
+  select ${schema.booking.assignedUserId} as user_id,
+    (count(*) filter (where ${schema.booking.status} = 'realizada'))::int as done
+  from ${schema.booking}
+  where ${sessionsInRange(p)}
+  group by 1
+)`
+    : sql``;
+  return sql`with ${firstOriginCte(p)}, ${closedCte(p)},
+${personsCte(p)}, ${personsCte(p, { withLeadIntake: true, names: PERSONS_ALL })},
+${pendCte(p, PERSONS_ALL.persons)}, ${sellerAttentionCtes(p)}, t_sales as (
+  select closed.advisor_id as user_id,
+    count(*)::int as won,
+    coalesce(sum(closed.amount_cents) filter (where closed.amount_cents is not null and ${main}), 0)::bigint as cents
+  from closed
+  where closed.kind = 'won' and ${closedInRange(p)}
+  group by 1
+)${book}, k as (
+  ${membersKeys(p)}
+  union select user_id from s_conv
+  union select user_id from s_att
+  union select user_id from s_pend
+  union select user_id from t_sales${opts.agenda ? sql`
+  union select user_id from t_book` : sql``}
+  union select null::text
+)
+select k.user_id,
+  ${USER_NAME} as name,
+  coalesce(s_conv.assigned, 0)::int as assigned,
+  coalesce(s_pend.pending, 0)::int as pending,
+  coalesce(s_att.attended, 0)::int as attended,
+  coalesce(t_sales.won, 0)::int as won,
+  coalesce(t_sales.cents, 0)::bigint as cents,
+  ${opts.agenda ? sql`coalesce(t_book.done, 0)::int` : sql`null::int`} as bookings_done
+from k
+left join ${schema.user} u on u.id = k.user_id
+left join s_conv on ${sameUser("s_conv")}
+left join s_att on ${sameUser("s_att")}
+left join s_pend on ${sameUser("s_pend")}
+left join t_sales on ${sameUser("t_sales")}${opts.agenda ? sql`
+left join t_book on ${sameUser("t_book")}` : sql``}`;
 }
 
 /** Todos los builders (el test de vigilancia recorre esta lista). */
@@ -739,6 +972,82 @@ export function shapePending(rows: Row[]): SummaryPendingDto {
   };
 }
 
+function emptyTeamFigures(agenda: boolean): SummaryTeamFiguresDto {
+  return {
+    assignedInRange: 0,
+    pending: 0,
+    attended: 0,
+    bookingsDone: agenda ? 0 : null,
+    won: 0,
+    wonAmountCents: 0,
+  };
+}
+
+function addTeam(acc: SummaryTeamFiguresDto, f: SummaryTeamFiguresDto): void {
+  acc.assignedInRange += f.assignedInRange;
+  acc.pending += f.pending;
+  acc.attended += f.attended;
+  if (acc.bookingsDone !== null) acc.bookingsDone += f.bookingsDone ?? 0;
+  acc.won += f.won;
+  acc.wonAmountCents += f.wonAmountCents;
+}
+
+/**
+ * 024 — «Equipo»: vendedores en orden ventas, monto, pendientes, atendidas,
+ * nombre; los que pasan de `SUMMARY_TEAM_MAX_ROWS` se suman en «Otros»;
+ * «Sin asignar» aparte. `topPending` se calcula sobre TODOS.
+ */
+export function shapeTeam(rows: Row[], currency: string, agenda: boolean): SummaryTeamDto {
+  const unassigned: SummaryTeamRowDto = {
+    userId: null,
+    name: NO_ASSIGNEE_LABEL,
+    ...emptyTeamFigures(agenda),
+  };
+  const totals = emptyTeamFigures(agenda);
+  const sellers: SummaryTeamRowDto[] = [];
+  for (const r of rows) {
+    const userId = str(r.user_id);
+    const f: SummaryTeamFiguresDto = {
+      assignedInRange: num(r.assigned),
+      pending: num(r.pending),
+      attended: num(r.attended),
+      bookingsDone: agenda ? num(r.bookings_done) : null,
+      won: num(r.won),
+      wonAmountCents: num(r.cents),
+    };
+    addTeam(totals, f);
+    if (userId) sellers.push({ userId, name: str(r.name) ?? userId, ...f });
+    else addTeam(unassigned, f);
+  }
+  sellers.sort(
+    (a, b) =>
+      b.won - a.won ||
+      b.wonAmountCents - a.wonAmountCents ||
+      b.pending - a.pending ||
+      b.attended - a.attended ||
+      a.name.localeCompare(b.name, "es")
+  );
+  const rest = sellers.slice(SUMMARY_TEAM_MAX_ROWS);
+  let others: SummaryTeamDto["others"] = null;
+  if (rest.length > 0) {
+    const acc = emptyTeamFigures(agenda);
+    for (const s of rest) addTeam(acc, s);
+    others = { ...acc, sellers: rest.length };
+  }
+  let top: SummaryTeamRowDto | null = null;
+  for (const s of sellers) if (s.pending > 0 && (!top || s.pending > top.pending)) top = s;
+  return {
+    currency,
+    rows: sellers.slice(0, SUMMARY_TEAM_MAX_ROWS),
+    others,
+    unassigned,
+    totals,
+    topPending: top?.userId
+      ? { userId: top.userId, name: top.name, pending: top.pending, ofTotal: totals.pending }
+      : null,
+  };
+}
+
 // ── Ejecución ────────────────────────────────────────────────────────────
 
 export type SummaryReportDeps = {
@@ -749,9 +1058,16 @@ export type SummaryReportDeps = {
   blocks?: RunBlocksOptions;
   /** 021b — bandera `LEADS_EXTERNOS` (por defecto, la del entorno). */
   intakeEnabled?: () => boolean;
+  /** 024 — bandera `AGENDA` (por defecto, la del entorno). */
+  agendaEnabled?: () => boolean;
 };
 
-const defaultDeps: SummaryReportDeps = { runReadOnly, now: () => new Date(), intakeEnabled };
+const defaultDeps: SummaryReportDeps = {
+  runReadOnly,
+  now: () => new Date(),
+  intakeEnabled,
+  agendaEnabled,
+};
 
 function paramsOf(organizationId: string, range: ReportRange): SummaryReportParams {
   return { organizationId, fromUtc: range.fromUtc, toUtc: range.toUtc, tz: range.tz };
@@ -768,9 +1084,10 @@ async function attentionOf(exec: ReportExec, p: SummaryReportParams) {
 }
 
 /**
- * Los ocho bloques del Resumen. `currency` = moneda del negocio (Ajustes →
- * Marca). Cada bloque en su transacción; uno caído vuelve `{ ok: false }` y
- * los demás se pintan.
+ * Los bloques del Resumen (nueve, diez con AGENDA). `currency` = moneda del
+ * negocio (Ajustes → Marca). Cada bloque en su transacción; uno caído vuelve
+ * `{ ok: false }` y los demás se pintan. Sin AGENDA el bloque de citas ni
+ * se ejecuta (`bookings: null`).
  */
 export async function summaryReport(
   organizationId: string,
@@ -781,9 +1098,12 @@ export async function summaryReport(
   const p = paramsOf(organizationId, range);
   const prev = previousRange(range);
   const run = deps.runReadOnly;
-  const agentParams: AgentReportParams = { ...p, now: deps.now() };
+  const now = deps.now();
+  const agentParams: AgentReportParams = { ...p, now };
+  const agenda = (deps.agendaEnabled ?? agendaEnabled)();
+  const bookingParams: BookingReportParams = { ...p, now };
 
-  const blocks = await runBlocks(
+  const { bookings, ...blocks } = await runBlocks<SummaryBlocks>(
     {
       attention: () =>
         run(async (exec): Promise<SummaryAttentionDto> => {
@@ -812,6 +1132,16 @@ export async function summaryReport(
       sales: () => run((exec) => salesSummaryOf(exec, organizationId, range, currency)),
       responseTimes: () =>
         run((exec) => exec(responseTimesSql(agentParams)).then(shapeResponseTimes)),
+      team: () =>
+        run(async (exec) =>
+          shapeTeam(await exec(teamSql(p, { currency, agenda })), currency, agenda)
+        ),
+      ...(agenda
+        ? {
+            bookings: () =>
+              run((exec) => exec(attendanceSql(bookingParams)).then(shapeAttendance)),
+          }
+        : {}),
     },
     deps.blocks
   );
@@ -819,6 +1149,22 @@ export async function summaryReport(
   return {
     range: toRangeDto(range),
     intakeEnabled: (deps.intakeEnabled ?? intakeEnabled)(),
+    agendaEnabled: agenda,
     ...blocks,
+    bookings: (bookings as ReportBlock<BookingCountsDto> | undefined) ?? null,
   };
 }
+
+/** Los bloques que corre `runBlocks` (`bookings` solo con AGENDA). */
+type SummaryBlocks = {
+  attention: SummaryAttentionDto;
+  byOrigin: SummaryByOriginDto;
+  external: SummaryExternalLeadsDto;
+  byChannel: SummaryByChannelDto;
+  byHour: SummaryByHourDto;
+  pending: SummaryPendingDto;
+  sales: SalesSummaryDto;
+  responseTimes: ResponseTimesDto;
+  team: SummaryTeamDto;
+  bookings?: BookingCountsDto;
+};

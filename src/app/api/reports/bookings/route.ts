@@ -1,6 +1,7 @@
 import { apiError, withAuth } from "@/lib/api";
 import { REPORT_TIMEOUT_MESSAGE } from "@/lib/reports";
 import { agendaDisabledResponse, agendaEnabled } from "@/server/agenda/flag";
+import { getBranding } from "@/server/branding";
 import { bookingReport } from "@/server/reports/bookings";
 import { parseReportRange } from "@/server/reports/range";
 import { ReportTimeoutError } from "@/server/reports/run";
@@ -27,10 +28,12 @@ export const GET = withAuth(
     if (!parsed.ok) return apiError(422, "invalid_range", parsed.message);
 
     try {
+      const { currency } = await getBranding(session.organizationId);
       const report = await bookingReport(
         session.organizationId,
         parsed.range,
-        new Date()
+        new Date(),
+        currency
       );
       return Response.json(report, {
         headers: { "Cache-Control": "private, max-age=60" },

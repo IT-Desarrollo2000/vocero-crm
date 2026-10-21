@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Inbox } from "lucide-react";
 import { CHANNEL_LABEL } from "@/lib/channels";
+import { formatMoneyCents } from "@/lib/money";
 import {
   LEAD_ORIGIN_LABEL,
   NO_ORIGIN_LABEL,
@@ -19,6 +20,8 @@ import {
   type SummaryOriginFiguresDto,
   type SummaryPendingDto,
   type SummaryReportDto,
+  type SummaryTeamDto,
+  type SummaryTeamFiguresDto,
 } from "@/lib/reports";
 import { formatWonAmount, wonAmountNote } from "./ads-report-format";
 import { barPercent } from "./chart";
@@ -105,6 +108,15 @@ export function SummaryReportClient() {
               {(data) => <ExternalLeads data={data} />}
             </ReportSection>
           )}
+
+          <ReportSection
+            title="Equipo"
+            description="Por vendedor, según la asignación actual de cada conversación; las ventas, por quien cerró (como en Ventas)."
+            block={report?.team}
+            loading={loading}
+          >
+            {(data) => <TeamTable data={data} agenda={report?.agendaEnabled ?? false} />}
+          </ReportSection>
 
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 print:grid-cols-1">
             <ReportSection
@@ -253,6 +265,19 @@ function Kpis({
   );
 }
 
+function SellersLink({ label }: { label: string }) {
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  return (
+    <Link
+      href={qs ? `/reports/sellers?${qs}` : "/reports/sellers"}
+      className="font-medium text-brand-text underline underline-offset-2 hover:text-brand print:hidden"
+    >
+      {label}
+    </Link>
+  );
+}
+
 function Highlights({ report }: { report: SummaryReportDto }) {
   const searchParams = useSearchParams();
   const items = summaryHighlights(report);
@@ -278,6 +303,12 @@ function Highlights({ report }: { report: SummaryReportDto }) {
                 >
                   Ver detalle en Agente
                 </Link>
+              </>
+            )}
+            {h.sellersLink && (
+              <>
+                {" "}
+                <SellersLink label="Ver Vendedores" />
               </>
             )}
           </li>
@@ -526,6 +557,96 @@ function MobileStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+type TeamLine = {
+  key: string;
+  /** `data-team`: el userId, `others`, `none` o `total`. */
+  team: string;
+  name: string;
+  muted: boolean;
+  f: SummaryTeamFiguresDto;
+};
+
+/**
+ * 024 — «Equipo»: hasta 10 vendedores, «Otros» con los que no caben, «Sin
+ * asignar» y el total (pendientes y atendidas = los del Resumen).
+ */
+function TeamTable({ data, agenda }: { data: SummaryTeamDto; agenda: boolean }) {
+  const money = (f: SummaryTeamFiguresDto) =>
+    f.won === 0 ? EMPTY_VALUE : (formatMoneyCents(f.wonAmountCents, data.currency) ?? EMPTY_VALUE);
+  const citas = agenda && data.totals.bookingsDone !== null;
+  const lines: TeamLine[] = [
+    ...data.rows.map((r) => ({ key: r.userId ?? "none", team: r.userId ?? "none", name: r.name, muted: false, f: r })),
+    ...(data.others
+      ? [{ key: "others", team: "others", name: `Otros (${formatCount(data.others.sellers)})`, muted: true, f: data.others }]
+      : []),
+    { key: "none", team: "none", name: data.unassigned.name, muted: true, f: data.unassigned },
+  ];
+  const cells = (f: SummaryTeamFiguresDto) => (
+    <>
+      <td className="py-2 pr-3 text-right tabular-nums">{formatCount(f.assignedInRange)}</td>
+      <td className={`py-2 pr-3 text-right tabular-nums ${f.pending > 0 ? "font-semibold text-warning-text" : ""}`}>
+        {formatCount(f.pending)}
+      </td>
+      <td className="py-2 pr-3 text-right tabular-nums">{formatCount(f.attended)}</td>
+      {citas && <td className="py-2 pr-3 text-right tabular-nums">{formatCount(f.bookingsDone)}</td>}
+      <td className="py-2 pr-3 text-right font-semibold tabular-nums">{formatCount(f.won)}</td>
+      <td className="py-2 text-right tabular-nums">{money(f)}</td>
+    </>
+  );
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2 sm:hidden print:hidden" aria-label="Equipo">
+        {lines.map((l) => (
+          <li key={l.key} className="rounded-md border bg-subtle p-3">
+            <p className={`text-sm font-medium ${l.muted ? "text-text-2" : ""}`}>{l.name}</p>
+            <dl className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+              <MobileStat label="Asignadas" value={formatCount(l.f.assignedInRange)} />
+              <MobileStat label="Pendientes" value={formatCount(l.f.pending)} />
+              <MobileStat label="Atendidas" value={formatCount(l.f.attended)} />
+              {citas && <MobileStat label="Citas realizadas" value={formatCount(l.f.bookingsDone)} />}
+              <MobileStat label="Ventas" value={formatCount(l.f.won)} />
+              <MobileStat label="Monto" value={money(l.f)} />
+            </dl>
+          </li>
+        ))}
+      </ul>
+
+      <table className="hidden w-full text-sm sm:table print:table print:text-xs" aria-label="Equipo" data-testid="summary-team">
+        <thead>
+          <tr className="text-left text-xs text-muted-foreground">
+            <th scope="col" className="pb-2 pr-3 font-medium">Vendedor</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Asignadas en el periodo</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Pendientes</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Atendidas</th>
+            {citas && <th scope="col" className="pb-2 pr-3 text-right font-medium">Citas realizadas</th>}
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Ventas</th>
+            <th scope="col" className="pb-2 text-right font-medium">Monto</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.key} data-team={l.team} className={`border-t align-top ${l.muted ? "text-text-2" : ""}`}>
+              <th scope="row" className="max-w-[240px] py-2 pr-3 text-left font-medium">{l.name}</th>
+              {cells(l.f)}
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 font-semibold" data-team="total">
+            <th scope="row" className="py-2 pr-3 text-left">Total</th>
+            {cells(data.totals)}
+          </tr>
+        </tfoot>
+      </table>
+      <p className="text-xs text-text-3">
+        Asignadas, pendientes y atendidas según la asignación actual; la respuesta pudo salir del
+        CRM o del teléfono compartido. Monto en la moneda del negocio.{" "}
+        <SellersLink label="Ver Vendedores" />
+      </p>
+    </div>
+  );
+}
+
 function ByChannelTable({ data }: { data: SummaryByChannelDto }) {
   return (
     <table className="w-full text-sm" aria-label="Por canal">
@@ -716,6 +837,10 @@ function HowCounted({ tz, external }: { tz: string; external: boolean }) {
     [
       "Ventas",
       "leads que hoy están en Ganado, contados el día en que se ganaron (como en la pestaña Ventas). Si después se reabren dejan de contar.",
+    ],
+    [
+      "Equipo",
+      "cada conversación cuenta para su responsable según la asignación actual (si se reasignó, para el de hoy); la respuesta humana pudo salir del CRM o del teléfono compartido. Las ventas son de quien movió el lead a Ganado (si fue el asistente, del asesor asignado). La suma de las filas da los pendientes y atendidas del Resumen.",
     ],
   ];
   return (

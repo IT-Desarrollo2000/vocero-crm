@@ -103,6 +103,23 @@ function summaryReport(o: Partial<SummaryReportDto> = {}): SummaryReportDto {
   return {
     range: RANGE,
     intakeEnabled: true,
+    // 024: «Equipo» real; nadie concentra pendientes (1 de 2: por debajo del
+    // mínimo), así que la lectura rápida de la 021 no cambia. Sin AGENDA.
+    agendaEnabled: false,
+    team: {
+      ok: true,
+      data: {
+        currency: "MXN",
+        rows: [
+          { userId: "u_ana", name: "Ana", assignedInRange: 3, pending: 1, attended: 3, bookingsDone: null, won: 2, wonAmountCents: 150000 },
+        ],
+        others: null,
+        unassigned: { userId: null, name: "Sin asignar", assignedInRange: 0, pending: 1, attended: 1, bookingsDone: null, won: 0, wonAmountCents: 0 },
+        totals: { assignedInRange: 3, pending: 2, attended: 4, bookingsDone: null, won: 2, wonAmountCents: 150000 },
+        topPending: { userId: "u_ana", name: "Ana", pending: 1, ofTotal: 2 },
+      },
+    },
+    bookings: null,
     attention: {
       ok: true,
       data: {
@@ -173,6 +190,7 @@ describe("021 — rango y pestañas", () => {
     expect(reportTabLabel("/reports/summary")).toBe("Resumen");
     expect(reportTabLabel("/reports/sales")).toBe("Ventas");
     expect(reportTabLabel("/reports/agent")).toBe("Agente");
+    expect(reportTabLabel("/reports/sellers")).toBe("Vendedores");
   });
 });
 

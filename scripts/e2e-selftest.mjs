@@ -1188,6 +1188,8 @@ async function main() {
   await reportesVentasResumenChecks();
   // 011: AL FINAL — crea contactos/conversaciones nuevos (no mueve conteos previos).
   await leadsExternosChecks();
+  // 024: AL FINAL — da de alta dos Vendedoras y reconfigura la agenda (24/7).
+  await reportesVendedoresChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -2611,7 +2613,7 @@ async function leadsExternos021bChecks(SUF, inbound) {
   const r = await reporte021("summary");
   const R1 = r.json;
   ok(
-    "021b: /api/reports/summary 200 con los ocho bloques ok y la bandera encendida",
+    "021b: /api/reports/summary 200 con los nueve bloques ok y la bandera encendida",
     r.res.status === 200 && todosOk(R1, SUMMARY_BLOCKS_021) && R1?.intakeEnabled === true,
     `${r.res.status} caídos=${bloquesCaidos(R1, SUMMARY_BLOCKS_021)}`
   );
@@ -4391,7 +4393,8 @@ function reporte021(kind, qs = "range=7d") {
 }
 
 const SALES_BLOCKS_021 = ["summary", "byAdvisor", "lossReasons", "funnel", "timeToClose", "byDay", "bySource"];
-const SUMMARY_BLOCKS_021 = ["attention", "byOrigin", "external", "byChannel", "byHour", "pending", "sales", "responseTimes"];
+// 024: «Equipo» (team). `bookings` no: es null con AGENDA apagada.
+const SUMMARY_BLOCKS_021 = ["attention", "byOrigin", "external", "byChannel", "byHour", "pending", "sales", "responseTimes", "team"];
 const todosOk = (json, blocks) => blocks.every((b) => json?.[b]?.ok === true);
 const bloquesCaidos = (json, blocks) => blocks.filter((b) => json?.[b]?.ok !== true).join(",");
 
@@ -4423,7 +4426,7 @@ async function reportesVentasResumenChecks() {
     `${v0.res.status} caídos=${bloquesCaidos(v0.json, SALES_BLOCKS_021)}`
   );
   ok(
-    "GET /api/reports/summary (owner) → 200 con los ocho bloques ok",
+    "GET /api/reports/summary (owner) → 200 con los nueve bloques ok",
     r0.res.status === 200 && todosOk(r0.json, SUMMARY_BLOCKS_021),
     `${r0.res.status} caídos=${bloquesCaidos(r0.json, SUMMARY_BLOCKS_021)}`
   );
@@ -4735,14 +4738,14 @@ async function reportesVentasResumenChecks() {
   const pg = await fetch(`${BASE}/reports/summary`, { headers: { cookie } });
   const html = await pg.text();
   const pos = (href) => html.indexOf(`href="${href}`);
-  const orden = ["/reports/summary", "/reports/agent", ...(agenda ? ["/reports/bookings"] : []), "/reports/sales", "/reports/ads"];
+  const orden = ["/reports/summary", "/reports/agent", ...(agenda ? ["/reports/bookings"] : []), "/reports/sales", "/reports/sellers", "/reports/ads"];
   ok(
     "las pestañas Resumen y Ventas son enlaces reales y ya no hay «Próximamente»",
     pg.status === 200 && pos("/reports/summary") >= 0 && pos("/reports/sales") >= 0 && !html.includes("Próximamente"),
     `status=${pg.status}`
   );
   ok(
-    `orden de pestañas: Resumen · Agente · ${agenda ? "Citas · " : ""}Ventas · Anuncios`,
+    `orden de pestañas: Resumen · Agente · ${agenda ? "Citas · " : ""}Ventas · Vendedores · Anuncios`,
     orden.every((h, i) => i === 0 || pos(orden[i - 1]) < pos(h)) && (agenda ? true : pos("/reports/bookings") === -1),
     JSON.stringify(orden.map(pos))
   );
@@ -4769,6 +4772,8 @@ async function reportesVentasResumenChecks() {
     for (const [ruta, kpi] of [
       ["/reports/summary?range=7d", "kpi-summary-inbound"],
       ["/reports/sales?range=7d", "kpi-sales-won"],
+      // 024
+      ["/reports/sellers?range=7d", "kpi-sellers-persons"],
     ]) {
       const page = await ctx.newPage();
       await page.goto(`${BASE}${ruta}`, { waitUntil: "load" });
@@ -4815,4 +4820,714 @@ async function reportesVentasResumenChecks() {
   }
 
   await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: iaAntes }) });
+}
+
+/* ============================================================
+ * 024 — Reportes → Vendedores, «Equipo» del Resumen y Citas por tipo /
+ * vendedor / venta (specs/024-reportes-vendedores).
+ *
+ * Da de alta DOS vendedoras (más el dueño), les asigna conversaciones, el
+ * asesor contesta a unas, otras quedan pendientes, una venta la mueve la
+ * vendedora (actor) y otra el BOT (actor NULL → la asignada, D2), y con
+ * LEADS_EXTERNOS un lead externo asignado queda sin contactar. Con AGENDA,
+ * citas de varios tipos y estados por vendedora (realizada / no-show /
+ * cancelada por la API real, una de la IA con los marcadores del ai-mock
+ * `[e2e-agenda <tipo>]` / `[e2e-reserva <ISO>]` como en
+ * scripts/e2e-agenda-presencial.mjs) y una cita realizada cuyo lead se gana.
+ * Comprueba filas, el INVARIANTE (suma del roster = Resumen), «Equipo», el
+ * 403/404 del Vendedor y la impresión. Rango personalizado que incluye los
+ * próximos días: las citas solo se pueden agendar a futuro.
+ * ============================================================ */
+const SELLERS_BLOCKS_024 = ["roster", "sales", "funnel"];
+const BOOKING_BLOCKS_024 = ["offers", "attendance", "byReminder", "byType", "bySeller", "toSales"];
+
+/** `YYYY-MM-DD` + n días (aritmética de calendario, sin zona). */
+function addDays024(day, n) {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+async function reportesVendedoresChecks() {
+  const flag = (v) => /^(on|1|true|si|sí|yes)$/i.test((process.env[v] ?? "").trim());
+  const agenda = flag("AGENDA");
+  const intakeOn = flag("LEADS_EXTERNOS");
+  console.log(`\n== 024: Reportes → Vendedores, Equipo y Citas (AGENDA ${agenda ? "on" : "off"}, LEADS_EXTERNOS ${intakeOn ? "on" : "off"}) ==`);
+  const SUF = String(Date.now()).slice(-6);
+  const tel = (n) => `52179${SUF}${n}`;
+  const inbound = (body) =>
+    api("/api/dev/wa-mock/inbound", { method: "POST", body: JSON.stringify({ phoneNumberId: PN, ...body }) });
+
+  const perfil = (await api("/api/agent/profile")).json?.profile;
+  const iaAntes = perfil?.enabled === true;
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: false }) });
+
+  // Rango: de hace 6 días a dentro de 8 (las citas solo se agendan a futuro).
+  const base = await api("/api/reports/sellers?range=7d");
+  const hoy = base.json?.range?.to;
+  ok("GET /api/reports/sellers?range=7d (owner) → 200 con rango", base.res.status === 200 && !!hoy, `${base.res.status}`);
+  if (!hoy) return;
+  const Q = `range=custom&from=${addDays024(hoy, -6)}&to=${addDays024(hoy, 8)}`;
+  const rep = (kind) => api(`/api/reports/${kind}?${Q}`);
+
+  const s0 = await rep("sellers");
+  const r0 = await rep("summary");
+  ok(
+    `/api/reports/sellers → 200: roster, ventas y embudo ok; citas ${agenda ? "ok" : "null (AGENDA apagada)"}`,
+    s0.res.status === 200 &&
+      todosOk(s0.json, SELLERS_BLOCKS_024) &&
+      s0.json?.agendaEnabled === agenda &&
+      (agenda ? s0.json?.bookings?.ok === true : s0.json?.bookings === null),
+    `${s0.res.status} caídos=${bloquesCaidos(s0.json, SELLERS_BLOCKS_024)} agenda=${s0.json?.agendaEnabled} bookings=${JSON.stringify(s0.json?.bookings)?.slice(0, 80)}`
+  );
+  ok(
+    `/api/reports/summary → «Equipo» ok; citas del periodo ${agenda ? "ok" : "null"}`,
+    r0.json?.team?.ok === true && r0.json?.agendaEnabled === agenda && (agenda ? r0.json?.bookings?.ok === true : r0.json?.bookings === null),
+    JSON.stringify({ team: r0.json?.team?.ok, agendaEnabled: r0.json?.agendaEnabled, bookings: r0.json?.bookings })
+  );
+  const b0 = agenda ? await rep("bookings") : null;
+  if (agenda) {
+    ok(
+      "/api/reports/bookings → 200 con los seis bloques ok (por tipo, por vendedor, citas → ventas)",
+      b0.res.status === 200 && todosOk(b0.json, BOOKING_BLOCKS_024),
+      `${b0.res.status} caídos=${bloquesCaidos(b0.json, BOOKING_BLOCKS_024)}`
+    );
+  }
+
+  /* ---------- Equipo: dos vendedoras + el dueño ---------- */
+  const yo = (await api("/api/auth/get-session")).json?.user?.id;
+  const V1_NAME = `Vendedora Uno 024 ${SUF}`;
+  const V2_NAME = `Vendedora Dos 024 ${SUF}`;
+  const V1_EMAIL = `v1.024.${SUF}@vocero.test`;
+  const V2_EMAIL = `v2.024.${SUF}@vocero.test`;
+  const PASS = "password-vend-024-123";
+  for (const [name, email] of [[V1_NAME, V1_EMAIL], [V2_NAME, V2_EMAIL]]) {
+    const alta = await api("/api/settings/team", { method: "POST", body: JSON.stringify({ name, email, password: PASS }) });
+    ok(`(setup) alta de ${name}`, alta.res.ok, `${alta.res.status} ${JSON.stringify(alta.json)}`);
+  }
+  const members = (await api("/api/settings/team")).json?.members ?? [];
+  const V1 = members.find((m) => m.email === V1_EMAIL)?.userId;
+  const V2 = members.find((m) => m.email === V2_EMAIL)?.userId;
+  ok("(setup) ids de las vendedoras y del dueño", !!V1 && !!V2 && !!yo, JSON.stringify({ V1, V2, yo }));
+
+  const fila = (json, id) => json?.roster?.data?.rows?.find((r) => r.userId === id);
+  const enCero = await rep("sellers");
+  const ceros = [V1, V2].map((id) => fila(enCero.json, id));
+  ok(
+    "Vendedores: las vendedoras nuevas ya salen (todos los miembros, también en cero)",
+    ceros.every((r) => r && r.isMember && r.portfolio === 0 && r.persons === 0 && r.pending === 0) &&
+      ceros[0]?.name === V1_NAME,
+    JSON.stringify(ceros)
+  );
+  const roster0 = enCero.json?.roster?.data?.rows ?? [];
+  ok(
+    "Vendedores: «Sin asignar» siempre al final del roster",
+    roster0.at(-1)?.userId === null && roster0.at(-1)?.name === "Sin asignar",
+    JSON.stringify(roster0.at(-1))
+  );
+
+  /* ---------- Siembra de conversaciones ---------- */
+  // a1/a2 → V1 (a1 contestada y ganada POR V1; a2 pendiente) · b1/b2/b3 → V2
+  // (b1 contestada y ganada por el BOT; b2/b3 pendientes) · o1 → dueño
+  // (contestada y perdida) · u1 sin asignar (pendiente).
+  const plan = [
+    { k: "a1", to: V1, reply: true },
+    { k: "a2", to: V1, reply: false },
+    { k: "b1", to: V2, reply: true },
+    { k: "b2", to: V2, reply: false },
+    { k: "b3", to: V2, reply: false },
+    { k: "o1", to: yo, reply: true },
+    { k: "u1", to: null, reply: false },
+  ];
+  const nombre = (k) => `Vend 024 ${k} ${SUF}`;
+  for (const [i, l] of plan.entries()) {
+    await inbound({ from: tel(String(i + 1)), name: nombre(l.k), text: "hola, quiero informes", waMessageId: `wamid.e2e.024.${SUF}.${l.k}` });
+  }
+  let board = null;
+  for (let i = 0; i < 30; i++) {
+    board = (await api("/api/pipeline/board")).json;
+    if (plan.every((l) => board?.leads?.some((x) => x.contact?.name === nombre(l.k)))) break;
+    await sleep(400);
+  }
+  const leadDe = (k) => board?.leads?.find((x) => x.contact?.name === nombre(k));
+  const ganado = board?.stages?.find((s) => s.kind === "won");
+  const perdido = board?.stages?.find((s) => s.kind === "lost");
+  ok("(setup) los 7 leads existen", plan.every((l) => leadDe(l.k)), `n=${plan.filter((l) => leadDe(l.k)).length}`);
+  for (const l of plan.filter((x) => x.to)) {
+    const r = await api(`/api/conversations/${leadDe(l.k)?.conversationId}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ userId: l.to }),
+    });
+    if (!r.res.ok) ok(`(setup) asignar ${l.k}`, false, `${r.res.status} ${JSON.stringify(r.json)}`);
+  }
+
+  // La vendedora Uno inicia sesión: contesta a1 y la gana ELLA (actor = V1).
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email: V1_EMAIL, password: PASS }),
+  });
+  const v1Cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  ok("(setup) la vendedora Uno inicia sesión", login.ok && !!v1Cookie, String(login.status));
+  const asV1 = (path, opts = {}) =>
+    fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: { "content-type": "application/json", origin: BASE, cookie: v1Cookie, ...(opts.headers ?? {}) },
+    });
+  const rA1 = await asV1(`/api/conversations/${leadDe("a1")?.conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "Hola, soy tu asesora, te atiendo." }),
+  });
+  ok("(setup) la vendedora Uno contesta a a1 desde el CRM", rA1.ok, String(rA1.status));
+  for (const k of ["b1", "o1"]) {
+    const r = await api(`/api/conversations/${leadDe(k)?.conversationId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text: "Te atiendo, ¿qué necesitas?" }),
+    });
+    if (!r.res.ok) ok(`(setup) respuesta a ${k}`, false, `${r.res.status}`);
+  }
+  const winA1 = await asV1(`/api/pipeline/leads/${leadDe("a1")?.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ stageId: ganado?.id, amountCents: 100000 }),
+  });
+  ok("(setup) la vendedora Uno mueve a1 a Ganado con 1,000.00", winA1.ok, String(winA1.status));
+  const lostO1 = await api(`/api/pipeline/leads/${leadDe("o1")?.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ stageId: perdido?.id, lossReason: "precio" }),
+  });
+  ok("(setup) el dueño pierde o1", lostO1.res.ok, String(lostO1.res.status));
+  await api(`/api/pipeline/leads/${leadDe("b1")?.id}`, { method: "PATCH", body: JSON.stringify({ amountCents: 50000 }) });
+
+  // b1 lo gana el BOT (evento `won` con actor NULL) → la venta es de V2 (D2).
+  let botOk = false;
+  try {
+    const { default: postgres } = await import("postgres");
+    const db = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+    try {
+      const [lead] = await db`
+        select l.id, l.organization_id, l.contact_id, l.stage_id, s.name as stage_name
+        from vocero.lead l left join vocero.pipeline_stage s on s.id = l.stage_id
+        where l.id = ${leadDe("b1")?.id}`;
+      await db.begin(async (tx) => {
+        await tx`update vocero.lead set stage_id = ${ganado.id}, updated_at = (now() at time zone 'utc') where id = ${lead.id}`;
+        await tx`
+          insert into vocero.lead_stage_event
+            (id, organization_id, lead_id, contact_id, from_stage_id, from_stage_name,
+             to_stage_id, to_stage_name, to_stage_kind, occurred_at, actor_user_id,
+             source, approximate, loss_reason, created_at)
+          values
+            (${`lse_e2e024_${SUF}`}, ${lead.organization_id}, ${lead.id}, ${lead.contact_id},
+             ${lead.stage_id}, ${lead.stage_name}, ${ganado.id}, ${ganado.name}, 'won',
+             (now() at time zone 'utc'), null, 'bot', false, null, (now() at time zone 'utc'))`;
+      });
+      botOk = true;
+    } finally {
+      await db.end();
+    }
+  } catch (err) {
+    ok("(setup) evento won del bot en la BD", false, String(err));
+  }
+  ok("(setup) b1 ganado por el bot (actor NULL)", botOk);
+
+  // LEADS_EXTERNOS: un lead del formulario asignado a V2, sin contactar.
+  if (intakeOn) {
+    const gen = await api("/api/settings/intake", { method: "PUT" });
+    const key = gen.json?.key;
+    const r = await fetch(`${BASE}/api/intake/lead`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key ?? "" },
+      body: JSON.stringify({
+        lead_id: crypto.randomUUID(),
+        origin: "website",
+        first_name: "Ext",
+        last_name: `024 ${SUF}`,
+        phone: `57${SUF}09`,
+        email: `ext.024.${SUF}@example.com`,
+      }),
+    });
+    const j = await r.json().catch(() => null);
+    ok("(setup) lead externo por POST /api/intake/lead → 201", r.status === 201 && !!j?.conversationId, `${r.status}`);
+    const asg = await api(`/api/conversations/${j?.conversationId}/assign`, { method: "POST", body: JSON.stringify({ userId: V2 }) });
+    ok("(setup) el lead externo queda asignado a la vendedora Dos", asg.res.ok, String(asg.res.status));
+  }
+
+  /* ---------- Citas (AGENDA) ---------- */
+  let citas = null;
+  if (agenda) citas = await sembrarCitas024({ V1, V2, leadDe, inbound, tel, nombre, SUF });
+  await sleep(800);
+
+  /* ---------- Vendedores ---------- */
+  const s1 = await rep("sellers");
+  const r1 = await rep("summary");
+  ok(
+    "tras sembrar: /api/reports/sellers sigue 200 con todo ok",
+    s1.res.status === 200 && todosOk(s1.json, SELLERS_BLOCKS_024) && (!agenda || s1.json?.bookings?.ok === true),
+    `${s1.res.status} caídos=${bloquesCaidos(s1.json, SELLERS_BLOCKS_024)}`
+  );
+  const f1 = fila(s1.json, V1);
+  const pick = (r) =>
+    r && {
+      portfolio: r.portfolio,
+      assignedInRange: r.assignedInRange,
+      activePortfolio: r.activePortfolio,
+      persons: r.persons,
+      attended: r.attended,
+      pending: r.pending,
+      externalNotContacted: r.externalNotContacted,
+    };
+  ok(
+    "Vendedores: vendedora Uno = cartera 2, asignadas 2, activa 1 (a1 ganada), personas 2, atendidas 1, pendientes 1",
+    JSON.stringify(pick(f1)) ===
+      JSON.stringify({ portfolio: 2, assignedInRange: 2, activePortfolio: 1, persons: 2, attended: 1, pending: 1, externalNotContacted: 0 }),
+    JSON.stringify(pick(f1))
+  );
+  ok(
+    "Vendedores: tiempo hasta asesor de la vendedora Uno medido (1 persona, mediana ≥ 0)",
+    f1?.advisorFirstReply?.persons === 1 && typeof f1?.advisorFirstReply?.p50Seconds === "number",
+    JSON.stringify(f1?.advisorFirstReply)
+  );
+  const f2 = fila(s1.json, V2);
+  // V2: b1 (contestada), b2/b3 (pendientes) + la conversación de la cita de
+  // la IA (contestó la IA: ni atendida ni pendiente) + el lead externo.
+  const esperadoV2 = {
+    portfolio: 3 + (agenda ? 1 : 0) + (intakeOn ? 1 : 0),
+    assignedInRange: 3 + (agenda ? 1 : 0) + (intakeOn ? 1 : 0),
+    activePortfolio: 2 + (agenda ? 1 : 0) + (intakeOn ? 1 : 0),
+    persons: 3 + (agenda ? 1 : 0),
+    attended: 1,
+    pending: 2 + (intakeOn ? 1 : 0),
+    externalNotContacted: intakeOn ? 1 : 0,
+  };
+  ok(
+    `Vendedores: vendedora Dos = ${JSON.stringify(esperadoV2)}`,
+    JSON.stringify(pick(f2)) === JSON.stringify(esperadoV2),
+    JSON.stringify(pick(f2))
+  );
+  const delta = (id, k) => (fila(s1.json, id)?.[k] ?? 0) - (fila(s0.json, id)?.[k] ?? 0);
+  ok(
+    "Vendedores: el dueño +1 cartera, +1 persona, +1 atendida; «Sin asignar» +1 persona, +1 pendiente",
+    delta(yo, "portfolio") === 1 && delta(yo, "persons") === 1 && delta(yo, "attended") === 1 &&
+      delta(null, "persons") === 1 && delta(null, "pending") === 1,
+    JSON.stringify({ yo: [delta(yo, "portfolio"), delta(yo, "persons"), delta(yo, "attended")], sin: [delta(null, "persons"), delta(null, "pending")] })
+  );
+
+  // INVARIANTE: la suma de las filas del roster = los totales del Resumen.
+  const rows = s1.json?.roster?.data?.rows ?? [];
+  const suma = (k) => rows.reduce((a, r) => a + r[k], 0);
+  const A = r1.json?.attention?.data;
+  const inv = {
+    personas: [suma("persons"), A?.persons],
+    atendidas: [suma("attended"), A?.attendedByAdvisor],
+    pendientes: [suma("pending"), r1.json?.pending?.data?.total],
+  };
+  ok(
+    "INVARIANTE: suma de filas del roster (vendedores + Sin asignar) = Resumen en personas, atendidas y pendientes",
+    Object.values(inv).every(([a, b]) => typeof b === "number" && a === b),
+    JSON.stringify(inv)
+  );
+  const T = s1.json?.roster?.data?.totals;
+  ok(
+    "INVARIANTE: `totals` del roster = la suma de sus filas",
+    T?.persons === suma("persons") && T?.attended === suma("attended") && T?.pending === suma("pending") && T?.portfolio === suma("portfolio"),
+    JSON.stringify(T)
+  );
+
+  // Ventas (las de Ventas → Por asesor).
+  const venta = (json, id) => json?.sales?.data?.rows?.find((r) => r.userId === id);
+  const v1s = venta(s1.json, V1);
+  const v2s = venta(s1.json, V2);
+  ok(
+    "Vendedores: ventas de la vendedora Uno (actor) = 1 ganada, 1,000.00, ticket 1,000.00",
+    v1s?.won === 1 && v1s?.lost === 0 && v1s?.wonAmount?.amountCents === 100000 && v1s?.averageTicketCents === 100000,
+    JSON.stringify(v1s)
+  );
+  ok(
+    "Vendedores: la venta del BOT es de la vendedora Dos (asignada, D2) con 500.00",
+    v2s?.won === 1 && v2s?.wonAmount?.amountCents === 50000,
+    JSON.stringify(v2s)
+  );
+  ok(
+    "Vendedores: el dueño +1 perdida",
+    (venta(s1.json, yo)?.lost ?? 0) - (venta(s0.json, yo)?.lost ?? 0) === 1,
+    JSON.stringify(venta(s1.json, yo))
+  );
+  const funnelV1 = s1.json?.funnel?.data?.rows?.find((r) => r.userId === V1);
+  const leadsEn = (row, kind) =>
+    (s1.json?.funnel?.data?.stages ?? []).reduce((a, s, i) => a + (s.kind === kind ? (row?.cells?.[i]?.leads ?? 0) : 0), 0);
+  ok(
+    "Embudo por vendedor: la vendedora Uno tiene 1 lead abierto y 1 ganado",
+    funnelV1?.openLeads === 1 && leadsEn(funnelV1, "won") === 1 && leadsEn(funnelV1, "open") === 1,
+    JSON.stringify(funnelV1)
+  );
+
+  /* ---------- Resumen → Equipo ---------- */
+  const team = r1.json?.team?.data;
+  const tv1 = team?.rows?.find((r) => r.userId === V1);
+  ok(
+    `Resumen → Equipo: la vendedora Uno con 2 asignadas, 1 pendiente, 1 atendida, 1 venta, 1,000.00${agenda ? ", 1 cita realizada" : ""}`,
+    tv1?.assignedInRange === 2 && tv1?.pending === 1 && tv1?.attended === 1 && tv1?.won === 1 &&
+      tv1?.wonAmountCents === 100000 && tv1?.bookingsDone === (agenda ? 1 : null),
+    JSON.stringify(tv1)
+  );
+  ok(
+    "Resumen → Equipo: totales = Resumen (pendientes y atendidas) y ventas = Ventas",
+    team?.totals?.pending === r1.json?.pending?.data?.total &&
+      team?.totals?.attended === A?.attendedByAdvisor &&
+      team?.totals?.won === r1.json?.sales?.data?.won,
+    JSON.stringify({ team: team?.totals, pend: r1.json?.pending?.data?.total, att: A?.attendedByAdvisor, won: r1.json?.sales?.data?.won })
+  );
+  ok(
+    "Resumen → Equipo: ≤ 10 filas de vendedores y «Sin asignar» aparte",
+    (team?.rows?.length ?? 99) <= 10 && team?.unassigned?.userId === null,
+    `filas=${team?.rows?.length}`
+  );
+
+  /* ---------- Citas ---------- */
+  if (agenda && citas) await citasReportChecks024({ b0, rep, s1, r0, r1, V1, V2, citas });
+  if (!agenda) {
+    const b = await api(`/api/reports/bookings?${Q}`);
+    ok("AGENDA apagada: /api/reports/bookings → 404", b.res.status === 404, String(b.res.status));
+    const p = await fetch(`${BASE}/reports/bookings`, { headers: { cookie } });
+    ok("AGENDA apagada: la pantalla /reports/bookings → 404", p.status === 404, String(p.status));
+    ok(
+      "AGENDA apagada: «Equipo» sin citas (bookingsDone null)",
+      team?.totals?.bookingsDone === null && (team?.rows ?? []).every((r) => r.bookingsDone === null),
+      JSON.stringify(team?.totals)
+    );
+  }
+
+  /* ---------- Vendedor: 403 / 404 ---------- */
+  const r403 = await asV1(`/api/reports/sellers?range=7d`);
+  const j403 = await r403.json().catch(() => null);
+  ok("GET /api/reports/sellers como Vendedor → 403 forbidden", r403.status === 403 && j403?.error?.code === "forbidden", String(r403.status));
+  const p404 = await fetch(`${BASE}/reports/sellers`, { headers: { cookie: v1Cookie }, redirect: "manual" });
+  ok("/reports/sellers para el Vendedor → 404", p404.status === 404, String(p404.status));
+
+  /* ---------- Pantalla e impresión ---------- */
+  await pantallaVendedores024({ Q, V1, V2, agenda });
+
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: iaAntes }) });
+}
+
+/**
+ * Citas de la 024 (AGENDA on). Agenda 24/7 y rejilla de 30 min como
+ * e2e-agenda-presencial. Por la API real (dueño): k1 Servicio V1 → realizada
+ * (lead a1, ganado) · k2 Prueba de manejo V1 → no-show · k3 Garantía V2 →
+ * cancelada · k4 Servicio V2 → sigue agendada · k5 Otro sin vendedor →
+ * realizada. Y k6: la IA agenda Servicio en una conversación de V2.
+ */
+async function sembrarCitas024({ V1, V2, leadDe, inbound, tel, nombre, SUF }) {
+  console.log("  -- 024: citas por tipo y vendedora --");
+  const allDay = [{ start: "00:00", end: "23:30" }];
+  const cfg = await api("/api/calendar/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      weeklyHours: { mon: allDay, tue: allDay, wed: allDay, thu: allDay, fri: allDay, sat: allDay, sun: allDay },
+      slotMinutes: 30,
+      bufferMinutes: 0,
+      minNoticeHours: 0,
+      maxDaysAhead: 7,
+      connector: "enlace-fijo",
+      reminderEnabled: false,
+    }),
+  });
+  ok("(setup citas) agenda 24/7, rejilla de 30 min, sin margen", cfg.res.ok, `${cfg.res.status} ${JSON.stringify(cfg.json)?.slice(0, 200)}`);
+  const types = (await api("/api/calendar/types")).json?.types ?? [];
+  const T = (n) => types.find((t) => t.name === n);
+  const [SERV, PRUEBA, GAR, OTRO] = ["Servicio", "Prueba de manejo", "Garantía", "Otro"].map(T);
+  ok("(setup citas) tipos sembrados: Servicio, Prueba de manejo, Garantía, Otro", !!(SERV && PRUEBA && GAR && OTRO), JSON.stringify(types.map((t) => t.name)));
+  if (!(SERV && PRUEBA && GAR && OTRO)) return null;
+
+  // Huecos libres de la rejilla de Servicio a partir de +2 h, separados 3 h
+  // (ningún tipo dura más de 60 min: sin choques entre ellas).
+  const slots = ((await api(`/api/calendar/availability?typeId=${SERV.id}&sellerId=none`)).json?.slots ?? [])
+    .filter((s) => (s.conflicts ?? []).length === 0)
+    .map((s) => Date.parse(s.startUtc))
+    .sort((a, b) => a - b);
+  const horas = [];
+  for (const t of slots) {
+    if (t < Date.now() + 2 * 3600_000) continue;
+    if (horas.length && t < horas.at(-1) + 3 * 3600_000) continue;
+    horas.push(t);
+    if (horas.length === 5) break;
+  }
+  ok("(setup citas) 5 huecos libres", horas.length === 5, `n=${horas.length}`);
+  const libro = async (k, contactK, type, seller, i) => {
+    const lead = leadDe(contactK);
+    const r = await api("/api/bookings", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "session",
+        contactId: lead?.contactId ?? lead?.contact?.id,
+        conversationId: lead?.conversationId ?? null,
+        startUtc: new Date(horas[i]).toISOString(),
+        typeId: type.id,
+        assignedUserId: seller,
+        confirmOverlap: true,
+      }),
+    });
+    ok(`(setup citas) ${k}: ${type.name} para ${seller === V1 ? "la vendedora Uno" : seller === V2 ? "la vendedora Dos" : "nadie"} → 201`, r.res.status === 201, `${r.res.status} ${JSON.stringify(r.json)?.slice(0, 200)}`);
+    return r.json?.booking?.id;
+  };
+  const k1 = await libro("k1", "a1", SERV, V1, 0);
+  const k2 = await libro("k2", "a2", PRUEBA, V1, 1);
+  const k3 = await libro("k3", "b2", GAR, V2, 2);
+  const k4 = await libro("k4", "b3", SERV, V2, 3);
+  const k5 = await libro("k5", "u1", OTRO, null, 4);
+  const patch = (id, body) => api(`/api/bookings/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  const marcas = [
+    await patch(k1, { action: "status", status: "realizada" }),
+    await patch(k2, { action: "status", status: "no_show" }),
+    await patch(k3, { action: "cancel" }),
+    await patch(k5, { action: "status", status: "realizada" }),
+  ];
+  ok("(setup citas) k1 y k5 realizadas, k2 no-show, k3 cancelada (PATCH real)", marcas.every((m) => m.res.ok), JSON.stringify(marcas.map((m) => m.res.status)));
+
+  // k6: la IA agenda (marcadores del ai-mock) en una conversación de V2.
+  await inbound({ from: tel("8"), name: nombre("i1"), text: "hola, quiero una cita", waMessageId: `wamid.e2e.024.${SUF}.i1` });
+  let conv = null;
+  for (let i = 0; i < 30 && !conv; i++) {
+    conv = ((await api("/api/conversations")).json?.conversations ?? []).find((c) => c.contact?.name === nombre("i1")) ?? null;
+    if (!conv) await sleep(300);
+  }
+  const asg = await api(`/api/conversations/${conv?.id}/assign`, { method: "POST", body: JSON.stringify({ userId: V2 }) });
+  ok("(setup citas) conversación i1 asignada a la vendedora Dos", asg.res.ok, String(asg.res.status));
+  let k6 = null;
+  const { default: postgres } = await import("postgres");
+  const db = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+  try {
+    await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: true }) });
+    await inbound({ from: tel("8"), name: nombre("i1"), text: "[e2e-agenda Servicio]", waMessageId: `wamid.e2e.024.${SUF}.i1b` });
+    let ofertas = [];
+    for (let i = 0; i < 60 && ofertas.length === 0; i++) {
+      ofertas = await db`select (extract(epoch from start_utc) * 1000)::bigint as ms from vocero.offered_slot where conversation_id = ${conv?.id} order by start_utc`;
+      if (ofertas.length === 0) await sleep(400);
+    }
+    ok("(setup citas) la IA ofrece horarios de Servicio (oferta registrada)", ofertas.length > 0, `n=${ofertas.length}`);
+    const elegido = Number(ofertas.at(-1)?.ms);
+    if (ofertas.length) {
+      await inbound({ from: tel("8"), name: nombre("i1"), text: `[e2e-reserva ${new Date(elegido).toISOString()}]`, waMessageId: `wamid.e2e.024.${SUF}.i1c` });
+      for (let i = 0; i < 60 && !k6; i++) {
+        k6 = ((await api("/api/bookings")).json?.bookings ?? []).find((b) => b.conversationId === conv?.id && b.status === "agendada") ?? null;
+        if (!k6) await sleep(400);
+      }
+    }
+    ok(
+      "(setup citas) k6: la IA agenda Servicio, source=ai, vendedora = la asignada (Dos)",
+      k6?.source === "ai" && k6?.type?.id === SERV.id && k6?.assignedUser?.id === V2,
+      JSON.stringify(k6 && { source: k6.source, type: k6.type, seller: k6.assignedUser })
+    );
+    // Que la IA termine su turno antes de apagarla.
+    await sleep(1500);
+  } finally {
+    await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: false }) });
+    await db.end();
+  }
+  return { SERV, PRUEBA, GAR, OTRO, ids: { k1, k2, k3, k4, k5, k6: k6?.id } };
+}
+
+async function citasReportChecks024({ b0, rep, s1, r0, r1, V1, V2, citas }) {
+  const b1 = await rep("bookings");
+  ok(
+    "tras las citas: /api/reports/bookings sigue 200 con los seis bloques ok",
+    b1.res.status === 200 && todosOk(b1.json, BOOKING_BLOCKS_024),
+    `${b1.res.status} caídos=${bloquesCaidos(b1.json, BOOKING_BLOCKS_024)}`
+  );
+  const tipo = (json, id) => json?.byType?.data?.rows?.find((r) => r.typeId === id);
+  const dT = (id) => {
+    const a = tipo(b1.json, id);
+    const z = tipo(b0.json, id);
+    return ["total", "realizada", "noShow", "cancelada"].map((k) => (a?.[k] ?? 0) - (z?.[k] ?? 0)).join(",");
+  };
+  const porTipo = {
+    servicio: dT(citas.SERV.id),
+    prueba: dT(citas.PRUEBA.id),
+    garantia: dT(citas.GAR.id),
+    otro: dT(citas.OTRO.id),
+  };
+  ok(
+    "Citas → por tipo (delta total,realizada,noShow,cancelada): Servicio 3,1,0,0 · Prueba 1,0,1,0 · Garantía 1,0,0,1 · Otro 1,1,0,0",
+    JSON.stringify(porTipo) === JSON.stringify({ servicio: "3,1,0,0", prueba: "1,0,1,0", garantia: "1,0,0,1", otro: "1,1,0,0" }),
+    JSON.stringify(porTipo)
+  );
+  ok(
+    "Citas → por tipo: «Sin tipo» siempre al final",
+    b1.json?.byType?.data?.rows?.at(-1)?.typeId === null && b1.json?.byType?.data?.rows?.at(-1)?.name === "Sin tipo",
+    JSON.stringify(b1.json?.byType?.data?.rows?.at(-1))
+  );
+  const vend = (json, id) => json?.bySeller?.data?.rows?.find((r) => r.userId === id);
+  const sv = (r) => r && { total: r.total, realizada: r.realizada, noShow: r.noShow, cancelada: r.cancelada, rate: r.rate, manual: r.bySource?.manual, ai: r.bySource?.ai };
+  ok(
+    "Citas → por vendedor: Uno = 2 (1 realizada, 1 no-show, asistencia 50 %, 2 manuales)",
+    JSON.stringify(sv(vend(b1.json, V1))) === JSON.stringify({ total: 2, realizada: 1, noShow: 1, cancelada: 0, rate: 0.5, manual: 2, ai: 0 }),
+    JSON.stringify(sv(vend(b1.json, V1)))
+  );
+  ok(
+    "Citas → por vendedor: Dos = 3 (1 cancelada, 2 manuales + 1 de la IA, sin asistencia medible)",
+    JSON.stringify(sv(vend(b1.json, V2))) === JSON.stringify({ total: 3, realizada: 0, noShow: 0, cancelada: 1, rate: null, manual: 2, ai: 1 }),
+    JSON.stringify(sv(vend(b1.json, V2)))
+  );
+  const sinV = (json) => vend(json, null);
+  ok(
+    "Citas → por vendedor: «Sin vendedor» al final y +1 cita realizada",
+    b1.json?.bySeller?.data?.rows?.at(-1)?.userId === null &&
+      (sinV(b1.json)?.realizada ?? 0) - (sinV(b0.json)?.realizada ?? 0) === 1,
+    JSON.stringify(sinV(b1.json))
+  );
+  const ts0 = b0.json?.toSales?.data;
+  const ts1 = b1.json?.toSales?.data;
+  const dts = {
+    realizadas: ts1?.bookingsDone - ts0?.bookingsDone,
+    leads: ts1?.leads - ts0?.leads,
+    ganados: ts1?.won - ts0?.won,
+    monto: ts1?.wonAmount?.amountCents - ts0?.wonAmount?.amountCents,
+  };
+  ok(
+    "Citas → ventas: +2 realizadas, +2 leads, +1 hoy en Ganado (a1) con +1,000.00",
+    JSON.stringify(dts) === JSON.stringify({ realizadas: 2, leads: 2, ganados: 1, monto: 100000 }),
+    JSON.stringify(dts)
+  );
+  // Vendedores: la columna de citas = Citas → por vendedor.
+  const sb = (id) => s1.json?.bookings?.data?.rows?.find((r) => r.userId === id);
+  ok(
+    "Vendedores: las citas por vendedora = Citas → por vendedor",
+    JSON.stringify(sv(sb(V1))) === JSON.stringify(sv(vend(b1.json, V1))) && JSON.stringify(sv(sb(V2))) === JSON.stringify(sv(vend(b1.json, V2))),
+    JSON.stringify({ v1: sv(sb(V1)), v2: sv(sb(V2)) })
+  );
+  // Resumen: citas del periodo (+6 agendadas, +2 realizadas) = Citas → asistencia.
+  const c0 = r0.json?.bookings?.data;
+  const c1 = r1.json?.bookings?.data;
+  ok(
+    "Resumen → citas del periodo: +6 agendadas, +2 realizadas, = Citas → asistencia",
+    c1?.total - c0?.total === 6 && c1?.realizada - c0?.realizada === 2 &&
+      c1?.total === b1.json?.attendance?.data?.total && c1?.realizada === b1.json?.attendance?.data?.realizada,
+    JSON.stringify({ c0, c1 })
+  );
+}
+
+/** Pestaña real, pantalla con datos e impresión de Vendedores (+ Equipo y Citas). */
+async function pantallaVendedores024({ Q, V1, V2, agenda }) {
+  const pg = await fetch(`${BASE}/reports/sellers`, { headers: { cookie } });
+  const html = await pg.text();
+  ok(
+    "la pantalla /reports/sellers existe y la pestaña Vendedores es un enlace real",
+    pg.status === 200 && html.includes('href="/reports/sellers') && html.includes(">Vendedores<"),
+    `status=${pg.status}`
+  );
+  let browser = null;
+  try {
+    const { chromium } = await import("playwright");
+    browser = await chromium.launch();
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.route("**/api/events*", (route) => route.abort());
+    const host = new URL(BASE);
+    await ctx.addCookies(
+      cookie.split("; ").filter(Boolean).map((kv) => {
+        const i = kv.indexOf("=");
+        return { name: kv.slice(0, i), value: kv.slice(i + 1), domain: host.hostname, path: "/" };
+      })
+    );
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/reports/sellers?${Q}`, { waitUntil: "load" });
+    await page.waitForSelector('[data-testid="kpi-sellers-persons"]:not([aria-busy])', { timeout: 60000 });
+    await page.waitForSelector('[data-testid="sellers-roster"]', { timeout: 30000 });
+    const filaUno = page.locator(`[data-testid="sellers-roster"] [data-seller="${V1}"]`);
+    const sinAsignar = page.locator('[data-testid="sellers-roster"] [data-seller="none"]');
+    ok(
+      "pantalla Vendedores: la vendedora Uno y «Sin asignar» en «Cartera y atención»",
+      (await filaUno.count()) === 1 && (await sinAsignar.innerText()).includes("Sin asignar"),
+      `${await filaUno.count()}`
+    );
+    const resUno = await page.locator(`[data-testid="sellers-results"] [data-seller="${V1}"]`).innerText().catch(() => "");
+    const resDos = await page.locator(`[data-testid="sellers-results"] [data-seller="${V2}"]`).innerText().catch(() => "");
+    ok(
+      "pantalla Vendedores: «Resultados» con las ventas de cada vendedora",
+      /1,000\.00/.test(resUno) && /500\.00/.test(resDos),
+      JSON.stringify({ resUno, resDos })
+    );
+    const citasCol = await page.locator('[data-testid="sellers-results"] thead').innerText();
+    ok(
+      `pantalla Vendedores: columnas de citas ${agenda ? "presentes" : "ausentes (AGENDA apagada)"}`,
+      agenda ? citasCol.includes("Citas del periodo") && citasCol.includes("Asistencia") : !citasCol.includes("Citas") && !citasCol.includes("Asistencia"),
+      citasCol.replace(/\s+/g, " ")
+    );
+    const como = await page.getByTestId("sellers-how-counted").innerText();
+    ok(
+      "pantalla Vendedores: «Cómo se cuenta» con «según la asignación actual» y el teléfono compartido",
+      como.includes("según la asignación actual") &&
+        como.includes("respuesta humana desde el CRM o el teléfono compartido; el CRM aún no registra quién envía cada mensaje"),
+      como.slice(0, 200)
+    );
+    const ancho = await page.evaluate(() => ({
+      doc: document.documentElement.scrollWidth,
+      vw: window.innerWidth,
+    }));
+    ok("pantalla Vendedores (1280): sin scroll horizontal de página", ancho.doc <= ancho.vw, JSON.stringify(ancho));
+    await page.emulateMedia({ media: "print" });
+    const header = await page.getByTestId("report-print-header").innerText();
+    ok("impresión Vendedores: encabezado «Reporte · Vendedores»", header.includes("Reporte · Vendedores"), header);
+    const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+    ok("impresión Vendedores: page.pdf() genera un PDF (> 20 KB)", pdf.length > 20_000, `${pdf.length} bytes`);
+    await page.close();
+
+    // Móvil: tarjetas, sin la tabla y sin scroll de página.
+    const movil = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await movil.route("**/api/events*", (route) => route.abort());
+    await movil.addCookies(await ctx.cookies());
+    const pm = await movil.newPage();
+    await pm.goto(`${BASE}/reports/sellers?${Q}`, { waitUntil: "load" });
+    await pm.waitForSelector('[data-testid="kpi-sellers-persons"]:not([aria-busy])', { timeout: 60000 });
+    const tarjetas = await pm.getByRole("list", { name: "Cartera y atención por vendedor" }).isVisible();
+    const tabla = await pm.getByTestId("sellers-roster").isVisible();
+    const anchoM = await pm.evaluate(() => ({ doc: document.documentElement.scrollWidth, vw: window.innerWidth }));
+    ok("pantalla Vendedores (390): tarjetas en vez de tabla y sin scroll horizontal", tarjetas && !tabla && anchoM.doc <= anchoM.vw, JSON.stringify({ tarjetas, tabla, anchoM }));
+    await movil.close();
+
+    // Resumen → Equipo (y la viñeta de citas con AGENDA).
+    const ps = await ctx.newPage();
+    await ps.goto(`${BASE}/reports/summary?${Q}`, { waitUntil: "load" });
+    await ps.waitForSelector('[data-testid="kpi-summary-inbound"]:not([aria-busy])', { timeout: 60000 });
+    await ps.waitForSelector('[data-testid="summary-team"]', { timeout: 30000 });
+    const equipoUno = await ps.locator(`[data-testid="summary-team"] [data-team="${V1}"]`).count();
+    const equipoSin = await ps.locator('[data-testid="summary-team"] [data-team="none"]').count();
+    const equipoTot = await ps.locator('[data-testid="summary-team"] [data-team="total"]').count();
+    const enlace = ps.getByRole("link", { name: "Ver Vendedores" }).first();
+    const enlaceHref = await enlace.getAttribute("href");
+    ok(
+      "Resumen: tabla «Equipo» con la vendedora Uno, «Sin asignar», total y enlace «Ver Vendedores» con el rango",
+      equipoUno === 1 && equipoSin === 1 && equipoTot === 1 && (enlaceHref ?? "").startsWith("/reports/sellers?"),
+      JSON.stringify({ equipoUno, equipoSin, equipoTot, enlaceHref })
+    );
+    const vinCitas = await ps.locator('[data-highlight="bookings"]').count();
+    const txtCitas = vinCitas ? await ps.locator('[data-highlight="bookings"]').innerText() : "";
+    ok(
+      `Resumen: viñeta «Citas del periodo» ${agenda ? "presente" : "ausente (AGENDA apagada)"}`,
+      agenda ? /^Citas del periodo: \d+ agendadas · \d+ realizadas · asistencia /.test(txtCitas) : vinCitas === 0,
+      txtCitas
+    );
+    await ps.emulateMedia({ media: "print" });
+    ok("impresión Resumen: el enlace «Ver Vendedores» no va al papel", !(await enlace.isVisible()));
+    await ps.close();
+
+    if (agenda) {
+      const pb = await ctx.newPage();
+      await pb.goto(`${BASE}/reports/bookings?${Q}`, { waitUntil: "load" });
+      await pb.waitForSelector('[data-testid="kpi-attendance"]:not([aria-busy])', { timeout: 60000 });
+      await pb.waitForSelector('[data-testid="bookings-by-type"]', { timeout: 30000 });
+      const porVend = await pb.locator(`[data-testid="bookings-by-seller"] [data-seller="${V2}"]`).innerText();
+      const ventas = await pb.getByTestId("bookings-to-sales").innerText();
+      ok(
+        "pantalla Citas: por tipo, por vendedor (Dos con «2 · 1» manual · IA) y citas → ventas con el rótulo",
+        /2 · 1/.test(porVend) && /Ganado al momento de generar el reporte/.test(ventas),
+        JSON.stringify({ porVend, ventas: ventas.slice(0, 120) })
+      );
+      await pb.emulateMedia({ media: "print" });
+      const pdfB = await pb.pdf({ preferCSSPageSize: true, printBackground: true });
+      ok("impresión Citas: page.pdf() genera un PDF (> 20 KB)", pdfB.length > 20_000, `${pdfB.length} bytes`);
+      await pb.close();
+    }
+  } catch (err) {
+    ok("024: pantalla e impresión con Playwright", false, String(err));
+  } finally {
+    await browser?.close();
+  }
 }

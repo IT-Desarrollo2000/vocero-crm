@@ -44,7 +44,11 @@ function looksLikeBookingReport(body: unknown): body is BookingReportDto {
     typeof r.range.tz === "string" &&
     !!r.offers &&
     !!r.attendance &&
-    !!r.byReminder
+    !!r.byReminder &&
+    // 024
+    !!r.byType &&
+    !!r.bySeller &&
+    !!r.toSales
   );
 }
 

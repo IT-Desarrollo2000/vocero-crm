@@ -334,6 +334,36 @@ describe("Reportes → Citas — interpretación y formato", () => {
           withoutReminder: { realizada: 0, noShow: 1, rate: 0 },
         },
       },
+      // 024: por tipo, por vendedor y citas → ventas.
+      byType: {
+        ok: true,
+        data: {
+          rows: [
+            { typeId: "apt_serv", name: "Servicio", active: true, total: 5, scheduled: 0, realizada: 3, noShow: 1, cancelada: 1, rate: 0.75, pendingToMark: 0 },
+            { typeId: null, name: "Sin tipo", active: false, total: 0, scheduled: 0, realizada: 0, noShow: 0, cancelada: 0, rate: null, pendingToMark: 0 },
+          ],
+        },
+      },
+      bySeller: {
+        ok: true,
+        data: {
+          rows: [
+            { userId: "u_ana", name: "Ana", isMember: true, bySource: { manual: 4, ai: 1 }, total: 5, scheduled: 0, realizada: 3, noShow: 1, cancelada: 1, rate: 0.75, pendingToMark: 0 },
+            { userId: null, name: "Sin vendedor", isMember: false, bySource: { manual: 0, ai: 0 }, total: 0, scheduled: 0, realizada: 0, noShow: 0, cancelada: 0, rate: null, pendingToMark: 0 },
+          ],
+        },
+      },
+      toSales: {
+        ok: true,
+        data: {
+          bookingsDone: 3,
+          leads: 2,
+          withoutLead: 1,
+          won: 1,
+          rate: 0.5,
+          wonAmount: { currency: "MXN", amountCents: 120000, otherCurrencies: [], wonWithoutAmount: 0 },
+        },
+      },
       ...over,
     };
   }
@@ -349,6 +379,10 @@ describe("Reportes → Citas — interpretación y formato", () => {
     expect(classifyBookingReportResponse(403, null).kind).toBe("forbidden");
     expect(classifyBookingReportResponse(200, { range: {} }).kind).toBe("error");
     expect(classifyBookingReportResponse(200, report()).kind).toBe("ok");
+    // 024: un 200 sin los bloques nuevos es un servidor viejo → error.
+    const { byType: _omit, ...sinPorTipo } = report();
+    void _omit;
+    expect(classifyBookingReportResponse(200, sinPorTipo).kind).toBe("error");
   });
 
   it("vacío solo si los bloques llegaron y no hay nada", () => {

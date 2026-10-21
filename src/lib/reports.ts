@@ -233,6 +233,71 @@ export type BookingAttendanceDto = AttendanceSliceDto & {
 };
 
 /**
+ * 024 — Conteos de un conjunto de citas (sesiones no prueba con
+ * `scheduled_at` en el rango): la asistencia más el total y las agendadas.
+ * El bloque `attendance` de Citas ya los trae (superconjunto compatible).
+ */
+export type BookingCountsDto = BookingAttendanceDto & {
+  /** Citas del periodo en CUALQUIER estado («N agendadas» del Resumen). */
+  total: number;
+  /** De esas, las que siguen en estado `agendada` (por venir o sin marcar). */
+  scheduled: number;
+};
+
+/** 024 — Rótulos de las filas sin dato. */
+export const NO_APPOINTMENT_TYPE_LABEL = "Sin tipo";
+export const NO_BOOKING_SELLER_LABEL = "Sin vendedor";
+export const NO_ASSIGNEE_LABEL = "Sin asignar";
+
+/**
+ * 024 — Por tipo de cita: TODOS los tipos activos (también en cero), los
+ * inactivos solo si tienen citas en el rango, y siempre «Sin tipo»
+ * (`appointment_type_id` NULL: citas de la 015 o tipo borrado) al final.
+ * Orden: `position`, nombre.
+ */
+export type BookingTypeRowDto = BookingCountsDto & {
+  /** null = «Sin tipo». */
+  typeId: string | null;
+  name: string;
+  active: boolean;
+};
+export type BookingsByTypeDto = { rows: BookingTypeRowDto[] };
+
+/**
+ * 024 — Por vendedor de la cita (`booking.assigned_user_id`): todos los
+ * miembros (también en cero), quien tenga citas sin ser miembro ya y siempre
+ * «Sin vendedor» al final. `bySource` = cómo se agendaron (de `total`).
+ */
+export type BookingSellerRowDto = BookingCountsDto & {
+  /** null = «Sin vendedor». */
+  userId: string | null;
+  name: string;
+  isMember: boolean;
+  bySource: { manual: number; ai: number };
+};
+export type BookingsBySellerDto = { rows: BookingSellerRowDto[] };
+
+/**
+ * 024 — Citas → ventas: de las citas REALIZADAS del periodo, los leads
+ * distintos (el de la cita o, si no lo guardó, el del contacto) y cuántos
+ * están HOY en una etapa `won` («ganado al momento de generar el reporte»:
+ * el ganado puede ser de otro periodo).
+ */
+export type BookingToSalesDto = {
+  /** Citas realizadas del periodo. */
+  bookingsDone: number;
+  /** Leads distintos con cita realizada. */
+  leads: number;
+  /** Citas realizadas sin lead (ni en la cita ni en el contacto). */
+  withoutLead: number;
+  /** De `leads`, los que hoy están en `won`. */
+  won: number;
+  /** `won / leads`; null sin leads. */
+  rate: number | null;
+  wonAmount: WonAmountDto;
+};
+
+/**
  * Asistencia con vs sin recordatorio: «con» = la cita tiene ≥ 1
  * `booking_reminder` `sent` para su hora vigente (`scheduled_for =
  * scheduled_at`); «sin» = el resto.
@@ -248,6 +313,12 @@ export type BookingReportDto = {
   offers: ReportBlock<OfferConversionDto>;
   attendance: ReportBlock<BookingAttendanceDto>;
   byReminder: ReportBlock<AttendanceByReminderDto>;
+  /** 024 — Por tipo de cita. */
+  byType: ReportBlock<BookingsByTypeDto>;
+  /** 024 — Por vendedor de la cita. */
+  bySeller: ReportBlock<BookingsBySellerDto>;
+  /** 024 — Citas realizadas → leads hoy ganados. */
+  toSales: ReportBlock<BookingToSalesDto>;
 };
 
 // ── Reportes → Anuncios (020 fase B) ────────────────────────────────────
@@ -722,6 +793,168 @@ export type SummaryReportDto = {
   sales: ReportBlock<SalesSummaryDto>;
   /** El mismo bloque de Agente (M4, por sesión de 24 h). */
   responseTimes: ReportBlock<ResponseTimesDto>;
+  /** 024 — ¿Esta instancia tiene agenda (bandera `AGENDA`)? */
+  agendaEnabled: boolean;
+  /** 024 — «Equipo»: por vendedor. */
+  team: ReportBlock<SummaryTeamDto>;
+  /** 024 — Citas del periodo (la misma consulta que Citas → asistencia); null sin AGENDA. */
+  bookings: ReportBlock<BookingCountsDto> | null;
+};
+
+/**
+ * 024 — Una fila de «Equipo». Cartera = responsable VIGENTE de la
+ * conversación («según la asignación actual»); ventas por la regla D2 de
+ * Ventas; citas por el vendedor de la cita.
+ */
+export type SummaryTeamFiguresDto = {
+  /** Conversaciones de su cartera con `assigned_at` en el rango. */
+  assignedInRange: number;
+  /** Pendientes de su cartera (la regla de «Pendientes de respuesta»). */
+  pending: number;
+  /** Personas de su cartera atendidas por asesor (CRM o teléfono compartido). */
+  attended: number;
+  /** Citas realizadas del periodo; null sin AGENDA. */
+  bookingsDone: number | null;
+  /** Ventas del periodo (D1 + D2). */
+  won: number;
+  /** Monto de esas ventas en la moneda principal (las otras no se suman). */
+  wonAmountCents: number;
+};
+
+export type SummaryTeamRowDto = SummaryTeamFiguresDto & {
+  /** null = «Sin asignar» (sin responsable, sin asesor D2 o sin vendedor). */
+  userId: string | null;
+  name: string;
+};
+
+/** Filas máximas de vendedores en «Equipo» (el resto va en «Otros»). */
+export const SUMMARY_TEAM_MAX_ROWS = 10;
+
+export type SummaryTeamDto = {
+  currency: string;
+  /**
+   * Vendedores (miembros, también en cero, y ex-miembros con datos), orden
+   * ventas, monto, pendientes, atendidas, nombre; ≤ `SUMMARY_TEAM_MAX_ROWS`.
+   */
+  rows: SummaryTeamRowDto[];
+  /** Los vendedores que no caben, sumados; null si caben todos. */
+  others: (SummaryTeamFiguresDto & { sellers: number }) | null;
+  /** «Sin asignar», siempre (aunque sea cero). */
+  unassigned: SummaryTeamRowDto;
+  /**
+   * Suma de TODO (vendedores + Sin asignar): pendientes y atendidas = los del
+   * Resumen; ventas = las de Ventas del periodo.
+   */
+  totals: SummaryTeamFiguresDto;
+  /**
+   * El vendedor (no «Sin asignar») con más pendientes, de entre TODOS, para
+   * la viñeta de «Lectura rápida»; null si nadie tiene. La UI decide el umbral.
+   */
+  topPending: { userId: string; name: string; pending: number; ofTotal: number } | null;
+};
+
+// ── Reportes → Vendedores (024) ─────────────────────────────────────────
+
+/**
+ * Semántica (plan 024 §3). VENDEDORES = todos los miembros de la organización
+ * (vendedores y propietarios), aunque estén en cero, más quien aparezca con
+ * datos sin ser miembro ya (ex-miembro), más «Sin asignar». CARTERA = las
+ * conversaciones reales cuyo responsable VIGENTE es él («según la asignación
+ * actual»). La respuesta humana pudo salir del CRM o del teléfono compartido:
+ * no se atribuye a una persona. Laboratorio fuera. Cada bloque trae sus filas
+ * con `userId` (null = sin responsable): la UI las une por `userId`, con la
+ * lista de `roster` como columna vertebral.
+ */
+
+export type SellerRosterFiguresDto = {
+  /** Conversaciones reales asignadas hoy (foto). */
+  portfolio: number;
+  /** De su cartera, con `assigned_at` en el rango. */
+  assignedInRange: number;
+  /** De su cartera, no archivadas y con el lead en etapa `open` (foto). */
+  activePortfolio: number;
+  /** Personas del rango (regla del Resumen) de su cartera. */
+  persons: number;
+  /** De esas, atendidas por asesor (`operator` | `manual`). */
+  attended: number;
+  /** `attended / persons`; null sin personas. */
+  attendedRate: number | null;
+  /** Pendientes (regla del Resumen, con tarjetas 011) de su cartera (foto). */
+  pending: number;
+  /**
+   * Leads externos (tarjetas del rango, por contacto y origen) de su cartera
+   * todavía sin contactar; misma regla que «Leads del formulario y FastApp».
+   */
+  externalNotContacted: number;
+};
+
+export type SellerRosterRowDto = SellerRosterFiguresDto & {
+  /** null = «Sin asignar». */
+  userId: string | null;
+  /** `user.name`, si no el email; «Sin asignar» si `userId` es null. */
+  name: string;
+  /** Rol de la membresía (`owner` | `member`); null si ya no es miembro. */
+  role: string | null;
+  isMember: boolean;
+  /** `advisorFirstReply` del Resumen restringido a su cartera. Segundos. */
+  advisorFirstReply: { persons: number; p50Seconds: number | null; p90Seconds: number | null };
+};
+
+export type SellersRosterDto = {
+  /** Miembros por nombre, luego ex-miembros, «Sin asignar» siempre al final. */
+  rows: SellerRosterRowDto[];
+  /** Suma de las filas: personas/atendidas/pendientes = totales del Resumen. */
+  totals: SellerRosterFiguresDto;
+};
+
+/** Ventas → Por asesor (D1 + D2) con el ticket promedio. */
+export type SellerSalesRowDto = SalesAdvisorRowDto & {
+  /** Monto principal ÷ ventas con monto en la moneda principal; null si ninguna. */
+  averageTicketCents: number | null;
+};
+
+/** Las filas de Ventas → Por asesor tal cual (solo quien tiene cierres; «Sin asesor» al final). */
+export type SellersSalesDto = { rows: SellerSalesRowDto[] };
+
+export type SellerFunnelCellDto = {
+  stageId: string;
+  leads: number;
+  /** Monto en la moneda principal (sin moneda = la principal). */
+  amountCents: number;
+};
+
+export type SellerFunnelRowDto = {
+  /** null = «Sin asignar» (sin conversación real asignada). */
+  userId: string | null;
+  name: string;
+  /** Una celda por etapa, en el orden de `stages`. */
+  cells: SellerFunnelCellDto[];
+  /** Leads en etapas `open` y su monto (moneda principal). */
+  openLeads: number;
+  openAmountCents: number;
+};
+
+/**
+ * Embudo de la cartera: FOTO ACTUAL, vendedor × etapa (responsable vigente
+ * de la conversación real del contacto). Solo filas con leads.
+ */
+export type SellersFunnelDto = {
+  currency: string;
+  /** Las etapas del Embudo de Ventas (mismo orden y totales). */
+  stages: SalesFunnelStageDto[];
+  rows: SellerFunnelRowDto[];
+};
+
+/** Respuesta 200 de `GET /api/reports/sellers` (solo Propietario). */
+export type SellersReportDto = {
+  range: ReportRangeDto;
+  /** ¿Bandera `AGENDA`? Apagada: sin bloque de citas. */
+  agendaEnabled: boolean;
+  roster: ReportBlock<SellersRosterDto>;
+  sales: ReportBlock<SellersSalesDto>;
+  /** Citas por vendedor de la cita (Citas → Por vendedor); null sin AGENDA. */
+  bookings: ReportBlock<BookingsBySellerDto> | null;
+  funnel: ReportBlock<SellersFunnelDto>;
 };
 
 /** Mensaje del 503 `report_timeout` (RF-02-08). */
