@@ -1180,6 +1180,9 @@ async function main() {
   await labChecks();
   await reporteAnunciosLabChecks(antesDelLab);
   await asignacionChecks();
+  // 026: crea su propia conversación y deja umbral, agente y contador como
+  // estaban; antes de los AL FINAL (no toca adjuntos ni el equipo).
+  await porAtenderChecks();
   // 018: AL FINAL — su último paso (la purga de 30 días) expira TODO adjunto.
   await adjuntosChecks();
   // 020 fase B: AL FINAL — da de alta un Vendedor (cambia la forma del equipo).
@@ -3861,6 +3864,268 @@ async function asignacionChecks() {
   );
   const malo = await api("/api/conversations?assigned=otro");
   ok("?assigned inválido → 422", malo.res.status === 422, `status=${malo.res.status}`);
+}
+
+/* ============================================================
+ * 026 — "Por atender" que dice la verdad (tests/e2e/us-por-atender.md)
+ *
+ * Por API, sobre una conversación propia: `awaitingSince` se abre con el
+ * entrante y el escalamiento, se cierra con la respuesta del operador y con
+ * el eco del teléfono (no con un envío fallido), y "Marcar como atendida"
+ * (`attended`) / "Reactivar IA" la cierran. La vista `filter=human` y su
+ * contador siguen solo a las que esperan. El umbral vive en Ajustes →
+ * Bandeja y baja a la Bandeja por la página del servidor.
+ * ============================================================ */
+async function porAtenderChecks() {
+  console.log("\n== 026: Por atender — esperando vs. atendida ==");
+  const SUF = String(Date.now()).slice(-7);
+  const PHONE = `521558${SUF}`;
+  const NAME = `Espera ${SUF}`;
+  let n = 0;
+  const inbound = (text, timestamp) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({
+        phoneNumberId: PN,
+        from: PHONE,
+        name: NAME,
+        text,
+        waMessageId: `wamid.e2e.026.${SUF}.${++n}`,
+        ...(timestamp ? { timestamp } : {}),
+      }),
+    });
+  const conv = async () =>
+    ((await api(`/api/conversations?q=${encodeURIComponent(NAME)}`)).json?.conversations ?? [])
+      .find((c) => c.contact?.name === NAME) ?? null;
+  const humanIds = async () =>
+    ((await api(`/api/conversations?filter=human&q=${encodeURIComponent(NAME)}`)).json
+      ?.conversations ?? []).map((c) => c.id);
+  const humanCount = async () =>
+    (await api("/api/conversations/counts")).json?.human ?? -1;
+  const patch = (id, body) =>
+    api(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  const secs = () => Math.floor(Date.now() / 1000);
+  const iso = (s) => new Date(s * 1000).toISOString();
+
+  // Setup: el agente in-process encendido SOLO para el escalamiento (CA-4);
+  // se deja como estaba al terminar.
+  const iaAntes = Boolean((await api("/api/agent/profile")).json?.profile?.enabled);
+  const h0 = await humanCount();
+
+  // Con la IA al mando, un entrante abre la espera pero NO es "Por atender".
+  const t1 = secs() - 120;
+  ok("026 (setup) entrante del cliente", (await inbound("hola, una pregunta", t1)).res.ok);
+  await sleep(1200);
+  let c = await conv();
+  ok("026 (setup) conversación creada", !!c, NAME);
+  if (!c) return;
+  ok("026: el entrante abre la espera desde ese mensaje", c.awaitingSince === iso(t1),
+     JSON.stringify({ awaitingSince: c.awaitingSince, esperado: iso(t1) }));
+  ok("026: con la IA al mando no está en 'Por atender'",
+     !(await humanIds()).includes(c.id) && c.handoffAt === null && c.aiEnabled === true);
+
+  // CA-4 + CA-1: el cliente pide un asesor → la IA escala (con o sin
+  // despedida) → "Esperando"; un segundo entrante no mueve la espera.
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: true }) });
+  ok("026: pide un asesor", (await inbound("quiero hablar con un asesor")).res.ok);
+  for (let i = 0; i < 40; i++) {
+    c = await conv();
+    if (c?.handoffAt) break;
+    await sleep(500);
+  }
+  await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: false }) });
+  ok("CA-4: la IA escaló", !!c?.handoffAt, JSON.stringify(c?.handoffReason));
+  ok("CA-4: tras escalar, el cliente queda esperando", c?.awaitingSince != null,
+     JSON.stringify(c?.awaitingSince));
+  await inbound("¿hola?");
+  await sleep(800);
+  c = await conv();
+  ok("CA-1: entrante a un chat escalado → esperando", c?.awaitingSince != null);
+  ok("CA-1: y cuenta en 'Por atender'", (await humanIds()).includes(c.id));
+  ok("CA-1: contador 'Por atender' +1", (await humanCount()) === h0 + 1,
+     `${h0} → ${await humanCount()}`);
+
+  // CA-5: un envío fallido NO atiende.
+  await api("/api/dev/wa-mock/fail-sends", { method: "POST", body: JSON.stringify({ mode: "error" }) });
+  const fallido = await api(`/api/conversations/${c.id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "esto no sale" }),
+  });
+  await api("/api/dev/wa-mock/fail-sends", { method: "POST", body: JSON.stringify({ mode: "off" }) });
+  c = await conv();
+  ok("CA-5: el envío con Meta caída falla", !fallido.res.ok, String(fallido.res.status));
+  ok("CA-5: y la espera sigue abierta", c?.awaitingSince != null && (await humanIds()).includes(c.id));
+
+  // CA-2: el operador contesta → atendida, fuera de la vista, contador −1.
+  const resp = await api(`/api/conversations/${c.id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "¡Hola! Te atiendo yo" }),
+  });
+  ok("CA-2 (setup) el operador contesta", resp.res.ok, JSON.stringify(resp.json));
+  c = await conv();
+  ok("CA-2: atendida (awaitingSince null)", c?.awaitingSince === null, JSON.stringify(c?.awaitingSince));
+  ok("CA-2: sigue escalada (el escalamiento no se cierra al contestar)", !!c?.handoffAt);
+  ok("CA-2: sale de 'Por atender'", !(await humanIds()).includes(c.id));
+  ok("CA-2: contador vuelve al de antes", (await humanCount()) === h0);
+
+  // CA-3: el cliente vuelve a escribir → esperando DESDE ese mensaje.
+  const t3 = secs();
+  await inbound("una cosa más", t3);
+  await sleep(800);
+  c = await conv();
+  ok("CA-3: vuelve a esperar desde el mensaje nuevo", c?.awaitingSince === iso(t3),
+     JSON.stringify({ awaitingSince: c?.awaitingSince, esperado: iso(t3) }));
+  ok("CA-3: y vuelve a 'Por atender'", (await humanIds()).includes(c.id));
+
+  // CA-6: el eco del teléfono atiende (y la IA sigue en pausa).
+  const eco = await api("/api/dev/wa-mock/echo", {
+    method: "POST",
+    body: JSON.stringify({
+      phoneNumberId: PN,
+      to: PHONE,
+      text: "te contesto desde el cel",
+      waMessageId: `wamid.e2e.026.${SUF}.eco`,
+      timestamp: secs() + 1,
+    }),
+  });
+  ok("CA-6 (setup) eco del teléfono entregado", eco.res.ok, JSON.stringify(eco.json));
+  await sleep(1200);
+  c = await conv();
+  ok("CA-6: el eco deja la conversación atendida", c?.awaitingSince === null,
+     JSON.stringify(c?.awaitingSince));
+  ok("CA-6: fuera de 'Por atender'", !(await humanIds()).includes(c.id));
+
+  // CA-7a: "Marcar como atendida" → seguir atendiendo yo.
+  await inbound("¿me confirmas?");
+  await sleep(800);
+  ok("CA-7 (setup) esperando otra vez", (await conv())?.awaitingSince != null);
+  const ambos = await patch(c.id, { attended: true, reactivate: true });
+  ok("026: attended + reactivate juntos → 422", ambos.res.status === 422, String(ambos.res.status));
+  const yo = await patch(c.id, { attended: true });
+  c = yo.json?.conversation ?? (await conv());
+  ok("CA-7: seguir yo → 200", yo.res.ok, String(yo.res.status));
+  ok("CA-7: seguir yo → atendida, sin escalamiento, IA en pausa",
+     c?.awaitingSince === null && c?.handoffAt === null && c?.handoffReason === null &&
+       c?.handoffNote === null && c?.aiEnabled === false,
+     JSON.stringify({ a: c?.awaitingSince, h: c?.handoffAt, ai: c?.aiEnabled }));
+  ok("CA-7: seguir yo → fuera de 'Por atender'", !(await humanIds()).includes(c.id));
+
+  // Con la IA en pausa (sin escalar), un entrante vuelve a "Esperando".
+  await inbound("sigo por aquí");
+  await sleep(800);
+  c = await conv();
+  ok("026: IA en pausa a mano + entrante → esperando y en la vista",
+     c?.awaitingSince != null && (await humanIds()).includes(c.id));
+
+  // CA-7b: devolver a la IA.
+  const ia = await patch(c.id, { attended: true, aiEnabled: true });
+  c = ia.json?.conversation ?? (await conv());
+  ok("CA-7: devolver a la IA → atendida, IA activa, fuera de la vista",
+     ia.res.ok && c?.awaitingSince === null && c?.handoffAt === null && c?.aiEnabled === true &&
+       !(await humanIds()).includes(c.id),
+     JSON.stringify({ a: c?.awaitingSince, ai: c?.aiEnabled }));
+
+  // "Reactivar IA" también cierra la espera.
+  await patch(c.id, { aiEnabled: false });
+  await inbound("¿y entonces?");
+  await sleep(800);
+  ok("026 (setup) esperando con la IA en pausa", (await conv())?.awaitingSince != null);
+  const reac = await patch(c.id, { reactivate: true });
+  c = reac.json?.conversation ?? (await conv());
+  ok("026: reactivar la IA limpia la espera",
+     reac.res.ok && c?.awaitingSince === null && c?.aiEnabled === true,
+     JSON.stringify({ a: c?.awaitingSince, ai: c?.aiEnabled }));
+
+  // CA-8: el umbral en Ajustes → Bandeja llega a la Bandeja.
+  const antes = (await api("/api/settings/inbox")).json?.settings;
+  ok("CA-8: los ajustes traen el umbral (default 60 o el guardado)",
+     typeof antes?.overdueMinutes === "number", JSON.stringify(antes));
+  const put = (body) =>
+    api("/api/settings/inbox", { method: "PUT", body: JSON.stringify(body) });
+  const bajo = await put({ ...antes, overdueMinutes: 5 });
+  ok("CA-8: guardar umbral de 5 min", bajo.res.ok && bajo.json?.settings?.overdueMinutes === 5,
+     JSON.stringify(bajo.json));
+  for (const malo of [4, 1441, 7.5]) {
+    const r = await put({ ...antes, overdueMinutes: malo });
+    ok(`CA-8: umbral ${malo} → 422`, r.res.status === 422, String(r.res.status));
+  }
+  const viejo = await put({ autoArchiveEnabled: antes?.autoArchiveEnabled ?? false, autoArchiveDays: antes?.autoArchiveDays ?? 14 });
+  ok("CA-8: un cliente viejo (sin el campo) deja el umbral en 60",
+     viejo.res.ok && viejo.json?.settings?.overdueMinutes === 60, JSON.stringify(viejo.json));
+  await put({ ...antes, overdueMinutes: 5 });
+  // Espera de 10 min (entrante con hora vieja) con la IA en pausa: ≥ 5 min.
+  await patch(c.id, { aiEnabled: false });
+  const t8 = secs() - 600;
+  await inbound("hace rato escribí", t8);
+  await sleep(800);
+  c = await conv();
+  ok("CA-8: espera de 10 min ≥ umbral de 5 (atrasada)",
+     c?.awaitingSince === iso(t8) && Date.now() - Date.parse(c.awaitingSince) >= 5 * 60_000,
+     JSON.stringify(c?.awaitingSince));
+  const html = await (await fetch(`${BASE}/inbox`, { headers: { cookie } })).text();
+  ok("CA-8: la página de la Bandeja baja el umbral guardado (5)",
+     /overdueMinutes\\?"\s*:\s*5\b/.test(html), html.length ? "sin el prop en el HTML" : "HTML vacío");
+  const restore = await put({ ...antes });
+  ok("026: umbral restaurado", restore.res.ok);
+
+  // Limpieza: devolverla a la IA y cerrar la espera.
+  await patch(c.id, { attended: true, aiEnabled: true });
+
+  // Bot externo: escala por /api/bot/handoff y LUEGO intenta despedirse por
+  // /api/bot/messages. Esa despedida no atiende al cliente: la espera sigue
+  // abierta. Hoy la ruta rechaza el envío con 409 ai_paused (el escalamiento
+  // pausa la IA), así que el caso es cierto por la puerta; si la puerta se
+  // relajara, `closeAwaitingByAiSql` es quien lo sostiene.
+  const BNAME = `Espera Bot ${SUF}`;
+  const BPHONE = `521559${SUF}`;
+  const bin = await api("/api/dev/wa-mock/inbound", {
+    method: "POST",
+    body: JSON.stringify({
+      phoneNumberId: PN,
+      from: BPHONE,
+      name: BNAME,
+      text: "hola bot",
+      waMessageId: `wamid.e2e.026b.${SUF}.1`,
+    }),
+  });
+  ok("026-bot (setup) entrante del cliente", bin.res.ok);
+  await sleep(1000);
+  const bconv = async () =>
+    ((await api(`/api/conversations?q=${encodeURIComponent(BNAME)}`)).json?.conversations ?? [])
+      .find((x) => x.contact?.name === BNAME) ?? null;
+  let b = await bconv();
+  ok("026-bot (setup) conversación creada", !!b, BNAME);
+  if (b) {
+    const hb = await bot("/api/bot/handoff", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: b.id, reason: "human_request", note: "pidió persona" }),
+    });
+    ok("026-bot: /api/bot/handoff → 200", hb.res.ok, String(hb.res.status));
+    b = await bconv();
+    const espera = b?.awaitingSince ?? null;
+    ok("026-bot: tras escalar, esperando", espera != null && !!b?.handoffAt, JSON.stringify(espera));
+    const bm = await bot("/api/bot/messages", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: b.id, text: "Te paso con una persona, ¡gracias!" }),
+    });
+    ok(`026-bot: despedida tras escalar → ${bm.res.status} ${bm.json?.error?.code ?? "aceptada"}`,
+       bm.res.status === 409 ? bm.json?.error?.code === "ai_paused" : bm.res.ok,
+       `${bm.res.status} ${JSON.stringify(bm.json)}`);
+    b = await bconv();
+    ok("026-bot: la espera sigue abierta y sin moverse tras el intento del bot",
+       b?.awaitingSince === espera && espera != null,
+       JSON.stringify({ antes: espera, despues: b?.awaitingSince }));
+    const bh = ((await api(`/api/conversations?filter=human&q=${encodeURIComponent(BNAME)}`)).json
+      ?.conversations ?? []).map((x) => x.id);
+    ok("026-bot: y sigue en 'Por atender'", bh.includes(b.id));
+    await patch(b.id, { attended: true, aiEnabled: true });
+  }
+
+  ok("026: el contador 'Por atender' queda como al inicio", (await humanCount()) === h0,
+     `${h0} → ${await humanCount()}`);
+  if (iaAntes) {
+    await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: true }) });
+  }
 }
 
 /* ============================================================

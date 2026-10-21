@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronRight, Pencil, Sparkles, UserRound } from "lucide-react";
+import { Check, ChevronRight, Clock, Pencil, Sparkles, UserRound } from "lucide-react";
 import type {
   AnuncioDto,
   ConversationDto,
@@ -26,6 +26,8 @@ import { AnuncioOrigen } from "@/components/anuncio-origen";
 import { SOURCE_LABELS, SOURCE_VALUES } from "@/server/contact-source";
 import { Input } from "@/components/ui/input";
 import { profileNameCaption } from "@/lib/channels";
+import { awaitingState, formatWait, OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
+import { CLOSING_TICK_MS } from "./use-inbox-list";
 
 /** 022: el mismo tope que valida `PATCH /api/contacts/[id]`. */
 const NAME_MAX = 120;
@@ -210,12 +212,123 @@ export function SourcePicker({
   );
 }
 
+/** PATCH de la conversación que puede pedir el panel. */
+type ConversationPatch = {
+  aiEnabled?: boolean;
+  reactivate?: boolean;
+  /** 026: "Marcar como atendida" (+ `aiEnabled` decide si la IA retoma). */
+  attended?: true;
+};
+
+/**
+ * 026 (US-2) — Estado de la atención de un chat en manos de una persona:
+ * "Esperando respuesta · X" (ámbar; rojo si está atrasada) o "Atendida", y
+ * "Marcar como atendida" (si hay espera o escalamiento abiertos), que al
+ * pulsarlo pregunta: seguir atendiendo yo (IA en pausa) o devolver a la IA.
+ * Se monta con `key={conversation.id}`: cambiar de chat cierra la pregunta.
+ */
+function AttentionStatus({
+  conversation,
+  overdueMinutes,
+  onPatchConversation,
+}: {
+  conversation: ConversationDto;
+  overdueMinutes: number;
+  onPatchConversation: (patch: ConversationPatch) => Promise<void>;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), CLOSING_TICK_MS);
+    return () => clearInterval(t);
+  }, []);
+  const [choosing, setChoosing] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const state = awaitingState(conversation, now, overdueMinutes);
+  if (state.kind === "none") return null;
+  const canResolve = state.kind === "waiting" || conversation.handoffAt != null;
+
+  async function resolve(aiEnabled: boolean) {
+    setBusy(true);
+    await onPatchConversation({ attended: true, aiEnabled });
+    setBusy(false);
+    setChoosing(false);
+  }
+
+  return (
+    <div className="mt-3 rounded-md border px-3 py-2.5" data-testid="attention-status">
+      {/* Si el estado + el botón no caben en la columna, el botón baja de
+          línea (flex-wrap) en vez de partir el estado en tres renglones. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium">Atención</p>
+          {state.kind === "waiting" ? (
+            <p
+              className={cn(
+                "flex items-center gap-1 text-[11px]",
+                state.overdue ? "font-medium text-danger-text" : "text-warning-text"
+              )}
+            >
+              <Clock className="h-3 w-3 shrink-0" strokeWidth={1.7} />
+              Esperando respuesta · {formatWait(state.ms)}
+              {state.overdue && " · atrasada"}
+            </p>
+          ) : (
+            <p className="flex items-center gap-1 text-[11px] text-text-3">
+              <Check className="h-3 w-3 shrink-0" strokeWidth={1.9} />
+              Atendida
+              {!conversation.handoffAt && !conversation.aiEnabled && " · IA en pausa"}
+            </p>
+          )}
+        </div>
+        {canResolve && !choosing && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => setChoosing(true)}
+          >
+            Marcar como atendida
+          </Button>
+        )}
+      </div>
+      {choosing && (
+        <div className="mt-2.5 space-y-1.5" role="group" aria-label="¿Quién sigue?">
+          <p className="text-[11px] text-text-3">¿Quién sigue con este chat?</p>
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" disabled={busy} onClick={() => void resolve(false)}>
+              Seguir atendiendo yo
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void resolve(true)}
+            >
+              Devolver a la IA
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setChoosing(false)}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ContactPanel({
   conversation,
   refreshKey = 0,
   onPatchConversation,
   onClose,
   assignment = null,
+  overdueMinutes = OVERDUE_DEFAULT_MINUTES,
 }: {
   conversation: ConversationDto;
   /**
@@ -225,11 +338,10 @@ export function ContactPanel({
   assignment?: React.ReactNode;
   /** Aumenta con cada evento SSE relevante: dispara un refetch en vivo. */
   refreshKey?: number;
-  onPatchConversation: (patch: {
-    aiEnabled?: boolean;
-    reactivate?: boolean;
-  }) => Promise<void>;
+  onPatchConversation: (patch: ConversationPatch) => Promise<void>;
   onClose: () => void;
+  /** 026: minutos de espera a partir de los que el estado sale en rojo. */
+  overdueMinutes?: number;
 }) {
   const [notes, setNotes] = useState("");
   const [ficha, setFicha] = useState<FichaDto>({});
@@ -444,9 +556,13 @@ export function ContactPanel({
           )}
 
           {conversation.handoffAt && (
-            <div className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3">
+            <div
+              className="mt-3 rounded-md border border-warning-soft bg-warning-tint p-3"
+              data-testid="handoff-card"
+            >
               <p className="flex items-center gap-1.5 text-[13px] font-medium text-warning-text">
-                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Por atender
+                <UserRound className="h-4 w-4" strokeWidth={1.7} /> Escalada a una
+                persona
               </p>
               <p className="mt-1 text-xs text-warning-text opacity-80">
                 {handoffLabel(conversation.handoffReason)}
@@ -469,13 +585,20 @@ export function ContactPanel({
             </div>
           )}
 
+          <AttentionStatus
+            key={conversation.id}
+            conversation={conversation}
+            overdueMinutes={overdueMinutes}
+            onPatchConversation={onPatchConversation}
+          />
+
           <div className="mt-3 rounded-md border bg-secondary/50 px-3 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[13px] font-medium">IA en esta conversación</p>
                 <p className="text-[11px] text-text-3">
                   {conversation.handoffAt
-                    ? "En pausa · por atender"
+                    ? "En pausa · escalada"
                     : !conversation.aiEnabled
                       ? "En pausa"
                       : agentReady

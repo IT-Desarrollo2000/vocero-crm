@@ -316,16 +316,21 @@ async function main() {
   ok("filter=unread: las marcadas leídas no vienen", readIds.every((id) => !tu.rows.some((r) => r.id === id)));
   ok("filter=unread: sin duplicados", dupes(ids(tu.rows)).length === 0);
 
-  // human: IA pausada a mano en 3.
-  const humanIds = [byIndex(20)?.id, byIndex(21)?.id, byIndex(22)?.id].filter(Boolean);
+  // human: IA pausada a mano en 3 y (026) el cliente vuelve a escribir: "Por
+  // atender" = en manos de una persona Y esperando respuesta.
+  const humanIdx = [20, 21, 22];
+  const humanIds = humanIdx.map((i) => byIndex(i)?.id).filter(Boolean);
   for (const id of humanIds) {
     await owner.api(`/api/conversations/${id}`, { method: "PATCH", body: body({ aiEnabled: false }) });
   }
+  for (const i of humanIdx) await inbound(i, `sigo esperando ${S}`);
+  await waitQuiet();
   const th = await traverse(owner, { filter: "human", q: S }, { limit: 2 });
   const ch = await counts(owner, { q: S });
   ok("filter=human: recorrido (limit=2) = counts.human", th.rows.length === ch?.human, `${th.rows.length} vs ${ch?.human}`);
-  ok("filter=human: incluye las 3 con IA pausada", humanIds.every((id) => th.rows.some((r) => r.id === id)));
+  ok("filter=human: incluye las 3 con IA pausada y cliente esperando", humanIds.every((id) => th.rows.some((r) => r.id === id)));
   ok("filter=human: toda fila con handoff o IA apagada", th.rows.every((r) => r.handoffAt !== null || r.aiEnabled === false));
+  ok("filter=human (026): toda fila esperando respuesta", th.rows.every((r) => r.awaitingSince != null));
 
   // stage: mueve 4 leads a otra etapa abierta.
   const board = (await owner.api("/api/pipeline/board")).json;

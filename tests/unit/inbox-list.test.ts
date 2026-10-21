@@ -207,9 +207,12 @@ describe("listConversations — lista paginada (keyset)", () => {
     expect(calls.find(isList)!.sql).toContain('"conversation"."unread_count" > $');
     calls.length = 0;
     await listConversations("org_1", owner, { limit: 10, filter: "human" });
-    expect(calls.find(isList)!.sql).toContain(
+    const human = calls.find(isList)!.sql;
+    expect(human).toContain(
       '("conversation"."handoff_at" is not null or "conversation"."ai_enabled" = $'
     );
+    // 026: "Por atender" = en manos de una persona Y esperando respuesta.
+    expect(human).toContain('"conversation"."awaiting_since" is not null');
   });
 
   it("022: capa de archivo — fuera salvo vista archived o búsqueda con texto", async () => {
@@ -508,6 +511,8 @@ describe("countConversations — capas del contrato 06-0", () => {
     }
     expect(seg.unread).toContain('"unread_count" > $');
     expect(seg.human).toContain('"handoff_at" is not null');
+    // 026: el contador "Por atender" baja en cuanto alguien contesta.
+    expect(seg.human).toContain('"awaiting_since" is not null');
     expect(seg.unassigned).toContain('"assigned_user_id" is null');
     // 05: «Ventana por cerrar» con cortes enlazados (calculados en Node).
     expect(seg.closing).toMatch(/"last_inbound_at" > \$\d+/);

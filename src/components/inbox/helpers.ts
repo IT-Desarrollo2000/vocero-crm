@@ -4,6 +4,7 @@ import type { Channel } from "@/lib/channels";
 import { matchesQuery } from "@/lib/search";
 import { isClosingSoon } from "@/lib/closing-window";
 import { tipoDeOrigen } from "@/lib/anuncios";
+import { inHumanHands } from "@/lib/awaiting";
 import type { ConversationDto, InboxFilter, InboxOrigin } from "@/lib/types";
 
 /**
@@ -15,13 +16,20 @@ import type { ConversationDto, InboxFilter, InboxOrigin } from "@/lib/types";
 export type ConversationFilter = InboxFilter;
 
 /**
- * Atención humana = nadie automático va a contestar: la conversación tiene
- * handoff abierto O la IA se apagó a mano. Cada caso lleva su distintivo en
- * el renglón ("Atención humana" / "IA pausada"), así que toda fila del filtro
- * muestra uno de los dos — nunca ambos.
+ * En manos de una persona = nadie automático va a contestar: la conversación
+ * tiene handoff abierto O la IA se apagó a mano. 026: el renglón dice si el
+ * cliente espera respuesta ("Esperando · X") o ya se le atendió ("Atendida").
  */
 export function needsHuman(c: ConversationDto): boolean {
-  return c.handoffAt != null || c.aiEnabled === false;
+  return inHumanHands(c);
+}
+
+/**
+ * 026 — Vista "Por atender" (`human`): en manos de una persona Y el cliente
+ * esperando respuesta. Espejo del predicado `human` del servidor.
+ */
+export function isAwaiting(c: ConversationDto): boolean {
+  return needsHuman(c) && c.awaitingSince != null;
 }
 
 /**
@@ -41,7 +49,7 @@ export function needsHuman(c: ConversationDto): boolean {
  *
  * 06: el filtro de verdad lo hace el servidor; esto queda como su ESPEJO en
  * el cliente (mismas reglas: `matchesQuery` ≡ `contactSearchSql`,
- * `needsHuman` ≡ `human`) para decidir si una fila que llega por SSE entra en
+ * `isAwaiting` ≡ `human`) para decidir si una fila que llega por SSE entra en
  * la lista activa y para los contadores de respaldo.
  */
 export function filterConversations(
@@ -117,7 +125,7 @@ export function filterConversations(
     filter === "unread"
       ? inInbox.filter((c) => c.unreadCount > 0)
       : filter === "human"
-        ? inInbox.filter(needsHuman)
+        ? inInbox.filter(isAwaiting)
         : filter === "mine"
           ? inInbox.filter((c) => isMine(c, viewerId))
           : filter === "unassigned"

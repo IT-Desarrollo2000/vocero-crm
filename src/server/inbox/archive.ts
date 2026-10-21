@@ -168,7 +168,7 @@ export async function archiveInactive(
  * Ajustes de la Bandeja (`inbox_settings`, una fila por org).
  * ------------------------------------------------------------------ */
 
-/** Sin fila = defaults (auto-archivo apagado, 14 días). */
+/** Sin fila = defaults (auto-archivo apagado, 14 días, atrasada a los 60 min). */
 export async function getInboxSettings(
   organizationId: string
 ): Promise<InboxSettingsDto> {
@@ -177,6 +177,7 @@ export async function getInboxSettings(
     .select({
       autoArchiveEnabled: t.autoArchiveEnabled,
       autoArchiveDays: t.autoArchiveDays,
+      overdueMinutes: t.overdueMinutes,
     })
     .from(t)
     .where(scoped(t.organizationId, organizationId))
@@ -193,6 +194,7 @@ export async function saveInboxSettings(
   const values = {
     autoArchiveEnabled: settings.autoArchiveEnabled,
     autoArchiveDays: settings.autoArchiveDays,
+    overdueMinutes: settings.overdueMinutes,
   };
   await getDb()
     .insert(t)

@@ -450,6 +450,14 @@ export const conversation = pgTable(
     archivedBy: text("archived_by").references(() => user.id, {
       onDelete: "set null",
     }),
+    /**
+     * 026: desde cuándo el cliente espera respuesta. NULL = nadie le debe
+     * respuesta. Lo fija el primer entrante sin contestar (o el escalamiento);
+     * lo limpia un saliente que atiende (operador, eco del teléfono, IA, bot
+     * externo), "Marcar como atendida" o "Reactivar IA". Los recordatorios de
+     * cita y los envíos fallidos NO lo limpian.
+     */
+    awaitingSince: timestamp("awaiting_since"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1816,7 +1824,8 @@ export const productFileUpload = pgTable(
 
 /**
  * Ajustes de la Bandeja: una fila por organización. Sin fila = defaults
- * (auto-archivo apagado, 14 días). Solo el Propietario los cambia.
+ * (auto-archivo apagado, 14 días, atrasada a los 60 min). Solo el
+ * Propietario los cambia.
  */
 export const inboxSettings = pgTable("inbox_settings", {
   organizationId: text("organization_id")
@@ -1824,5 +1833,7 @@ export const inboxSettings = pgTable("inbox_settings", {
     .references(() => organization.id, { onDelete: "cascade" }),
   autoArchiveEnabled: boolean("auto_archive_enabled").notNull().default(false),
   autoArchiveDays: integer("auto_archive_days").notNull().default(14),
+  /** 026: minutos de espera a partir de los que un chat sale "atrasado". */
+  overdueMinutes: integer("overdue_minutes").notNull().default(60),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

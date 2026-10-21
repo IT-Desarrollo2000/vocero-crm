@@ -248,9 +248,11 @@ ok("«Limpiar» quita los filtros del panel y deja la vista",
    new URL(page.url()).search);
 await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
 
-console.log("\n== Bandeja: pastilla 'Por atender' ==");
+console.log("\n== Bandeja: pastilla 'Por atender' (026: esperando vs. atendida) ==");
 // Se provoca el handoff con un echo del mock (el dueño contesta a mano desde
-// el teléfono → handoff manual_reply): no requiere BOT_API_KEY.
+// el teléfono → handoff manual_reply): no requiere BOT_API_KEY. 026: el eco
+// ES una respuesta humana → la conversación queda "Atendida", fuera de la
+// vista; cuando Josué vuelve a escribir pasa a "Esperando".
 await box.fill("");
 const echo = await req.post(`${BASE}/api/dev/wa-mock/echo`, {
   data: {
@@ -262,33 +264,49 @@ const echo = await req.post(`${BASE}/api/dev/wa-mock/echo`, {
 });
 ok("echo del dueño entregado al webhook", echo.ok(), String(echo.status()));
 await new Promise((res) => setTimeout(res, 1500));
-const convsHo = (await (await req.get(`${BASE}/api/conversations`)).json()).conversations;
+let convsHo = (await (await req.get(`${BASE}/api/conversations`)).json()).conversations;
 const byName = (n) => convsHo.find((c) => c.contact.name === n);
-ok("la conversación de Josué quedó por atender (setup)",
+ok("la conversación de Josué quedó escalada (setup)",
    !!byName(`Josué${S} Ramírez`)?.handoffAt,
    JSON.stringify(byName(`Josué${S} Ramírez`)?.handoffReason));
+ok("026: tras el eco, Josué está atendida (awaitingSince null)",
+   byName(`Josué${S} Ramírez`)?.awaitingSince === null,
+   JSON.stringify(byName(`Josué${S} Ramírez`)?.awaitingSince));
 ok("la de Zoraida NO (caso negativo)", !byName(`Zoraida${S} Belier`)?.handoffAt);
 
-// "Por atender" también es el texto del distintivo de cada renglón; el
-// nombre accesible de los renglones empieza por el contacto, así que el ancla
-// ^ aísla la pastilla.
-const hoPill = page.getByRole("button", { name: /^Por atender/ });
+const rowOf = (l, name) => l.find((t) => t.includes(name)) ?? "";
 // Recarga: lo que se prueba es el filtro, no la propagación por SSE.
+await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
+await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
+list = await rows();
+ok("en 'Todas', Josué lleva 'Atendida' (y no 'Esperando')",
+   rowOf(list, `Josué${S}`).includes("Atendida") &&
+     !rowOf(list, `Josué${S}`).includes("Esperando"),
+   JSON.stringify(rowOf(list, `Josué${S}`)));
+
+// El cliente vuelve a escribir: vuelve a esperar respuesta.
+const again = await req.post(`${BASE}/api/dev/wa-mock/inbound`, {
+  data: { phoneNumberId: PN, ...people[1], text: "¿sigue ahí?", waMessageId: `wamid.s.${S}.again` },
+});
+ok("Josué vuelve a escribir (wa-mock)", again.ok(), String(again.status()));
+await new Promise((res) => setTimeout(res, 1500));
+
+const hoPill = page.getByRole("button", { name: /^Por atender/ });
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
 await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
-// Toda fila del filtro lleva UNO de los dos distintivos, nunca ambos: handoff
-// → "Por atender"; IA apagada a mano sin handoff → "IA pausada".
-const oneBadge = (t) => t.includes("Por atender") !== t.includes("IA pausada");
-const rowOf = (l, name) => l.find((t) => t.includes(name)) ?? "";
-ok("la pastilla deja solo conversaciones con un distintivo (y solo uno)",
-   list.length > 0 && list.every(oneBadge),
-   JSON.stringify(list.filter((t) => !oneBadge(t)).slice(0, 2)));
-ok("Josué (con handoff) aparece", has(list, `Josué${S}`), JSON.stringify(list.length));
-ok("Josué lleva 'Por atender', no 'IA pausada'",
-   rowOf(list, `Josué${S}`).includes("Por atender") &&
-     !rowOf(list, `Josué${S}`).includes("IA pausada"),
+// Toda fila de la vista espera respuesta: lleva «Esperando · X» y nunca
+// «Atendida».
+const waitingBadge = (t) => t.includes("Esperando") && !t.includes("Atendida");
+ok("la pastilla deja solo conversaciones esperando respuesta",
+   list.length > 0 && list.every(waitingBadge),
+   JSON.stringify(list.filter((t) => !waitingBadge(t)).slice(0, 2)));
+ok("Josué (escalado y con mensaje sin contestar) aparece", has(list, `Josué${S}`),
+   JSON.stringify(list.length));
+ok("Josué lleva 'Esperando', no 'Atendida'",
+   rowOf(list, `Josué${S}`).includes("Esperando") &&
+     !rowOf(list, `Josué${S}`).includes("Atendida"),
    JSON.stringify(rowOf(list, `Josué${S}`)));
 ok("Zoraida (sin handoff) no aparece", !has(list, `Zoraida${S}`));
 const pillCount = Number((await hoPill.innerText()).replace(/\D/g, ""));
@@ -296,7 +314,9 @@ ok("el contador de la pastilla coincide con la lista", pillCount === list.length
    JSON.stringify({ pillCount, filas: list.length }));
 
 // IA apagada a mano SIN handoff: misma API que el switch "IA en esta
-// conversación" del panel de contacto (PATCH { aiEnabled }).
+// conversación" del panel de contacto (PATCH { aiEnabled }). 026: entra en
+// la vista cuando el cliente espera respuesta (escribe tras la pausa).
+convsHo = (await (await req.get(`${BASE}/api/conversations`)).json()).conversations;
 const anon = `Anónima${S}`;
 const anonConv = convsHo.find((c) => c.contact.name === `${anon} Sin Tel`);
 ok("la conversación de Anónima existe y no tiene handoff (setup)",
@@ -306,14 +326,19 @@ const setAi = (aiEnabled) =>
   req.patch(`${BASE}/api/conversations/${anonConv?.id}`, { data: { aiEnabled } });
 const pausar = await setAi(false);
 ok("pausar la IA de Anónima (PATCH aiEnabled:false)", pausar.ok(), String(pausar.status()));
+const anonAgain = await req.post(`${BASE}/api/dev/wa-mock/inbound`, {
+  data: { phoneNumberId: PN, ...people[2], text: "¿hola?", waMessageId: `wamid.s.${S}.anon2` },
+});
+ok("Anónima escribe con la IA en pausa (wa-mock)", anonAgain.ok(), String(anonAgain.status()));
+await new Promise((res) => setTimeout(res, 1500));
 await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
 await page.getByText(`Josué${S}`).first().waitFor({ timeout: 20000 });
 await settle(() => hoPill.click(), (p) => p.get("filter") === "human");
 list = await rows();
-ok("con la IA pausada, Anónima aparece en 'Por atender'", has(list, anon),
-   JSON.stringify(list.length));
-ok("y lleva el distintivo 'IA pausada', no 'Por atender'",
-   rowOf(list, anon).includes("IA pausada") && !rowOf(list, anon).includes("Por atender"),
+ok("con la IA pausada y el mensaje sin contestar, Anónima aparece en 'Por atender'",
+   has(list, anon), JSON.stringify(list.length));
+ok("y lleva el distintivo 'Esperando'",
+   rowOf(list, anon).includes("Esperando") && !rowOf(list, anon).includes("Atendida"),
    JSON.stringify(rowOf(list, anon)));
 const pillCount2 = Number((await hoPill.innerText()).replace(/\D/g, ""));
 ok("el contador sube con ella y coincide con la lista",
@@ -332,7 +357,7 @@ ok("con la IA reactivada, Anónima sale del filtro", !has(list, anon),
 await settle(() => box.fill(`Zoraida${S}`), (p) => withQ(`Zoraida${S}`)(p) && p.get("filter") === "human");
 ok("búsqueda de alguien sin handoff + pastilla → estado vacío coherente",
    (await rows()).length === 0 &&
-     (await page.getByText("No hay conversaciones por atender.").isVisible()));
+     (await page.getByText("Nadie está esperando respuesta.").isVisible()));
 await settle(() => box.fill(""), withQ(""));
 await settle(() => page.getByRole("button", { name: /^Todas/ }).click(), (p) => !p.has("filter"));
 ok("volver a 'Todas' restaura la lista", (await rows()).length >= 3);

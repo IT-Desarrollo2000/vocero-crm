@@ -28,8 +28,9 @@ export const PAGE_SIZE = 50;
  * de la página (020: compartir/recargar conserva la vista y el panel).
  *
  * 020 (rediseño 4.4): `filter` es la VISTA (excluyente: Todas · No leídas ·
- * Mías · Atención humana); canal, etapa, origen, sin asignar y por cerrar son
- * filtros COMBINABLES entre sí y con la vista.
+ * Mías · Por atender — 026: solo las que esperan respuesta); canal, etapa,
+ * origen, sin asignar y por cerrar son filtros COMBINABLES entre sí y con la
+ * vista.
  */
 export type InboxFilters = {
   filter: InboxView;

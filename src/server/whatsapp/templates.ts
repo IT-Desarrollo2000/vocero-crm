@@ -16,6 +16,7 @@ import {
 } from "@/server/whatsapp/credentials";
 import { callGraphSend, SendError } from "@/server/inbox/send";
 import { UNARCHIVE_SET } from "@/server/inbox/archive";
+import { closeAwaitingSql } from "@/server/inbox/awaiting";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
 
@@ -276,7 +277,14 @@ export async function sendTemplate(input: {
   conversationId: string;
   templateId: string;
   variables?: string[];
+  /**
+   * 026 — ¿Este envío atiende al cliente (cierra su espera)? Sí cuando lo
+   * manda una persona desde el CRM (default); no en los automáticos, como
+   * los recordatorios de cita.
+   */
+  attends?: boolean;
 }): Promise<{ messageId: string }> {
+  const startedAt = new Date();
   const db = getDb();
 
   const templates = await db
@@ -401,9 +409,17 @@ export async function sendTemplate(input: {
 
   // 022: la plantilla aceptada desarchiva (un `failed` posterior por webhook
   // la deja desarchivada: aceptado, ver `persistOutbound`).
+  // 026: si la mandó una persona, además cierra la espera del cliente.
   await db
     .update(schema.conversation)
-    .set({ lastMessageAt: new Date(), updatedAt: new Date(), ...UNARCHIVE_SET })
+    .set({
+      lastMessageAt: new Date(),
+      updatedAt: new Date(),
+      ...UNARCHIVE_SET,
+      ...(input.attends !== false
+        ? { awaitingSince: closeAwaitingSql(startedAt) }
+        : {}),
+    })
     .where(eq(schema.conversation.id, input.conversationId));
 
   publish(input.organizationId, {

@@ -218,6 +218,42 @@ describe("reactivar la IA limpia la nota", () => {
     expect(set.handoffReason).toBeNull();
     expect(set.handoffNote).toBeNull();
     expect(set.aiEnabled).toBe(true);
+    // 026: "Reactivar IA" ≡ "Devolver a la IA": cierra también la espera.
+    expect(set.awaitingSince).toBeNull();
+  });
+});
+
+describe("026 — Marcar como atendida (`attended`)", () => {
+  beforeEach(() => {
+    updates.length = 0;
+  });
+
+  it("seguir atendiendo yo: cierra espera y escalamiento, IA en pausa", async () => {
+    const { updateConversation } = await import("@/server/inbox/queries");
+    await updateConversation("org_1", "cv_x", { attended: true });
+    const set = updates[0]!;
+    expect(set.awaitingSince).toBeNull();
+    expect(set.handoffAt).toBeNull();
+    expect(set.handoffReason).toBeNull();
+    expect(set.handoffNote).toBeNull();
+    expect(set.aiEnabled).toBe(false);
+  });
+
+  it("devolver a la IA: igual, pero la IA retoma", async () => {
+    const { updateConversation } = await import("@/server/inbox/queries");
+    await updateConversation("org_1", "cv_x", { attended: true, aiEnabled: true });
+    const set = updates[0]!;
+    expect(set.awaitingSince).toBeNull();
+    expect(set.handoffAt).toBeNull();
+    expect(set.aiEnabled).toBe(true);
+  });
+
+  it("sin `attended` ni `reactivate`, la espera no se toca", async () => {
+    const { updateConversation } = await import("@/server/inbox/queries");
+    await updateConversation("org_1", "cv_x", { aiEnabled: false });
+    const set = updates[0]!;
+    expect("awaitingSince" in set).toBe(false);
+    expect("handoffAt" in set).toBe(false);
   });
 });
 

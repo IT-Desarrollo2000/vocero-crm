@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
  * 022 — Ajustes de la Bandeja (solo Propietario): auto-archivo de
  * conversaciones inactivas. Sin fila = apagado, 14 días.
  *
- * GET → `{ settings: { autoArchiveEnabled, autoArchiveDays } }`
+ * GET → `{ settings: { autoArchiveEnabled, autoArchiveDays, overdueMinutes } }`
+ * (026: `overdueMinutes` = umbral de "atrasada" de Por atender; sin fila, 60).
  */
 export const GET = withAuth(async (session) => {
   const settings = await getInboxSettings(session.organizationId);
@@ -16,7 +17,8 @@ export const GET = withAuth(async (session) => {
 }, { role: "owner" });
 
 /**
- * PUT `{ autoArchiveEnabled: boolean, autoArchiveDays: 1–365 }`
+ * PUT `{ autoArchiveEnabled: boolean, autoArchiveDays: 1–365,
+ *       overdueMinutes?: 5–1440 (sin el campo → 60) }`
  *   → 200 `{ settings }` · 422 `invalid_body` fuera de rango
  */
 export const PUT = withAuth(async (session, req: Request) => {

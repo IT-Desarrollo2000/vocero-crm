@@ -79,6 +79,12 @@ export type ConversationDto = {
   archivedAt: string | null;
   /** 022: por qué se archivó, o null si no está archivada. */
   archivedReason: ArchivedReason | null;
+  /**
+   * 026: ISO de desde cuándo el cliente espera respuesta, o null = nadie le
+   * debe respuesta. En manos de una persona: "Esperando" vs. "Atendida"
+   * (`awaitingState` de `src/lib/awaiting.ts`).
+   */
+  awaitingSince: string | null;
 };
 
 /** 022: motivo de archivo (mismo catálogo que `ARCHIVED_REASONS` del schema). */
@@ -113,7 +119,8 @@ export type AssignedFilter = "me" | "unassigned" | "all";
 
 /**
  * 06: pastilla de la Bandeja, `GET /api/conversations?filter=`.
- * `human` = handoff o IA pausada (regla `needsHuman`); `mine`/`unassigned` =
+ * `human` = handoff o IA pausada (regla `needsHuman`) con el cliente
+ * esperando respuesta (026, `isAwaiting`); `mine`/`unassigned` =
  * mismo predicado que `assigned=me|unassigned` (si llegan ambos, se
  * intersectan). Valor desconocido → `all` (tolerante).
  */

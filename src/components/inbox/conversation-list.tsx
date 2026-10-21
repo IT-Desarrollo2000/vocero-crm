@@ -5,11 +5,9 @@ import {
   Archive,
   ArchiveRestore,
   Hourglass,
-  PauseCircle,
   Search,
   SlidersHorizontal,
   Sparkles,
-  UserRound,
   X,
 } from "lucide-react";
 import type {
@@ -28,6 +26,8 @@ import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
 import { stageColorByName } from "@/lib/stage-colors";
 import { closingRemainingMs } from "@/lib/closing-window";
+import { awaitingState, OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
+import { AwaitingChip } from "./awaiting-chip";
 import {
   assigneeLabel,
   formatRemaining,
@@ -299,6 +299,7 @@ export function ConversationList({
   onLoadMore,
   onRetry,
   onArchive,
+  overdueMinutes = OVERDUE_DEFAULT_MINUTES,
 }: {
   /** 06: lo cargado y dentro del filtro activo; null = primera carga. */
   conversations: ConversationDto[] | null;
@@ -326,6 +327,8 @@ export function ConversationList({
   onRetry?: () => void;
   /** 022: archivar (`archived: true`) o desarchivar (`false`) desde la fila. */
   onArchive?: (id: string, archived: boolean) => void;
+  /** 026: minutos de espera a partir de los que la fila sale en rojo. */
+  overdueMinutes?: number;
 }) {
   // 020: arranca con la búsqueda de la URL (los filtros viven ahí).
   const [query, setQuery] = useState(filters.q);
@@ -389,7 +392,8 @@ export function ConversationList({
   }, []);
 
   // 05: reloj de la cuenta regresiva «Cierra en …» (desde `lastInboundAt`,
-  // no del `windowRemainingMs` serializado, que envejece).
+  // no del `windowRemainingMs` serializado, que envejece). 026: el mismo
+  // reloj hace avanzar el «Esperando · X» de las filas.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), CLOSING_TICK_MS);
@@ -818,7 +822,7 @@ export function ConversationList({
               : filter === "archived"
                 ? "No hay conversaciones archivadas."
                 : filter === "human"
-                  ? "No hay conversaciones por atender."
+                  ? "Nadie está esperando respuesta."
                   : filter === "mine"
                     ? "No tienes conversaciones a tu nombre."
                     : "Sin resultados para este filtro."}
@@ -896,7 +900,10 @@ export function ConversationList({
                           <EtiquetaDeOrigen anuncio={c.anuncio} />
                         </span>
                       )}
-                      <span className="mt-1.5 flex items-center gap-1.5">
+                      {/* 026: «Esperando · menos de 1 min» + etapa + «Cierra
+                          en…» + asignado no caben en una columna angosta:
+                          bajan de línea (flex-wrap) en vez de recortarse. */}
+                      <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {/* 022: en cualquier vista (búsqueda, enlace
                             ?contact=), no solo en Archivadas. */}
                         {archived && (
@@ -919,19 +926,13 @@ export function ConversationList({
                             {c.stageName}
                           </span>
                         )}
-                        {/* Uno u otro, nunca ambos: el handoff manda sobre la
-                            IA apagada a mano (ver needsHuman). */}
-                        {c.handoffAt ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-warning-soft bg-warning-tint px-2 py-0.5 text-[11px] text-warning-text">
-                            <UserRound className="h-3 w-3" strokeWidth={1.7} />
-                            Por atender
-                          </span>
-                        ) : c.aiEnabled === false ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-[11px] text-text-3">
-                            <PauseCircle className="h-3 w-3" strokeWidth={1.7} />
-                            IA pausada
-                          </span>
-                        ) : null}
+                        {/* 026: en manos de una persona (escalada o IA
+                            apagada a mano), UNA de dos: «Esperando · X»
+                            (ámbar; rojo si está atrasada) o «Atendida». */}
+                        <AwaitingChip
+                          conversation={c}
+                          state={awaitingState(c, now, overdueMinutes)}
+                        />
                         {closesIn !== null && (
                           <span
                             data-testid="closing-chip"

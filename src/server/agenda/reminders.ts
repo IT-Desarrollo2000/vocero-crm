@@ -286,6 +286,9 @@ async function attemptDelivery(
     conversationId,
     templateId: template.id,
     variables,
+    // 026: un recordatorio automático no contesta al cliente: si esperaba
+    // respuesta, sigue esperando.
+    attends: false,
   });
   return { status: "sent", messageId: sent.messageId };
 }

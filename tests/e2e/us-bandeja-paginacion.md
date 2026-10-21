@@ -50,8 +50,10 @@
 
 5. Se marcan 3 como leídas → `filter=unread&q=<S>` recorre exactamente
    `counts.unread`, toda fila con `unreadCount > 0` y sin las leídas.
-6. Se pausa la IA en 3 (`PATCH { aiEnabled: false }`) → `filter=human`
-   (recorrido con `limit=2`) = `counts.human`, las 3 incluidas.
+6. Se pausa la IA en 3 (`PATCH { aiEnabled: false }`) y (026) esos clientes
+   vuelven a escribir → `filter=human`
+   (recorrido con `limit=2`) = `counts.human`, las 3 incluidas, toda fila
+   con `awaitingSince` no nulo.
 7. Se mueven 4 leads a otra etapa abierta → `stage=<id>&q=<S>` = esas 4 con
    `stageId`/`stageName` correctos, `counts.all = 4`; etapa inexistente →
    lista vacía (200).

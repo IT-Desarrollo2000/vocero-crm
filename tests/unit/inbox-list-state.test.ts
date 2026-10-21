@@ -55,6 +55,7 @@ function mk(
     anuncio: null,
     archivedAt: null,
     archivedReason: null,
+    awaitingSince: null,
     ...rest,
   } satisfies ConversationDto;
 }
@@ -267,7 +268,13 @@ describe("pinFirst — enlace ?contact= anclado arriba (CA-06-05)", () => {
 describe("countsFromLoaded — respaldo si /counts no responde", () => {
   const items = [
     mk({ unreadCount: 3 }),
-    mk({ unreadCount: 1, handoffAt: "2026-10-01T00:00:00Z", channel: "instagram" }),
+    mk({
+      unreadCount: 1,
+      handoffAt: "2026-10-01T00:00:00Z",
+      awaitingSince: "2026-10-01T00:00:00Z",
+      channel: "instagram",
+    }),
+    // 026: IA en pausa pero ya atendida (sin espera): no cuenta en "Por atender".
     mk({ aiEnabled: false, assignedTo: { userId: "u1", name: "Yo" } }),
     mk({ name: "Zoe" }),
   ];
@@ -277,7 +284,7 @@ describe("countsFromLoaded — respaldo si /counts no responde", () => {
     expect(c).toMatchObject({
       all: 4,
       unread: 2,
-      human: 2,
+      human: 1,
       mine: 1,
       unassigned: 3,
       byChannel: { whatsapp: 3, instagram: 1, messenger: 0 },

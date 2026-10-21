@@ -47,31 +47,35 @@ al montar se adopta lo que ya haya en el DOM.
 
 ## Pastilla «Por atender» (Bandeja)
 
-Tercera pastilla junto a «Todas / No leídas». Por atender = la
-conversación tiene `handoffAt` **o** la IA se apagó a mano
-(`aiEnabled === false`, decisión del dueño 2026-10-10). Cada renglón del
-filtro lleva uno de dos distintivos, nunca ambos: «Por atender» si hay
-handoff, «IA pausada» si solo se apagó la IA. Lógica pura en `needsHuman()` /
-`filterConversations()` (`src/components/inbox/helpers.ts`), cubierta por
-`tests/unit/inbox-filters.test.ts`.
+Tercera pastilla junto a «Todas / No leídas». 026: Por atender = la
+conversación está en manos de una persona (`handoffAt` **o** la IA apagada a
+mano, `aiEnabled === false`) **y** el cliente espera respuesta
+(`awaitingSince` no nulo). Cada renglón en manos de una persona lleva uno de
+dos distintivos: «Esperando · X» (ámbar; rojo si pasó el umbral) o
+«Atendida». Lógica pura en `isAwaiting()` / `filterConversations()`
+(`src/components/inbox/helpers.ts`) y `awaitingState()` (`src/lib/awaiting.ts`),
+cubierta por `tests/unit/inbox-filters.test.ts` y `tests/unit/awaiting.test.ts`.
+Guion completo de la espera: [us-por-atender.md](us-por-atender.md).
 
 10. Provocar un handoff en «Josué Ramírez» con un echo del mock
     (`POST /api/dev/wa-mock/echo`: el dueño contesta a mano → `manual_reply`).
-    ✅ La API devuelve su `handoffAt`; «Zoraida» queda sin handoff.
-11. Pulsar «Por atender».
-    ✅ Todo renglón lleva exactamente un distintivo («Por atender» o
-    «IA pausada»); Josué sí (con «Por atender»), Zoraida no.
+    ✅ La API devuelve su `handoffAt` y `awaitingSince: null` (el eco ES una
+    respuesta); «Zoraida» queda sin handoff.
+    ✅ En «Todas», Josué lleva «Atendida» (no «Esperando»).
+11. Josué vuelve a escribir (wa-mock). Pulsar «Por atender».
+    ✅ Todo renglón lleva «Esperando» y ninguno «Atendida»; Josué sí,
+    Zoraida no.
     ✅ El contador de la pastilla coincide con las filas (cuenta dentro de la
     bandeja/etapa/búsqueda activas, igual que «No leídas»).
 12. Pausar la IA de «Anónima» (sin handoff) con la misma API que el switch
     «IA en esta conversación» del panel: `PATCH /api/conversations/:id`
-    `{ aiEnabled: false }`. Recargar y pulsar la pastilla.
-    ✅ Anónima aparece, con el distintivo «IA pausada» (no «Por atender»).
+    `{ aiEnabled: false }`; Anónima escribe. Recargar y pulsar la pastilla.
+    ✅ Anónima aparece, con el distintivo «Esperando».
     ✅ El contador sube en uno y sigue coincidiendo con las filas.
     Reactivarla (`{ aiEnabled: true }`), recargar, pastilla.
     ✅ Anónima sale del filtro.
 13. Camino infeliz: buscar a Zoraida con la pastilla puesta.
-    ✅ Estado vacío coherente: «No hay conversaciones por atender.»
+    ✅ Estado vacío coherente: «Nadie está esperando respuesta.»
     ✅ Volver a «Todas» restaura la lista.
 
 ## Búsqueda del servidor (Contactos)

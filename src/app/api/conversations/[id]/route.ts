@@ -20,6 +20,14 @@ const patchSchema = z.object({
    * con su visibilidad; una `is_test` → 404.
    */
   archived: z.boolean().optional(),
+  /**
+   * 026: "Marcar como atendida": cierra la espera y el escalamiento; con
+   * `aiEnabled` decide si la IA retoma (true) o sigue en pausa (default).
+   */
+  attended: z.literal(true).optional(),
+}).refine((d) => !(d.attended && d.reactivate), {
+  message: "Usa `attended` o `reactivate`, no los dos",
+  path: ["attended"],
 });
 
 type Params = { params: Promise<{ id: string }> };

@@ -7,6 +7,11 @@ import {
   AUTO_ARCHIVE_MIN_DAYS,
   type InboxSettingsDto,
 } from "@/lib/inbox-settings";
+import {
+  OVERDUE_DEFAULT_MINUTES,
+  OVERDUE_MAX_MINUTES,
+  OVERDUE_MIN_MINUTES,
+} from "@/lib/awaiting";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,14 +38,40 @@ async function errorMessage(res: Response | null, fallback: string): Promise<str
 
 const DAYS_HINT = `Entre ${AUTO_ARCHIVE_MIN_DAYS} y ${AUTO_ARCHIVE_MAX_DAYS} días.`;
 
+/** 026: minutos válidos (5–1440, enteros) o null si lo escrito no sirve. */
+function parseMinutes(raw: string): number | null {
+  if (!/^\d+$/.test(raw.trim())) return null;
+  const n = Number(raw.trim());
+  return n >= OVERDUE_MIN_MINUTES && n <= OVERDUE_MAX_MINUTES ? n : null;
+}
+
+const MINUTES_HINT = `Entre ${OVERDUE_MIN_MINUTES} y ${OVERDUE_MAX_MINUTES} minutos (24 h).`;
+
 /**
  * 022 — Ajustes → Bandeja (solo Propietario). Archivado automático de
  * conversaciones inactivas y limpieza en dos pasos (calcular → confirmar).
  * Archivar nunca borra: el historial, los reportes y la atribución quedan.
+ *
+ * 026 — Umbral de "atrasada" de la vista Por atender. Va en el MISMO PUT que
+ * el auto-archivo (el schema lo pone en 60 si falta): cada tarjeta guarda los
+ * tres valores para no pisar la otra.
  */
 export function InboxSettingsClient() {
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+
+  // 026: Por atender.
+  const [overdue, setOverdue] = useState(String(OVERDUE_DEFAULT_MINUTES));
+  const [savingOverdue, setSavingOverdue] = useState(false);
+  const [savedOverdue, setSavedOverdue] = useState(false);
+  const [overdueError, setOverdueError] = useState<string | null>(null);
+  // Lo último guardado/cargado de cada tarjeta: guardar una no manda lo que
+  // se está editando (sin guardar) en la otra.
+  const [stored, setStored] = useState<InboxSettingsDto>({
+    autoArchiveEnabled: false,
+    autoArchiveDays: AUTO_ARCHIVE_DEFAULT_DAYS,
+    overdueMinutes: OVERDUE_DEFAULT_MINUTES,
+  });
 
   // Archivado automático.
   const [enabled, setEnabled] = useState(false);
@@ -64,6 +95,10 @@ export function InboxSettingsClient() {
           setEnabled(d.settings.autoArchiveEnabled);
           setDays(String(d.settings.autoArchiveDays));
           setCleanDays(String(d.settings.autoArchiveDays));
+          // Servidor anterior a 026 (sin el campo): el default.
+          const minutes = d.settings.overdueMinutes ?? OVERDUE_DEFAULT_MINUTES;
+          setOverdue(String(minutes));
+          setStored({ ...d.settings, overdueMinutes: minutes });
         } else {
           setLoadFailed(true);
         }
@@ -78,23 +113,47 @@ export function InboxSettingsClient() {
   const parsedDays = parseDays(days);
   const parsedCleanDays = parseDays(cleanDays);
 
-  async function save() {
-    if (parsedDays === null) return;
-    setSaving(true);
-    setSaved(false);
-    setSaveError(null);
-    const body: InboxSettingsDto = { autoArchiveEnabled: enabled, autoArchiveDays: parsedDays };
+  const parsedOverdue = parseMinutes(overdue);
+
+  /** PUT con los tres valores (`patch` = lo de la tarjeta que guarda). */
+  async function put(patch: Partial<InboxSettingsDto>): Promise<string | null> {
+    const body: InboxSettingsDto = { ...stored, ...patch };
     const res = await fetch("/api/settings/inbox", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }).catch(() => null);
+    if (!res?.ok) return errorMessage(res, "No se pudo guardar.");
+    setStored(body);
+    return null;
+  }
+
+  async function save() {
+    if (parsedDays === null) return;
+    setSaving(true);
+    setSaved(false);
+    setSaveError(null);
+    const error = await put({ autoArchiveEnabled: enabled, autoArchiveDays: parsedDays });
     setSaving(false);
-    if (!res?.ok) {
-      setSaveError(await errorMessage(res, "No se pudo guardar."));
+    if (error) {
+      setSaveError(error);
       return;
     }
     setSaved(true);
+  }
+
+  async function saveOverdue() {
+    if (parsedOverdue === null) return;
+    setSavingOverdue(true);
+    setSavedOverdue(false);
+    setOverdueError(null);
+    const error = await put({ overdueMinutes: parsedOverdue });
+    setSavingOverdue(false);
+    if (error) {
+      setOverdueError(error);
+      return;
+    }
+    setSavedOverdue(true);
   }
 
   async function runCleanup(dryRun: boolean) {
@@ -137,6 +196,65 @@ export function InboxSettingsClient() {
           valores por defecto.
         </p>
       )}
+
+      <section aria-label="Por atender">
+        <Card>
+          <CardHeader>
+            <CardTitle>Por atender</CardTitle>
+            <CardDescription>
+              Los chats en manos de una persona muestran cuánto lleva el
+              cliente esperando respuesta: en ámbar mientras tanto y en rojo
+              al pasar este tiempo. Aplica a todo el equipo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="overdue-minutes">
+                Marcar como atrasada tras (minutos)
+              </Label>
+              <Input
+                id="overdue-minutes"
+                type="number"
+                inputMode="numeric"
+                min={OVERDUE_MIN_MINUTES}
+                max={OVERDUE_MAX_MINUTES}
+                step={1}
+                value={overdue}
+                onChange={(e) => {
+                  setOverdue(e.target.value);
+                  setSavedOverdue(false);
+                }}
+                aria-invalid={parsedOverdue === null}
+                aria-describedby="overdue-minutes-hint"
+                className="max-w-[8rem]"
+              />
+              <p id="overdue-minutes-hint" className="text-xs text-text-3">
+                {parsedOverdue === null ? (
+                  <span className="text-destructive">{MINUTES_HINT}</span>
+                ) : (
+                  MINUTES_HINT
+                )}
+              </p>
+            </div>
+            {overdueError && (
+              <p role="alert" className="text-sm text-destructive">
+                {overdueError}
+              </p>
+            )}
+            {savedOverdue && (
+              <p role="status" className="text-sm text-brand-text">
+                Umbral guardado ✓ (se ve en la Bandeja al recargarla)
+              </p>
+            )}
+            <Button
+              disabled={savingOverdue || parsedOverdue === null}
+              onClick={() => void saveOverdue()}
+            >
+              {savingOverdue ? "Guardando…" : "Guardar"}
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
 
       <section aria-label="Archivado automático">
         <Card>

@@ -230,6 +230,8 @@ describe("elegibilidad (reloj inyectado)", () => {
     expect(call.variables[0]).toBe("Ana");
     expect(call.variables[1]).toMatch(/10:00/); // 16:00Z en Ciudad de México
     expect(call.variables[2]).toBe("te lo compartimos por este medio");
+    // 026: un recordatorio automático no atiende al cliente (CA-5).
+    expect(call.attends).toBe(false);
     expect(db.rows[0]).toMatchObject({ status: "sent", messageId: "msg_1", waMessageId: "wamid.msg_1" });
     expect(publish).toHaveBeenCalledWith(ORG, { type: "booking.updated", data: { bookingId: "bk_1" } });
   });

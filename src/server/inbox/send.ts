@@ -5,6 +5,7 @@ import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
 import { publish } from "@/server/events/bus";
 import { UNARCHIVE_SET } from "@/server/inbox/archive";
+import { closeAwaitingByAiSql, closeAwaitingSql } from "@/server/inbox/awaiting";
 import {
   getCredentialsByOrg,
   markReconnectRequired,
@@ -409,6 +410,11 @@ async function persistOutbound(input: {
   media?: typeof schema.mediaAsset.$inferSelect | null;
   /** 025 — La acción de agenda que produjo el texto (solo el agente). */
   agentAction?: AgentActionRecord | null;
+  /**
+   * 026 — Cuándo empezó el envío: un entrante posterior a este instante
+   * sigue sin contestar y deja la espera abierta (`closeAwaitingSql`).
+   */
+  startedAt: Date;
 }): Promise<string> {
   const db = getDb();
   const inserted = await db
@@ -434,12 +440,22 @@ async function persistOutbound(input: {
   // 022: un saliente aceptado (operador, agente, bot API, catálogo) desarchiva;
   // uno que ya falló, no. Aceptado: si WhatsApp lo marca `failed` después
   // (webhook `pending` → `failed`), la conversación queda desarchivada.
+  // 026: misma convención para la espera: un saliente aceptado (operador,
+  // agente, bot externo) atiende al cliente y la cierra; uno fallido, no. La
+  // IA o el bot, solo sin escalamiento abierto (ver closeAwaitingByAiSql).
   await db
     .update(schema.conversation)
     .set({
       lastMessageAt: new Date(),
       updatedAt: new Date(),
-      ...(input.status !== "failed" ? UNARCHIVE_SET : {}),
+      ...(input.status !== "failed"
+        ? {
+            ...UNARCHIVE_SET,
+            awaitingSince: input.aiGenerated
+              ? closeAwaitingByAiSql(input.startedAt)
+              : closeAwaitingSql(input.startedAt),
+          }
+        : {}),
     })
     .where(eq(schema.conversation.id, input.conversationId));
 
@@ -466,6 +482,7 @@ export async function sendText(input: {
    */
   agentAction?: AgentActionRecord | null;
 }): Promise<SendResult> {
+  const startedAt = new Date();
   const target = await prepareSend(input.conversationId, input.organizationId);
 
   // FR-210: la etiqueta de agente humano es, por politica de Meta, solo para
@@ -503,6 +520,7 @@ export async function sendText(input: {
     aiGenerated: input.aiGenerated,
     origin: input.aiGenerated ? "ai" : "operator",
     agentAction: input.agentAction ?? null,
+    startedAt,
   });
 
   return { messageId };
@@ -532,6 +550,7 @@ export async function sendMediaMessage(input: {
   /** 019 (FR-940): el archivo viene del catálogo; procedencia de la copia. */
   productFileId?: string;
 }): Promise<SendResult> {
+  const startedAt = new Date();
   // Puro: ni disco ni red. Lanza MediaValidationError (413/415).
   const inspection = inspectOutgoing(input.file.data, {
     fileName: input.file.fileName,
@@ -679,6 +698,7 @@ export async function sendMediaMessage(input: {
       origin: "operator",
       mediaAssetId: assetId,
       media: asset,
+      startedAt,
     });
   } catch (err) {
     let sendErr: SendError;
@@ -718,6 +738,7 @@ export async function sendMediaMessage(input: {
       origin: "operator",
       mediaAssetId: assetId,
       media: asset,
+      startedAt,
     });
     throw sendErr;
   }
@@ -755,6 +776,7 @@ export async function sendMediaMessage(input: {
           status: "failed",
           error: `El archivo sí se envió, pero su texto no: ${reason}`,
           origin: "operator",
+          startedAt,
         });
       } catch (persistErr) {
         // El éxito del adjunto no se convierte en error por esto.
@@ -784,6 +806,7 @@ export async function sendStructured(
     | { kind: "contacts"; contacts: ContactInput[] }
   )
 ): Promise<SendResult> {
+  const startedAt = new Date();
   const target = await prepareSend(input.conversationId, input.organizationId);
   requireWhatsApp(
     target,
@@ -832,6 +855,7 @@ export async function sendStructured(
     origin: "operator",
     mediaAssetId: asset.id,
     media: asset,
+    startedAt,
   });
   return { messageId };
 }

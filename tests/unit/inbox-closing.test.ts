@@ -60,6 +60,7 @@ function mk(over: Partial<ConversationDto> = {}): ConversationDto {
     anuncio: null,
     archivedAt: null,
     archivedReason: null,
+    awaitingSince: null,
     ...over,
   } satisfies ConversationDto;
 }

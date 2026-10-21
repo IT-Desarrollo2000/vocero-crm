@@ -34,6 +34,7 @@ import { AssignmentControl, type TeamOption } from "./assignment-control";
 import { useInboxList } from "./use-inbox-list";
 import { filtersFromSearchParams } from "./list-state";
 import { BookingDialog } from "@/components/bookings/booking-dialog";
+import { OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
 const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
@@ -73,10 +74,16 @@ const isWideEnoughForPanel = () =>
 export function InboxClient({
   channels,
   agenda = false,
+  overdueMinutes = OVERDUE_DEFAULT_MINUTES,
 }: {
   channels: readonly Channel[];
   /** 023 — Agenda encendida (`AGENDA`): muestra "Agendar" en el hilo. */
   agenda?: boolean;
+  /**
+   * 026 — Umbral de "atrasada" (Ajustes → Bandeja). Lo lee el servidor de
+   * la página: el endpoint de ajustes es solo del Propietario.
+   */
+  overdueMinutes?: number;
 }) {
   const multiChannel = channels.length > 1;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -542,7 +549,7 @@ export function InboxClient({
   );
 
   const patchConversation = useCallback(
-    async (patch: { aiEnabled?: boolean; reactivate?: boolean }) => {
+    async (patch: { aiEnabled?: boolean; reactivate?: boolean; attended?: true }) => {
       const conversationId = selectedIdRef.current;
       if (!conversationId) return;
       const res = await fetch(`/api/conversations/${conversationId}`, {
@@ -634,6 +641,7 @@ export function InboxClient({
           onLoadMore={() => void list.loadMore()}
           onRetry={() => reloadList()}
           onArchive={(id, archived) => void archive(id, archived)}
+          overdueMinutes={overdueMinutes}
         />
       </section>
 
@@ -814,6 +822,7 @@ export function InboxClient({
               conversation={selected}
               refreshKey={detailRev}
               onPatchConversation={patchConversation}
+              overdueMinutes={overdueMinutes}
               onClose={() => togglePanel(false)}
               assignment={panelOpen ? assignmentControl("max-w-none") : null}
             />

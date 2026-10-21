@@ -198,4 +198,25 @@ describe("markHandoff", () => {
       actorUserId: null,
     });
   });
+
+  it("026: escalar abre la espera (coalesce), salvo el eco del teléfono", async () => {
+    returningRows = [{ id: "cv_1", isTest: false }];
+    const { markHandoff } = await import("@/server/inbox/handoff");
+    await markHandoff(base);
+    // SQL `coalesce(awaiting_since, <ahora>::timestamp)`: no mueve una espera
+    // que ya estaba abierta.
+    expect(updates[0]!.awaitingSince).toBeDefined();
+    expect(updates[0]!.awaitingSince).not.toBeNull();
+
+    updates.length = 0;
+    await markHandoff({
+      ...base,
+      reason: "manual_reply",
+      note: null,
+      source: "telefono",
+      pauseAi: true,
+    });
+    // `manual_reply` ES una respuesta humana: no abre ninguna espera.
+    expect("awaitingSince" in updates[0]!).toBe(false);
+  });
 });

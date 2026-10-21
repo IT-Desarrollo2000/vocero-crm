@@ -54,6 +54,8 @@ export async function POST(req: Request) {
       handoffAt: null,
       handoffReason: null,
       handoffNote: null,
+      // 026: conversación reiniciada: nadie le debe respuesta.
+      awaitingSince: null,
       updatedAt: new Date(),
     })
     .where(eq(schema.conversation.id, conv.id));

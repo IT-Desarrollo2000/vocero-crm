@@ -117,8 +117,13 @@ export function inboxFilterCondition(
     case "unread":
       return gt(c.unreadCount, 0);
     case "human":
-      // Regla `needsHuman` de `src/components/inbox/helpers.ts`.
-      return or(isNotNull(c.handoffAt), eq(c.aiEnabled, false));
+      // 026: "Por atender" = en manos de una persona (regla `needsHuman`)
+      // Y el cliente esperando respuesta (`isAwaiting` de
+      // `src/components/inbox/helpers.ts`). Las ya atendidas no cuentan.
+      return and(
+        or(isNotNull(c.handoffAt), eq(c.aiEnabled, false)),
+        isNotNull(c.awaitingSince)
+      );
     case "mine":
       return assignedCondition(viewer, "me");
     case "unassigned":
@@ -675,6 +680,7 @@ export function serializeConversation(
     anuncio,
     archivedAt: c.archivedAt?.toISOString() ?? null,
     archivedReason: c.archivedReason ?? null,
+    awaitingSince: c.awaitingSince?.toISOString() ?? null,
   };
 }
 
@@ -695,6 +701,12 @@ export async function updateConversation(
     markRead?: boolean;
     /** 022: archivar (`true`, motivo `manual`) o desarchivar (`false`). */
     archived?: boolean;
+    /**
+     * 026: "Marcar como atendida": cierra la espera y el escalamiento. La IA
+     * queda como diga `aiEnabled` ("Devolver a la IA" = true); por defecto en
+     * pausa ("Seguir atendiendo yo"). No se combina con `reactivate`.
+     */
+    attended?: boolean;
   },
   viewer?: Viewer
 ) {
@@ -707,6 +719,15 @@ export async function updateConversation(
     set.handoffReason = null;
     set.handoffNote = null;
     set.aiEnabled = patch.aiEnabled ?? true;
+    // 026: "Reactivar IA" ≡ "Devolver a la IA": la IA retoma, nadie espera.
+    set.awaitingSince = null;
+  }
+  if (patch.attended) {
+    set.awaitingSince = null;
+    set.handoffAt = null;
+    set.handoffReason = null;
+    set.handoffNote = null;
+    set.aiEnabled = patch.aiEnabled ?? false;
   }
   if (patch.markRead) set.unreadCount = 0;
   if (patch.archived === true) {

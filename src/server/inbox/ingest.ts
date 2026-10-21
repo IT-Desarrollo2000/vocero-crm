@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { UNARCHIVE_SET } from "@/server/inbox/archive";
+import { closeAwaitingSql, openAwaitingSql } from "@/server/inbox/awaiting";
 import { normalizeMx } from "@/lib/meta/client";
 import { publish } from "@/server/events/bus";
 import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
@@ -354,9 +355,16 @@ async function ingestManualEcho(
 
   // Solo lastMessageAt: un mensaje del negocio NUNCA abre la ventana de 24 h.
   // 022: el eco del teléfono es un saliente exitoso → desarchiva.
+  // 026: y es una respuesta humana → cierra la espera (cota: la hora del eco;
+  // un entrante posterior la deja abierta).
   await db
     .update(schema.conversation)
-    .set({ lastMessageAt: waTimestamp, updatedAt: new Date(), ...UNARCHIVE_SET })
+    .set({
+      lastMessageAt: waTimestamp,
+      awaitingSince: closeAwaitingSql(waTimestamp),
+      updatedAt: new Date(),
+      ...UNARCHIVE_SET,
+    })
     .where(eq(schema.conversation.id, conversation.id));
 
   // Pausa automática de la IA, idempotente y atómica (solo si no hay handoff):
@@ -593,6 +601,9 @@ export async function ingestInboundMessage(input: {
       lastInboundAt: waTimestamp,
       lastMessageAt: waTimestamp,
       unreadCount: sql`${schema.conversation.unreadCount} + 1`,
+      // 026: el cliente espera respuesta desde su PRIMER mensaje sin
+      // contestar; si ya esperaba, la espera no se mueve.
+      awaitingSince: openAwaitingSql(waTimestamp),
       updatedAt: new Date(),
       // 022: un entrante devuelve la conversación a la Bandeja (tras el
       // dedupe: un duplicado no desarchiva).

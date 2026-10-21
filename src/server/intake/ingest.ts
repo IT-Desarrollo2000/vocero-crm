@@ -12,6 +12,7 @@ import { upsertFicha } from "@/server/bot/ficha";
 import { publish } from "@/server/events/bus";
 import { getFichaFields } from "@/server/ficha-fields";
 import { UNARCHIVE_SET } from "@/server/inbox/archive";
+import { openAwaitingSql } from "@/server/inbox/awaiting";
 import {
   getOrCreateContactByIdentity,
   isFallbackName,
@@ -176,6 +177,9 @@ export async function ingestExternalLead(
       .set({
         lastMessageAt: sql`greatest(${schema.conversation.lastMessageAt}, ${now.toISOString()}::timestamp)`,
         unreadCount: sql`${schema.conversation.unreadCount} + 1`,
+        // 026: el prospecto espera respuesta desde que entra al CRM (no desde
+        // la fecha del lead: la carga inicial no debe nacer "atrasada").
+        awaitingSince: openAwaitingSql(now),
         updatedAt: now,
         ...UNARCHIVE_SET,
       })

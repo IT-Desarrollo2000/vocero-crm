@@ -3,6 +3,7 @@ import {
   assigneeLabel,
   filterConversations,
   initials,
+  isAwaiting,
   isMine,
   needsHuman,
 } from "@/components/inbox/helpers";
@@ -42,6 +43,7 @@ function mk(
     anuncio: null,
     archivedAt: null,
     archivedReason: null,
+    awaitingSince: null,
     ...rest,
   } satisfies ConversationDto;
 }
@@ -56,6 +58,7 @@ describe("filterConversations — pastillas de la bandeja", () => {
     handoffAt: "2026-10-01T10:00:00.000Z",
     handoffReason: "cliente",
     aiEnabled: false,
+    awaitingSince: "2026-10-01T10:00:00.000Z",
   });
   const ana = mk({
     name: "Ana Kevinsky",
@@ -63,12 +66,24 @@ describe("filterConversations — pastillas de la bandeja", () => {
     handoffAt: "2026-10-02T10:00:00.000Z",
     handoffReason: "hostilidad",
     aiEnabled: false,
+    awaitingSince: "2026-10-02T10:05:00.000Z",
   });
-  // IA apagada a mano, SIN handoff: también es "atención humana".
-  const lucia = mk({ name: "Lucía Sol", aiEnabled: false });
+  // IA apagada a mano, SIN handoff: también está en manos de una persona.
+  const lucia = mk({
+    name: "Lucía Sol",
+    aiEnabled: false,
+    awaitingSince: "2026-10-03T09:00:00.000Z",
+  });
+  // 026: escalada, pero ya contestada: "Atendida", fuera de "Por atender".
+  const marta = mk({
+    name: "Marta Atendida",
+    handoffAt: "2026-10-02T08:00:00.000Z",
+    handoffReason: "cliente",
+    awaitingSince: null,
+  });
   // Ni handoff ni IA apagada: la atiende el agente.
   const pablo = mk({ name: "Pablo Ríos" });
-  const all = [kevin, diego, ana, lucia, pablo];
+  const all = [kevin, diego, ana, lucia, marta, pablo];
 
   it("'all' devuelve todo, en el mismo orden", () => {
     const { visible, inInbox, searched } = filterConversations(all, {
@@ -76,8 +91,8 @@ describe("filterConversations — pastillas de la bandeja", () => {
       filter: "all",
     });
     expect(names(visible)).toEqual(names(all));
-    expect(inInbox).toHaveLength(5);
-    expect(searched).toHaveLength(5);
+    expect(inInbox).toHaveLength(6);
+    expect(searched).toHaveLength(6);
   });
 
   it("'unread' deja solo las que tienen mensajes sin leer", () => {
@@ -85,15 +100,32 @@ describe("filterConversations — pastillas de la bandeja", () => {
     expect(names(visible)).toEqual(["Kevin Belier", "Ana Kevinsky"]);
   });
 
-  it("'human' deja las que tienen handoffAt o la IA apagada", () => {
+  it("'human' deja las que están en manos de una persona Y esperan respuesta (026)", () => {
     const { visible } = filterConversations(all, { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Diego Pérez", "Ana Kevinsky", "Lucía Sol"]);
+  });
+
+  it("026: escalada ya contestada (awaitingSince null) NO está por atender", () => {
+    expect(needsHuman(marta)).toBe(true);
+    expect(isAwaiting(marta)).toBe(false);
+    const { visible } = filterConversations([marta], { ...base, filter: "human" });
+    expect(visible).toHaveLength(0);
+  });
+
+  it("026: esperando respuesta pero con la IA al mando NO está por atender", () => {
+    // El cliente escribió y la IA aún no contesta: no es trabajo de nadie.
+    const conIa = mk({ name: "Con IA", awaitingSince: "2026-10-03T09:00:00.000Z" });
+    expect(needsHuman(conIa)).toBe(false);
+    expect(isAwaiting(conIa)).toBe(false);
+    const { visible } = filterConversations([conIa], { ...base, filter: "human" });
+    expect(visible).toHaveLength(0);
   });
 
   it("IA apagada sin handoff SÍ cuenta como atención humana", () => {
     expect(needsHuman(lucia)).toBe(true);
     expect(needsHuman(diego)).toBe(true);
     expect(needsHuman(pablo)).toBe(false);
+    expect(isAwaiting(lucia)).toBe(true);
     const { visible } = filterConversations([lucia], { ...base, filter: "human" });
     expect(names(visible)).toEqual(["Lucía Sol"]);
   });
@@ -146,13 +178,14 @@ describe("filterConversations — pastillas de la bandeja", () => {
 });
 
 describe("filterConversations — etapa y canal", () => {
-  const a = mk({ name: "Alfa", stageName: "Interesado", handoffAt: "2026-10-01T00:00:00Z" });
-  const b = mk({ name: "Beta", stageName: "Nuevo", handoffAt: "2026-10-01T00:00:00Z" });
+  const waiting = { handoffAt: "2026-10-01T00:00:00Z", awaitingSince: "2026-10-01T00:00:00Z" };
+  const a = mk({ name: "Alfa", stageName: "Interesado", ...waiting });
+  const b = mk({ name: "Beta", stageName: "Nuevo", ...waiting });
   const c = mk({
     name: "Gama",
     stageName: "Interesado",
     channel: "instagram",
-    handoffAt: "2026-10-01T00:00:00Z",
+    ...waiting,
   });
   const all = [a, b, c];
 

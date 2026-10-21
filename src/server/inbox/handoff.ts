@@ -4,6 +4,7 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { publish } from "@/server/events/bus";
 import { toHandoffNote } from "@/server/ai/handoff";
+import { openAwaitingSql } from "@/server/inbox/awaiting";
 
 /**
  * Puerta ÚNICA de escalamiento a humano (contrato 05/02-0).
@@ -61,6 +62,12 @@ export async function markHandoff(
         handoffAt: now,
         handoffReason: input.reason,
         handoffNote: note,
+        // 026: el cliente espera a la persona desde ahora (si no esperaba ya
+        // desde antes). El eco del teléfono (`manual_reply`) no: ES una
+        // respuesta humana.
+        ...(input.reason !== "manual_reply"
+          ? { awaitingSince: openAwaitingSql(now) }
+          : {}),
         updatedAt: now,
       })
       .where(

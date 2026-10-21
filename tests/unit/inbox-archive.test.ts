@@ -172,27 +172,39 @@ describe("archiveInactive", () => {
 });
 
 describe("ajustes de la Bandeja", () => {
-  it("sin fila → defaults (apagado, 14 días)", async () => {
+  it("sin fila → defaults (apagado, 14 días, atrasada a los 60 min)", async () => {
     responder = () => [];
     expect(await getInboxSettings("org_1")).toEqual(DEFAULT_INBOX_SETTINGS);
-    expect(DEFAULT_INBOX_SETTINGS).toEqual({ autoArchiveEnabled: false, autoArchiveDays: 14 });
+    expect(DEFAULT_INBOX_SETTINGS).toEqual({
+      autoArchiveEnabled: false,
+      autoArchiveDays: 14,
+      overdueMinutes: 60,
+    });
     expect(calls[0]!.sql).toContain('"inbox_settings"."organization_id" = $');
+    // 026: el umbral se lee de la misma fila.
+    expect(calls[0]!.sql).toContain('"overdue_minutes"');
   });
 
   it("con fila → la fila", async () => {
-    responder = () => [[true, 30]];
+    responder = () => [[true, 30, 15]];
     expect(await getInboxSettings("org_1")).toEqual({
       autoArchiveEnabled: true,
       autoArchiveDays: 30,
+      overdueMinutes: 15,
     });
   });
 
-  it("guardar = upsert por organization_id", async () => {
-    await saveInboxSettings("org_1", { autoArchiveEnabled: true, autoArchiveDays: 21 });
+  it("guardar = upsert por organization_id (con el umbral, 026)", async () => {
+    await saveInboxSettings("org_1", {
+      autoArchiveEnabled: true,
+      autoArchiveDays: 21,
+      overdueMinutes: 45,
+    });
     const ins = calls[0]!;
     expect(ins.sql).toMatch(/^insert into "inbox_settings"/);
     expect(ins.sql).toContain('on conflict ("organization_id") do update set');
-    expect(ins.params).toEqual(expect.arrayContaining(["org_1", true, 21]));
+    expect(ins.sql).toContain('"overdue_minutes"');
+    expect(ins.params).toEqual(expect.arrayContaining(["org_1", true, 21, 45]));
   });
 });
 
@@ -254,6 +266,20 @@ describe("esquemas Zod de las rutas", () => {
       ).toBe(false);
     }
     expect(inboxSettingsSchema.safeParse({ autoArchiveDays: 14 }).success).toBe(false);
+  });
+
+  it("026: overdueMinutes 5–1440 enteros; sin el campo (cliente viejo) → 60", () => {
+    const base = { autoArchiveEnabled: true, autoArchiveDays: 14 };
+    expect(inboxSettingsSchema.parse(base)).toEqual({ ...base, overdueMinutes: 60 });
+    for (const m of [5, 60, 1440]) {
+      expect(inboxSettingsSchema.parse({ ...base, overdueMinutes: m }).overdueMinutes).toBe(m);
+    }
+    for (const m of [4, 1441, 30.5, "60", null]) {
+      expect(
+        inboxSettingsSchema.safeParse({ ...base, overdueMinutes: m }).success,
+        String(m)
+      ).toBe(false);
+    }
   });
 
   it("POST /api/conversations/archive-inactive: días 1–365, dryRun por defecto false", () => {
