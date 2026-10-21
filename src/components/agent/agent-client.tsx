@@ -17,6 +17,8 @@ type Profile = {
   instructions: string | null;
   escalationRules: string | null;
   greeting: string | null;
+  /** 025 — Trato con el cliente. */
+  formality: "tu" | "usted";
 };
 
 type KbEntry = {
@@ -157,6 +159,24 @@ function ProfileSection({
             value={form.tone ?? ""}
             onChange={(e) => setForm({ ...form, tone: e.target.value })}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-formality">Trato con el cliente</Label>
+          <select
+            id="agent-formality"
+            value={form.formality}
+            onChange={(e) =>
+              setForm({ ...form, formality: e.target.value === "usted" ? "usted" : "tu" })
+            }
+            className="h-9 max-w-xs rounded-md border border-input bg-card px-2 text-sm"
+          >
+            <option value="tu">Tú</option>
+            <option value="usted">Usted</option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Lo respetan las respuestas del agente, los mensajes de la agenda y los
+            recordatorios.
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="agent-instructions">Instrucciones</Label>

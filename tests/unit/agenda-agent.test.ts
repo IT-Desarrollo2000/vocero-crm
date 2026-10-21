@@ -57,7 +57,12 @@ vi.mock("@/server/agenda/types-store", () => ({
 }));
 vi.mock("@/server/agenda/settings", () => ({ getSettings: async () => settings }));
 vi.mock("@/server/agenda/availability", () => ({ computeAvailability }));
-vi.mock("@/server/agenda/offers", () => ({ replaceOffers }));
+vi.mock("@/server/agenda/offers", async (importOriginal) => ({
+  // findOffered real (epoch exacto); la BD, simulada.
+  ...(await importOriginal<typeof import("@/server/agenda/offers")>()),
+  replaceOffers,
+  getOffers: async () => [],
+}));
 vi.mock("@/server/agenda/service", async () => {
   // BookingError y TYPE_GONE_MESSAGE reales: son el contrato con el agente.
   class BookingError extends Error {
@@ -86,6 +91,14 @@ const { BookingError } = (await import("@/server/agenda/service")) as unknown as
 };
 
 const base = { organizationId: "org_1", conversationId: "cv_1" };
+/** 025 — Reloj del motor: el día de la oferta simulada (mié 5 ago 2099). */
+const NOW = new Date("2099-08-05T12:00:00.000Z");
+/** 025 — La oferta vigente del turno (el array que vio el prompt). */
+const OFFERS = [
+  { startUtc: "2099-08-05T15:00:00.000Z", label: "mié 5 ago, 09:00", typeId: "apt_s" },
+];
+const book = (over: Record<string, unknown> = {}) =>
+  bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z", offers: OFFERS, now: NOW, ...over });
 
 beforeEach(() => {
   types = [PRUEBA, SERVICIO, GARANTIA, OTRO];
@@ -124,6 +137,8 @@ describe("offerSlots — el tipo", () => {
     const turn = await offerSlots({ ...base, typeName: "PRUEBA" });
     expect(turn.ok).toBe(true);
     expect(turn.text).toMatch(/^Tengo estos horarios disponibles para tu prueba de manejo:/);
+    // 025 — Sin fecha, invita a pedir otro día.
+    expect(turn.text).toMatch(/Si prefieres otro día, dime cuál\.$/);
     const opts = computeAvailability.mock.calls[0]![1] as Record<string, unknown>;
     expect(opts.durationMinutes).toBe(60);
     // Sin ctx = strict: la IA no ofrece huecos con ninguna cita.
@@ -148,10 +163,11 @@ describe("bookSlot — la confirmación", () => {
   it("con dirección: tipo en minúsculas, fecha y «Te esperamos en …», sin enlace", async () => {
     settings.address = "Av. Juárez 100, Centro";
     createSessionBooking.mockResolvedValue(ok);
-    const turn = await bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z" });
+    const turn = await book();
     expect(turn).toEqual({
       ok: true,
       text: "¡Listo! Te agendé tu servicio para mié 5 ago, 09:00. Te esperamos en Av. Juárez 100, Centro.",
+      agentAction: { action: "book_slot", booked: "mié 5 ago 09:00" },
     });
     expect(createSessionBooking.mock.calls[0]![0]).toMatchObject({
       source: "ai",
@@ -161,7 +177,7 @@ describe("bookSlot — la confirmación", () => {
 
   it("sin dirección no inventa una; con enlace, lo agrega", async () => {
     createSessionBooking.mockResolvedValue({ ...ok, meetingLink: "https://meet.x/1" });
-    const turn = await bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z" });
+    const turn = await book();
     expect(turn.text).toBe(
       "¡Listo! Te agendé tu servicio para mié 5 ago, 09:00.\nEnlace: https://meet.x/1"
     );
@@ -171,7 +187,7 @@ describe("bookSlot — la confirmación", () => {
     createSessionBooking.mockRejectedValue(
       new BookingError("slot_taken", "Ese tipo de cita ya no está disponible")
     );
-    const turn = await bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z" });
+    const turn = await book();
     expect(turn.ok).toBe(false);
     expect(turn.text).toContain("¿Qué tipo de cita te interesa?");
   });
@@ -183,19 +199,29 @@ describe("bookSlot — la confirmación", () => {
         { startUtc: "2099-08-05T15:00:00.000Z", label: "mié 5 ago, 09:00", typeId: SERVICIO.id },
       ])
     );
-    const turn = await bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z" });
-    expect(turn).toEqual({
+    const turn = await book();
+    expect(turn).toMatchObject({
       ok: false,
       text: "Ese tipo de cita ya no está disponible; te puedo ofrecer servicio:\n• mié 5 ago, 09:00",
     });
   });
 
-  it("agenda llena (slot_taken sin alternativas) NO pregunta el tipo", async () => {
+  it("se ocupó (slot_taken) NO pregunta el tipo: re-ofrece ese día con el tipo de la oferta (A7)", async () => {
     createSessionBooking.mockRejectedValue(
       new BookingError("slot_taken", "Ese horario ya no está disponible")
     );
-    const turn = await bookSlot({ ...base, startUtc: "2099-08-05T15:00:00.000Z" });
+    const turn = await book();
+    expect(turn.ok).toBe(false);
     expect(turn.text).not.toContain("¿Qué tipo de cita");
+    expect(turn.text).toMatch(/^Se me acaba de ocupar ese horario, ¡perdón!\nPara el miércoles 5 de agosto/);
+    expect(replaceOffers.mock.calls[0]![3]).toBe(SERVICIO.id);
+  });
+
+  it("un startUtc que NO está en el array del turno no llega a la reserva (A2)", async () => {
+    const turn = await book({ startUtc: "2099-08-05T16:00:00.000Z" });
+    expect(createSessionBooking).not.toHaveBeenCalled();
+    expect(turn.ok).toBe(false);
+    expect(turn.text).toMatch(/^Ese horario no lo tengo disponible\./);
   });
 });
 
@@ -222,7 +248,13 @@ describe("prompt y esquema de acciones", () => {
       agenda: true,
       appointmentTypes: ["Prueba de manejo", "Servicio"],
     });
-    expect(p).toContain('{"action":"offer_slots","type":"<Prueba de manejo | Servicio>","reply":"..."}');
+    expect(p).toContain(
+      '{"action":"offer_slots","type":"<Prueba de manejo | Servicio>","date":"<YYYY-MM-DD, opcional>","part":"<mañana | tarde, opcional>","reply":"..."}'
+    );
+    expect(p).toContain(
+      '{"action":"book_slot","slot":"<YYYY-MM-DD HH:MM, la clave exacta de HORARIOS OFRECIDOS>","reply":"..."}'
+    );
+    expect(p).not.toContain("ISO UTC");
     expect(p).toContain("necesitas el tipo de cita");
     expect(p).toContain("el asistente de mensajería de este negocio");
     expect(p).not.toContain("asistente de WhatsApp");

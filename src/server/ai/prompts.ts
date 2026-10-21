@@ -1,5 +1,11 @@
 import type { schema } from "@/lib/db";
 import type { FichaFieldDef } from "@/lib/ficha-fields";
+import { normalizeFormality, type Formality } from "@/lib/formality";
+import {
+  formatOffersForPrompt,
+  renderAgendaCalendar,
+  type PromptOffer,
+} from "@/server/agenda/offer-format";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
@@ -50,6 +56,16 @@ export function renderFichaFieldsSection(
   ].join("\n");
 }
 
+/** 025 — Zona por omisión si el turno no trae la del negocio (la de settings). */
+const FALLBACK_TIMEZONE = "America/Mexico_City";
+
+/** 025 — La regla de trato: va SIEMPRE, con o sin agenda. */
+export function formalityRule(formality: Formality): string {
+  return formality === "usted"
+    ? "Trato con el cliente: de USTED, siempre (usted, le, su). Nunca lo tutees (nada de tú, te, tu, ti)."
+    : "Trato con el cliente: de TÚ (tutéalo con naturalidad).";
+}
+
 /** 08 — Basta con el texto: el Laboratorio lo arma desde el snapshot. */
 export function renderKb(
   entries: readonly Pick<KbEntry, "kind" | "question" | "answer" | "content">[]
@@ -96,8 +112,27 @@ export function buildAgentSystemPrompt(input: {
    * entran al prompt; sin ninguno, el prompt no menciona `ficha` (RF-04-02).
    */
   fichaFields?: readonly FichaFieldDef[] | null;
+  /** 025 — Trato; sin él, el del perfil (default tú). */
+  formality?: Formality;
+  /** 025 — Reloj y zona del negocio para la fecha fija de la agenda (A8). */
+  now?: Date;
+  timezone?: string;
+  /** 025 — Ofertas vigentes de la conversación (bloque HORARIOS OFRECIDOS). */
+  offers?: readonly PromptOffer[];
+  /** 025 — Etiquetas cortas que el cliente vio (marca `*`). */
+  shownSlots?: readonly string[];
 }): string {
   const { profile } = input;
+  // Los perfiles de prueba (y filas viejas) pueden no traer la columna.
+  const formality = input.formality ?? normalizeFormality(profile.formality);
+  const tz = input.timezone || FALLBACK_TIMEZONE;
+  const agendaSection = input.agenda
+    ? [
+        "AGENDA:",
+        renderAgendaCalendar(input.now ?? new Date(), tz),
+        formatOffersForPrompt(input.offers ?? [], tz, input.shownSlots ?? []),
+      ].join("\n")
+    : null;
   const fichaSection = renderFichaFieldsSection(input.fichaFields);
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   const typeNames = (input.appointmentTypes ?? []).filter(Boolean);
@@ -105,14 +140,19 @@ export function buildAgentSystemPrompt(input: {
     typeNames.length > 0 ? `"type":"<${typeNames.join(" | ")}>",` : "";
   const agendaLines = input.agenda
     ? [
-        `- {"action":"offer_slots",${typeField}"reply":"..."} — ofrecer horarios para agendar (reply es solo la frase de entrada; los horarios los pone el sistema).`,
-        '- {"action":"book_slot","startUtc":"<uno de los horarios que el sistema ofreció, en ISO UTC>","reply":"..."} — agendar el horario que el cliente eligió.',
+        `- {"action":"offer_slots",${typeField}"date":"<YYYY-MM-DD, opcional>","part":"<mañana | tarde, opcional>","reply":"..."} — ofrecer horarios para agendar (reply es solo la frase de entrada; los horarios los pone el sistema).`,
+        '- {"action":"book_slot","slot":"<YYYY-MM-DD HH:MM, la clave exacta de HORARIOS OFRECIDOS>","reply":"..."} — agendar el horario que el cliente eligió.',
       ]
     : [];
   const agendaRules = input.agenda
     ? [
         "- NUNCA escribas tú los horarios ni los inventes: usa offer_slots y el sistema pega los reales.",
+        '- Si el cliente nombra un día ("el viernes", "mañana", "el 24"), usa offer_slots con "date" tomado de "Próximos días" (el NOMBRE del día manda sobre el número). Si pide mañana o tarde, agrega "part".',
+        '- Para reservar usa book_slot con "slot" = la clave exacta de HORARIOS OFRECIDOS ("YYYY-MM-DD HH:MM"). Nunca inventes una clave.',
+        '- Una hora suelta del cliente ("11", "15", "10:30", "la de las 10") es del día de los horarios que acaba de ver (marcados con *). Si no coincide con ninguna clave, usa offer_slots con ese día.',
         "- book_slot solo acepta un horario que el sistema ofreció antes en ESTA conversación. Si el cliente pide otro, vuelve a ofrecer con offer_slots.",
+        "- Si tú agendas, NO digas que lo pasas con un asesor ni que un asesor agendará: lo haces tú con offer_slots y book_slot.",
+        "- Atiende TODO lo que pregunta el cliente (precio, ubicación…) en el reply de la misma acción, y si hay varios mensajes nuevos suyos, atiéndelos todos.",
         ...(typeNames.length > 1
           ? [
               '- Antes de ofrecer horarios necesitas el tipo de cita: dedúcelo de lo que el cliente ya dijo o pregúntaselo, y mándalo en "type" con uno de los nombres exactos. Si no está claro, pregunta en vez de adivinar.',
@@ -124,6 +164,7 @@ export function buildAgentSystemPrompt(input: {
   return [
     `Eres "${profile.name}", el asistente de mensajería de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
     profile.tone ? `Tono: ${profile.tone}` : null,
+    formalityRule(formality),
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules
       ? `Reglas de escalado a humano:\n${profile.escalationRules}`
@@ -132,6 +173,7 @@ export function buildAgentSystemPrompt(input: {
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     `Etapas del pipeline disponibles: ${stageNames}`,
     input.contactBlock || null,
+    agendaSection,
     fichaSection,
     [
       "En cada turno respondes ÚNICAMENTE un objeto JSON con UNA acción:",

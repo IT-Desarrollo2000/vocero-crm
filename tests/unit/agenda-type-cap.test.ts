@@ -33,6 +33,9 @@ vi.mock("@/server/inbox/handoff", () => ({ markHandoff }));
 
 const QUESTION =
   "¿Qué tipo de cita te interesa? Tengo: Prueba de manejo, Servicio, Garantía u Otro.";
+/** 025 — La misma pregunta en usted. */
+const QUESTION_USTED =
+  "¿Qué tipo de cita le interesa? Tengo: Prueba de manejo, Servicio, Garantía u Otro.";
 const offerSlots = vi.fn(async () => ({ ok: false, text: QUESTION }));
 vi.mock("@/server/agenda/agent", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/server/agenda/agent")>();
@@ -151,6 +154,27 @@ describe("tope a la pregunta del tipo de cita", () => {
       reason: "modelo",
       source: "agente",
     });
+  });
+
+  it("025 — también con la pregunta en usted (y mezclando tratos)", async () => {
+    offerSlots.mockResolvedValueOnce({ ok: false, text: QUESTION_USTED });
+    await turn([
+      { direction: "in", text: "quiero una cita" },
+      { direction: "out", text: QUESTION_USTED, aiGenerated: true },
+      { direction: "in", text: "la de lavar el coche" },
+    ]);
+    expect(outbound).toEqual([]);
+    expect(markHandoff).toHaveBeenCalledOnce();
+
+    markHandoff.mockClear();
+    offerSlots.mockResolvedValueOnce({ ok: false, text: QUESTION_USTED });
+    await turn([
+      { direction: "in", text: "quiero una cita" },
+      { direction: "out", text: QUESTION, aiGenerated: true },
+      { direction: "in", text: "mmm" },
+    ]);
+    expect(outbound).toEqual([]);
+    expect(markHandoff).toHaveBeenCalledOnce();
   });
 
   it("una pregunta escrita por un ASESOR no cuenta: el agente sí pregunta", async () => {

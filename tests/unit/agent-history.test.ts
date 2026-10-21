@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
 
 import {
   inboundMarker,
+  lastShownSlots,
   outboundAuthor,
   toChatHistory,
   type HistoryRow,
@@ -167,5 +168,64 @@ describe("toChatHistory", () => {
     expect(messages[0]!.content).toContain("línea 1\nlínea 2");
     expect(messages[0]!.content).not.toMatch(/<\/?think\s*>/i);
     expect(messages[0]!.content).not.toContain("<<<");
+  });
+});
+
+describe("025 (A6) — salientes del motor de agenda como su ACCIÓN", () => {
+  const offer: HistoryRow = {
+    direction: "out",
+    aiGenerated: true,
+    origin: "ai",
+    text: "Para el viernes 23 de octubre tengo:\n• 10:00\n• 12:00",
+    agentAction: {
+      action: "offer_slots",
+      type: "Prueba de manejo",
+      date: "2026-10-23",
+      part: null,
+      shown: ["vie 23 oct 10:00", "vie 23 oct 12:00"],
+    },
+  };
+  const booked: HistoryRow = {
+    direction: "out",
+    aiGenerated: true,
+    origin: "ai",
+    text: "¡Listo! Le agendé su prueba para vie 23 oct, 11:00.",
+    agentAction: { action: "book_slot", booked: "vie 23 oct 11:00" },
+  };
+
+  it("offer_slots sin claves vacías y sin el texto con horas", () => {
+    const { messages } = toChatHistory([offer]);
+    expect(messages[0]).toEqual({
+      role: "assistant",
+      content: JSON.stringify({
+        action: "offer_slots",
+        type: "Prueba de manejo",
+        date: "2026-10-23",
+        shown: ["vie 23 oct 10:00", "vie 23 oct 12:00"],
+      }),
+    });
+    expect(messages[0]!.content).not.toContain("tengo");
+  });
+
+  it("book_slot con lo reservado", () => {
+    expect(toChatHistory([booked]).messages[0]!.content).toBe(
+      JSON.stringify({ action: "book_slot", booked: "vie 23 oct 11:00" })
+    );
+  });
+
+  it("un agent_action raro o de un humano no cambia nada: va como reply", () => {
+    const junk = toChatHistory([{ ...offer, agentAction: { action: "otra" } }]).messages[0]!;
+    expect(JSON.parse(junk.content)).toMatchObject({ action: "reply" });
+    const human = toChatHistory([{ ...offer, aiGenerated: false, origin: "operator" }]).messages[0]!;
+    expect(JSON.parse(human.content)).toMatchObject({ action: "reply", autor: "asesor" });
+  });
+
+  it("lastShownSlots: lo del último mensaje de horarios; tras una reserva, nada", () => {
+    expect(lastShownSlots([offer, { direction: "in", text: "11" }])).toEqual([
+      "vie 23 oct 10:00",
+      "vie 23 oct 12:00",
+    ]);
+    expect(lastShownSlots([offer, booked])).toEqual([]);
+    expect(lastShownSlots([{ direction: "in", text: "hola" }])).toEqual([]);
   });
 });

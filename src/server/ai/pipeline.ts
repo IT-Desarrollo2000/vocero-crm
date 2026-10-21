@@ -24,10 +24,25 @@ import {
 } from "@/server/ai/contact-context";
 import { upsertFicha } from "@/server/bot/ficha";
 import type { FichaFieldDef } from "@/lib/ficha-fields";
-import { loadHistoryRows, toChatHistory } from "@/server/ai/history";
+import {
+  lastShownSlots,
+  loadHistoryRows,
+  toChatHistory,
+} from "@/server/ai/history";
 import { agendaEnabled } from "@/server/agenda/flag";
-import { bookSlot, isTypeQuestion, offerSlots } from "@/server/agenda/agent";
-import { listTypes } from "@/server/agenda/types-store";
+import {
+  bookSlot,
+  isTypeQuestion,
+  offerSlots,
+  type AgendaTurn,
+} from "@/server/agenda/agent";
+import { listTypes, type AppointmentType } from "@/server/agenda/types-store";
+import { getOffers, type OfferedSlot } from "@/server/agenda/offers";
+import { DEFAULT_TIMEZONE, getSettings } from "@/server/agenda/settings";
+import { agendaCopy } from "@/server/agenda/copy";
+import { detectInventedSlots } from "@/server/ai/slot-barrier";
+import type { AgentActionRecord } from "@/lib/agent-action";
+import { normalizeFormality, type Formality } from "@/lib/formality";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -162,17 +177,37 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .orderBy(asc(schema.pipelineStage.position));
 
   const agenda = agendaEnabled();
+  // 025 — Trato del perfil (los perfiles viejos o de prueba pueden no traerlo).
+  const formality = normalizeFormality(profile.formality);
+  const now = new Date();
   // 023 — Tipos de cita activos para la línea de offer_slots. Solo con agenda
   // y tolerante: si la lectura falla, el prompt va sin tipos y el motor
   // pregunta el tipo al ofrecer.
-  let appointmentTypes: string[] = [];
+  let types: Pick<AppointmentType, "id" | "name">[] = [];
+  // 025 — Zona del negocio y ofertas vigentes, UNA vez por turno: el prompt
+  // las enseña y `book_slot` reserva contra ESTE mismo array (A2).
+  let timezone = DEFAULT_TIMEZONE;
+  let offers: OfferedSlot[] = [];
   if (agenda) {
     try {
-      appointmentTypes = (await listTypes(organizationId)).map((t) => t.name);
+      types = await listTypes(organizationId);
     } catch (err) {
       console.warn(`[agente] no pude leer los tipos de cita: ${err}`);
     }
+    try {
+      timezone = (await getSettings(organizationId)).timezone;
+    } catch (err) {
+      console.warn(`[agente] no pude leer los ajustes de agenda: ${err}`);
+    }
+    try {
+      offers = await getOffers(organizationId, conversationId);
+    } catch (err) {
+      console.warn(`[agente] no pude leer las ofertas vigentes: ${err}`);
+    }
   }
+  const appointmentTypes = types.map((t) => t.name);
+  const typeNameById = new Map(types.map((t) => [t.id, t.name]));
+  const shownSlots = agenda ? lastShownSlots(history) : [];
   // 04 — Definición de campos (NULL = el agente no llena nada, RF-04-02).
   const fichaFields = profile.fichaFields ?? null;
   const contactBlock = await safeContactBlock(
@@ -191,6 +226,14 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
         appointmentTypes,
         contactBlock,
         fichaFields,
+        formality,
+        now,
+        timezone,
+        offers: offers.map((o) => ({
+          startUtc: o.startUtc,
+          typeName: o.typeId ? (typeNameById.get(o.typeId) ?? null) : null,
+        })),
+        shownSlots,
       }),
     },
     // Los turnos previos van en el MISMO formato JSON que se le exige (con
@@ -219,6 +262,17 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     stages,
     agenda,
     lastAgentText,
+    agendaCtx: {
+      offers,
+      shownSlots,
+      formality,
+      timezone,
+      now,
+      // Para la barrera: el tipo de la oferta vigente, si lo hay.
+      currentTypeName: offers[0]?.typeId
+        ? typeNameById.get(offers[0].typeId)
+        : undefined,
+    },
   });
 
   // 04 — La ficha va DESPUÉS de entregar la respuesta (RF-04-10): el cliente
@@ -231,6 +285,17 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   });
 }
 
+/** 025 — Lo que el turno sabe de la agenda (cargado UNA vez). */
+type AgendaCtx = {
+  offers: OfferedSlot[];
+  shownSlots: string[];
+  formality: Formality;
+  timezone: string;
+  now: Date;
+  /** Tipo de la oferta vigente (la barrera re-ofrece ese). */
+  currentTypeName?: string;
+};
+
 /** Ejecuta la acción del turno (y entrega su respuesta, si la hay). */
 async function executeAction(
   initial: AgentActionType,
@@ -241,56 +306,129 @@ async function executeAction(
     agenda: boolean;
     /** 023 — Último texto saliente del agente en la conversación. */
     lastAgentText?: string | null;
+    /** 025 — Ofertas, lo mostrado, trato y reloj del turno. */
+    agendaCtx: AgendaCtx;
   }
 ): Promise<void> {
   const { organizationId, conversation, stages, agenda } = t;
   const conversationId = conversation.id;
+  const ag = t.agendaCtx;
   let action = initial;
+
+  // 015 — Sin agenda en esta instancia, sus acciones se degradan.
+  if (!agenda && (action.action === "offer_slots" || action.action === "book_slot")) {
+    action = degradeAction(action);
+  }
+
+  // 025 (A4) — Barrera de horarios: DESPUÉS de degradar y sobre el texto DEL
+  // MODELO, nunca sobre el del motor. Un texto con horarios escritos a mano no
+  // se envía: se cambia por una oferta real (intro del motor).
+  const barrier = agenda
+    ? applySlotBarrier(action, ag)
+    : { action, offer: null, converted: false };
+  action = barrier.action;
+
+  /** Corre el motor y entrega su texto (con el tope de la pregunta del tipo). */
+  const runMotor = async (
+    run: () => Promise<AgendaTurn>
+  ): Promise<"done" | "failed"> => {
+    let turn: AgendaTurn;
+    try {
+      turn = await run();
+    } catch (err) {
+      console.error(`[agente] el motor de agenda falló: ${err}`);
+      return "failed";
+    }
+    // 023 — Tope a la pregunta del tipo: si ya se hizo en el turno anterior y
+    // el tipo sigue sin resolverse, preguntar otra vez sería un bucle. Pasa a
+    // un humano. 025: reconoce la pregunta en tú y en usted.
+    if (!turn.ok && isTypeQuestion(turn.text) && isTypeQuestion(t.lastAgentText)) {
+      await applyHandoff(
+        conversationId,
+        organizationId,
+        "modelo",
+        "No se pudo determinar el tipo de cita"
+      );
+      return "done";
+    }
+    await deliverReply(conversation, turn.text, turn.agentAction);
+    if (turn.ok) {
+      publish(organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id: conversationId } },
+      });
+    }
+    return "done";
+  };
+
+  /** La oferta que pidió la barrera tras un update_lead/move_stage. */
+  const barrierOffer = async (): Promise<void> => {
+    const offer = barrier.offer;
+    if (!offer) return;
+    const outcome = await runMotor(() =>
+      offerSlots({
+        organizationId,
+        conversationId,
+        typeName: ag.currentTypeName,
+        date: offer.date,
+        formality: ag.formality,
+        now: ag.now,
+      })
+    );
+    if (outcome === "failed") {
+      await deliverReply(conversation, agendaCopy(ag.formality).checkLater);
+    }
+  };
 
   // 015 — Agenda. Un fallo del motor degrada el turno (el agente responde sin
   // agendar), nunca lo tumba: quedarse callado es peor que no agendar.
   if (action.action === "offer_slots" || action.action === "book_slot") {
-    if (!agenda) {
-      action = degradeAction(action);
-    } else {
-      try {
-        const turn =
-          action.action === "offer_slots"
-            ? await offerSlots({
-                organizationId,
-                conversationId,
-                intro: action.reply,
-                typeName: action.type,
-              })
-            : await bookSlot({
-                organizationId,
-                conversationId,
-                startUtc: action.startUtc,
-              });
-        // 023 — Tope a la pregunta del tipo: si ya se hizo en el turno
-        // anterior y el tipo sigue sin resolverse, preguntar otra vez sería
-        // un bucle. Pasa a un humano.
-        if (!turn.ok && isTypeQuestion(turn.text) && isTypeQuestion(t.lastAgentText)) {
-          await applyHandoff(
-            conversationId,
+    const a = action;
+    const outcome = await runMotor(() =>
+      a.action === "offer_slots"
+        ? offerSlots({
             organizationId,
-            "modelo",
-            "No se pudo determinar el tipo de cita"
-          );
-          return;
-        }
-        await deliverReply(conversation, turn.text);
-        if (turn.ok) {
-          publish(organizationId, {
-            type: "conversation.updated",
-            data: { conversation: { id: conversationId } },
-          });
-        }
-        return;
-      } catch (err) {
-        console.error(`[agente] el motor de agenda falló: ${err}`);
-        action = degradeAction(action);
-      }
+            conversationId,
+            intro: a.reply,
+            typeName: a.type,
+            date: a.date,
+            part: a.part,
+            formality: ag.formality,
+            now: ag.now,
+          })
+        : // Sin `slot` ni `startUtc`, el motor re-ofrece lo no mostrado.
+          bookSlot({
+            organizationId,
+            conversationId,
+            slot: a.slot,
+            startUtc: a.startUtc,
+            offers: ag.offers,
+            shown: ag.shownSlots,
+            // B1 — La respuesta del modelo al resto del mensaje (p. ej. el
+            // precio). Ya pasó por la barrera: si traía horarios, se descartó.
+            intro: a.reply,
+            formality: ag.formality,
+            now: ag.now,
+          })
+    );
+    if (outcome === "done") return;
+    // R1 — La oferta la pidió la barrera (texto del modelo descartado): si el
+    // motor falla, degradar dejaría al cliente sin respuesta. Va el aviso del
+    // motor según el trato.
+    if (barrier.converted) {
+      await deliverReply(conversation, agendaCopy(ag.formality).checkLater);
+      return;
+    }
+    action = degradeAction(action);
+    // El reply de book_slot no pasó por la barrera (el motor no lo usa); ya
+    // degradado sí se enviaría.
+    if (
+      action.action === "reply" &&
+      detectInventedSlots(action.text, { now: ag.now, timezone: ag.timezone })
+    ) {
+      logBarrier(action.text);
+      await deliverReply(conversation, agendaCopy(ag.formality).checkLater);
+      return;
     }
   }
 
@@ -307,12 +445,14 @@ async function executeAction(
       if (action.reply) {
         await deliverReply(conversation, action.reply);
       }
+      await barrierOffer();
       return;
     }
   }
 
   switch (action.action) {
     case "none":
+      await barrierOffer();
       return;
     case "reply":
       await deliverReply(conversation, action.text);
@@ -320,6 +460,7 @@ async function executeAction(
     case "update_lead": {
       await appendLeadNote(organizationId, conversation.contactId, action.note);
       if (action.reply) await deliverReply(conversation, action.reply);
+      await barrierOffer();
       return;
     }
     case "handoff": {
@@ -332,6 +473,86 @@ async function executeAction(
       return;
     }
   }
+}
+
+function logBarrier(text: string): void {
+  console.warn(`[agente] barrera de horarios: descarté ${JSON.stringify(text)}`);
+}
+
+/**
+ * 025 (A4) — Aplica la barrera de horarios inventados a la acción ya
+ * degradada. Solo mira textos que redactó el MODELO:
+ *  - `reply` con horarios ⇒ `offer_slots` sin intro (la pone el motor), con el
+ *    día deducido y el tipo de la oferta vigente (sin él, el motor resuelve o
+ *    pregunta el tipo);
+ *  - la intro de `offer_slots` ⇒ se descarta (el motor pone la suya);
+ *  - el `reply` de `update_lead`/`move_stage` ⇒ se descarta y, tras la acción,
+ *    se ofrece con el motor (`offer`);
+ *  - la despedida de `handoff` ⇒ se descarta y el handoff sigue: ofrecer
+ *    horarios que el agente ya no podrá reservar (queda en silencio) sería
+ *    peor.
+ */
+function applySlotBarrier(
+  action: AgentActionType,
+  ag: Pick<AgendaCtx, "now" | "timezone" | "currentTypeName">
+): {
+  action: AgentActionType;
+  offer: { date?: string } | null;
+  /**
+   * R1 — La oferta la pidió la barrera (reply convertido o intro descartada):
+   * si el motor falla, el turno manda `checkLater` en vez de quedarse callado.
+   */
+  converted: boolean;
+} {
+  const detect = (text: string | undefined) =>
+    text ? detectInventedSlots(text, { now: ag.now, timezone: ag.timezone }) : null;
+
+  switch (action.action) {
+    case "reply": {
+      const hit = detect(action.text);
+      if (!hit) break;
+      logBarrier(action.text);
+      return {
+        action: {
+          action: "offer_slots",
+          ...(ag.currentTypeName ? { type: ag.currentTypeName } : {}),
+          ...(hit.date ? { date: hit.date } : {}),
+          ...(action.ficha ? { ficha: action.ficha } : {}),
+        },
+        offer: null,
+        converted: true,
+      };
+    }
+    case "offer_slots": {
+      if (!action.reply || !detect(action.reply)) break;
+      logBarrier(action.reply);
+      return { action: { ...action, reply: undefined }, offer: null, converted: true };
+    }
+    case "book_slot": {
+      // B1 — El reply de book_slot se antepone a la confirmación: con
+      // horarios escritos a mano, se descarta (la reserva sigue).
+      if (!action.reply || !detect(action.reply)) break;
+      logBarrier(action.reply);
+      return { action: { ...action, reply: undefined }, offer: null, converted: false };
+    }
+    case "update_lead":
+    case "move_stage": {
+      const hit = action.reply ? detect(action.reply) : null;
+      if (!hit || !action.reply) break;
+      logBarrier(action.reply);
+      return {
+        action: { ...action, reply: undefined },
+        offer: hit.date ? { date: hit.date } : {},
+        converted: false,
+      };
+    }
+    case "handoff": {
+      if (!action.farewell || !detect(action.farewell)) break;
+      logBarrier(action.farewell);
+      return { action: { ...action, farewell: undefined }, offer: null, converted: false };
+    }
+  }
+  return { action, offer: null, converted: false };
 }
 
 type Conversation = typeof schema.conversation.$inferSelect;
@@ -404,13 +625,18 @@ async function applyAgentFicha(input: {
   }
 }
 
-/** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
+/**
+ * Entrega la respuesta: envío real o persistencia sandbox (is_test). 025 —
+ * `agentAction` (solo textos del motor de agenda) se guarda en el mensaje en
+ * los DOS caminos (A5): el Laboratorio también arma su historial con ella.
+ */
 async function deliverReply(
   conversation: Conversation,
-  text: string
+  text: string,
+  agentAction?: AgentActionRecord
 ): Promise<void> {
   if (conversation.isTest) {
-    await persistTestOutbound(conversation, text);
+    await persistTestOutbound(conversation, text, agentAction);
     return;
   }
   try {
@@ -419,6 +645,7 @@ async function deliverReply(
       organizationId: conversation.organizationId,
       text,
       aiGenerated: true,
+      agentAction: agentAction ?? null,
     });
   } catch (err) {
     if (err instanceof SendError && err.code === "window_closed") {
@@ -432,7 +659,8 @@ async function deliverReply(
 /** Mensaje saliente del sandbox: se persiste, JAMÁS toca la API (FR-031). */
 async function persistTestOutbound(
   conversation: Conversation,
-  text: string
+  text: string,
+  agentAction?: AgentActionRecord
 ): Promise<void> {
   const db = getDb();
   await db.insert(schema.message).values({
@@ -445,6 +673,7 @@ async function persistTestOutbound(
     status: "sent",
     aiGenerated: true,
     origin: "ai",
+    agentAction: agentAction ?? null,
   });
   await db
     .update(schema.conversation)

@@ -42,6 +42,8 @@
  * Sale con código 1 si algún check falla.
  */
 
+import postgres from "postgres";
+
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const S = Math.random().toString(36).slice(2, 8);
 const PN = "PN-E2E-RECO";
@@ -417,7 +419,16 @@ async function main() {
   ok("un caso del Laboratorio trae conversationId", !!labConvId);
   if (labConvId) {
     // El contacto lo pone la conversación de prueba: la cita nace is_test.
-    const bC = await createBooking(ctB, sC, labConvId);
+    // Revisión 023: el contactId tiene que ser EL de la conversación (uno
+    // ajeno → 422). Las conversaciones del Laboratorio no salen por la API
+    // pública: se lee de la BD aislada.
+    const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+    const [labConv] = await sql`
+      select c.contact_id, k.phone from vocero.conversation c
+      join vocero.contact k on k.id = c.contact_id where c.id = ${labConvId}`;
+    await sql.end();
+    const ctLab = { contactId: labConv?.contact_id, phone: labConv?.phone ?? "" };
+    const bC = await createBooking(ctLab, sC, labConvId);
     ok("cita de prueba creada", bC.res.status === 201, short(bC));
     const idC = bC.json?.booking?.id;
     const before = (await owner.api("/api/dev/wa-mock/outbox")).json?.outbox?.length ?? 0;
@@ -428,7 +439,7 @@ async function main() {
     ok("cita de prueba: sin recordatorios", (c?.reminders ?? []).length === 0, JSON.stringify(c?.reminders));
     ok(
       "outbox sin plantillas nuevas por la cita de prueba",
-      after.slice(before).every((o) => o.type !== "template" || last10(o.to) !== last10(ctB.phone)),
+      after.slice(before).every((o) => o.type !== "template" || (last10(o.to) !== last10(ctB.phone) && (!ctLab.phone || last10(o.to) !== last10(ctLab.phone)))),
       `nuevas=${after.length - before}`
     );
   }

@@ -8,6 +8,7 @@ import {
   type LabKbSnapshotEntry,
 } from "@/lib/lab";
 import { personaHash, type LabPersona } from "@/server/lab/personas";
+import { normalizeFormality } from "@/lib/formality";
 
 /**
  * 08 — `agent_test_run.config_snapshot` (RF-08-15, D-08-04): perfil + KB +
@@ -18,7 +19,10 @@ import { personaHash, type LabPersona } from "@/server/lab/personas";
 type ProfileRow = Pick<
   typeof schema.agentProfile.$inferSelect,
   "name" | "tone" | "instructions" | "escalationRules" | "greeting"
->;
+> & {
+  /** 025 — Trato (opcional en filas de prueba). */
+  formality?: "tu" | "usted" | null;
+};
 type KbRow = Pick<
   typeof schema.kbEntry.$inferSelect,
   "id" | "kind" | "question" | "answer" | "content" | "updatedAt"
@@ -69,6 +73,7 @@ export function buildConfigSnapshot(input: {
           instructions: p.instructions,
           escalationRules: p.escalationRules,
           greeting: p.greeting,
+          ...(p.formality ? { formality: normalizeFormality(p.formality) } : {}),
         }
       : null,
     kb: hashed
@@ -119,12 +124,19 @@ export async function loadConfigSnapshot(
   });
 }
 
-/** Texto de comportamiento para el juez, desde el perfil del snapshot. */
+/**
+ * Texto de comportamiento para el juez, desde el perfil del snapshot. 025
+ * (A9) — Con el trato: si el negocio habla de usted, el juez no debe
+ * penalizarlo como tono frío (ni el tuteo si es de tú).
+ */
 export function behaviorTextOf(profile: LabConfigSnapshot["profile"]): string {
   if (!profile) return "";
   return [
     `Nombre: ${profile.name}`,
     profile.tone ? `Tono: ${profile.tone}` : null,
+    profile.formality
+      ? `Trato: ${profile.formality === "usted" ? "usted" : "tú"}`
+      : null,
     profile.instructions ? `Instrucciones: ${profile.instructions}` : null,
     profile.escalationRules ? `Escalado: ${profile.escalationRules}` : null,
   ]

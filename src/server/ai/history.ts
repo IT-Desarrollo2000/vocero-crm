@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import type { ChatMessage } from "@/lib/ai";
+import { parseAgentActionRecord, type AgentActionRecord } from "@/lib/agent-action";
 import { LEAD_INTAKE_TYPE, leadCardForAgent } from "@/lib/lead-intake";
 import {
   sanitizeContextValue,
@@ -21,6 +22,12 @@ import {
  * JSON que se le exige al modelo (con texto plano, MiniMax deja de responder
  * JSON desde el segundo turno), pero los que escribió un humano llevan
  * `"autor":"asesor"` y las plantillas `"autor":"plantilla"`.
+ *
+ * 025 (A6) — Los salientes del MOTOR de agenda (con `agent_action`) se
+ * presentan como la acción que los produjo — `{"action":"offer_slots",
+ * "type":…,"date":…,"shown":[…]}` o `{"action":"book_slot","booked":…}` —
+ * y no como un `reply` con horas: si el modelo ve listas de horarios "suyas",
+ * aprende a escribirlas a mano (incidente del 21-oct).
  */
 
 export const HISTORY_LIMIT = 20;
@@ -41,6 +48,8 @@ export type HistoryRow = {
   origin?: string | null;
   aiGenerated?: boolean | null;
   media?: HistoryMedia | null;
+  /** 025 — `message.agent_action` (crudo de BD; se valida al usarlo). */
+  agentAction?: unknown;
 };
 
 /**
@@ -60,6 +69,7 @@ export async function loadHistoryRows(
       text: schema.message.text,
       origin: schema.message.origin,
       aiGenerated: schema.message.aiGenerated,
+      agentAction: schema.message.agentAction,
       mediaKind: schema.mediaAsset.kind,
       mediaCaption: schema.mediaAsset.caption,
       mediaFileName: schema.mediaAsset.fileName,
@@ -86,6 +96,7 @@ export async function loadHistoryRows(
     text: r.text,
     origin: r.origin,
     aiGenerated: r.aiGenerated,
+    agentAction: r.agentAction ?? null,
     media: r.mediaKind
       ? {
           kind: r.mediaKind,
@@ -213,6 +224,47 @@ function outboundText(row: HistoryRow): string {
 }
 
 /**
+ * 025 — La acción de agenda de un saliente del agente, sin claves vacías
+ * (`{"action":"offer_slots","type":"Servicio","date":"2026-10-23","shown":[…]}`).
+ * null si no es un saliente del motor.
+ */
+export function agentActionOf(row: HistoryRow): AgentActionRecord | null {
+  if (row.direction !== "out" || !row.aiGenerated) return null;
+  const record = parseAgentActionRecord(row.agentAction);
+  if (!record) return null;
+  // R3 — El `reply` del modelo (p. ej. el precio) viaja dentro de la acción.
+  if (record.action === "book_slot") {
+    return {
+      action: "book_slot",
+      booked: record.booked,
+      ...(record.reply ? { reply: record.reply } : {}),
+    };
+  }
+  return {
+    action: "offer_slots",
+    ...(record.type ? { type: record.type } : {}),
+    ...(record.date ? { date: record.date } : {}),
+    ...(record.part ? { part: record.part } : {}),
+    shown: record.shown,
+    ...(record.reply ? { reply: record.reply } : {}),
+  };
+}
+
+/**
+ * Lo que el cliente VIO en el último mensaje de horarios del motor (para la
+ * marca `*` y la re-oferta sin repetir). Vacío si el último del motor fue
+ * una reserva o si no hay ninguno.
+ */
+export function lastShownSlots(rows: readonly HistoryRow[]): string[] {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const record = agentActionOf(rows[i]!);
+    if (!record) continue;
+    return record.action === "offer_slots" ? record.shown : [];
+  }
+  return [];
+}
+
+/**
  * Convierte el historial al formato de chat del proveedor. Ningún mensaje se
  * descarta. `lastInboundText` es el texto (o, si no hay, el pie de foto/
  * video/documento) del último entrante, CRUDO, para el regex de respaldo de
@@ -239,6 +291,10 @@ export function toChatHistory(rows: HistoryRow[]): {
       };
     }
     const autor = outboundAuthor(row);
+    const record = autor ? null : agentActionOf(row);
+    if (record) {
+      return { role: "assistant" as const, content: JSON.stringify(record) };
+    }
     return {
       role: "assistant" as const,
       content: JSON.stringify({

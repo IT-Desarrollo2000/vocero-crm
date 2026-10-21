@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeSlotKey } from "@/server/agenda/offer-format";
 
 /**
  * 04 — Parche de ficha que puede acompañar a CUALQUIER acción (D-04-1): el
@@ -49,7 +50,49 @@ const baseActions = [
  * los pega el motor con las etiquetas reales. Y `startUtc` tiene que ser
  * exactamente uno de los que el sistema ofreció — si no, el motor lo rechaza y
  * se re-ofrece.
+ *
+ * 025 — Campos TOLERANTES: un valor raro se vuelve ausente, nunca tumba el
+ * turno. `offer_slots` gana `date` (YYYY-MM-DD) y `part` (mañana/tarde);
+ * `book_slot` gana `slot` ("YYYY-MM-DD HH:MM", hora LOCAL del bloque
+ * HORARIOS OFRECIDOS) y `startUtc` pasa a opcional. Un `book_slot` sin
+ * ninguno de los dos lo convierte el pipeline en re-oferta.
  */
+const ToleratedDate = z
+  .unknown()
+  .transform((v) => {
+    if (typeof v !== "string") return undefined;
+    const m = /^\s*(\d{4})[-/](\d{2})[-/](\d{2})/.exec(v);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : undefined;
+  })
+  .optional();
+
+const ToleratedPart = z
+  .unknown()
+  .transform((v): "mañana" | "tarde" | undefined => {
+    if (typeof v !== "string") return undefined;
+    const t = v
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+    if (t === "manana" || t === "morning" || t === "am") return "mañana";
+    if (t === "tarde" || t === "afternoon" || t === "pm") return "tarde";
+    return undefined;
+  })
+  .optional();
+
+const ToleratedSlot = z
+  .unknown()
+  .transform((v) => normalizeSlotKey(v) ?? undefined)
+  .optional();
+
+const ToleratedStartUtc = z
+  .unknown()
+  .transform((v) =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined
+  )
+  .optional();
+
 const agendaActions = [
   z.object({
     action: z.literal("offer_slots"),
@@ -63,12 +106,15 @@ const agendaActions = [
         typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined
       )
       .optional(),
+    date: ToleratedDate,
+    part: ToleratedPart,
     reply: z.string().optional(),
     ficha: FichaPatch,
   }),
   z.object({
     action: z.literal("book_slot"),
-    startUtc: z.string().min(1),
+    slot: ToleratedSlot,
+    startUtc: ToleratedStartUtc,
     reply: z.string().optional(),
     ficha: FichaPatch,
   }),

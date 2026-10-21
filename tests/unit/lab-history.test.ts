@@ -158,6 +158,20 @@ describe("buildConfigSnapshot (RF-08-15, D-08-04)", () => {
     expect(behaviorTextOf(profile("Amable"))).toBe("Nombre: Sofi\nTono: Amable\nInstrucciones: Vende autos");
     expect(behaviorTextOf(null)).toBe("");
   });
+
+  it("025 (A9) — el trato entra al snapshot y al texto del juez; los snapshots viejos siguen igual", () => {
+    const snap = buildConfigSnapshot({
+      profile: { ...profile("Amable"), formality: "usted" },
+      kb: [],
+      personas: [],
+      models: { agent: null, judge: null },
+    });
+    expect(snap.profile).toMatchObject({ formality: "usted" });
+    expect(behaviorTextOf(snap.profile)).toBe(
+      "Nombre: Sofi\nTono: Amable\nTrato: usted\nInstrucciones: Vende autos"
+    );
+    expect(behaviorTextOf({ ...profile(null), formality: "tu" })).toContain("Trato: tú");
+  });
 });
 
 describe("diffSnapshots (RF-08-16)", () => {

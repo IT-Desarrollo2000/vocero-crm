@@ -4,15 +4,13 @@ import { scoped } from "@/lib/db/tenant";
 import { MetaApiError } from "@/lib/meta/client";
 import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
-  ADDRESS_FALLBACK,
-  APPOINTMENT_TYPE_FALLBACK,
-  MEETING_LINK_FALLBACK,
   REMINDER_MAX_MANUAL_RETRIES,
   REMINDER_MAX_OFFSETS,
   REMINDER_MIN_LEAD_MS,
   REMINDER_OFFSET_LIMITS,
   REMINDER_TICK_BATCH,
   reminderDueAt,
+  reminderFallbacks,
   reminderTiming,
   type BookingReminderDto,
   type BookingReminderSkipReason,
@@ -22,6 +20,7 @@ import {
   type ReminderTickResultDto,
 } from "@/lib/reminders";
 import { countVariables } from "@/lib/templates";
+import type { Formality } from "@/lib/formality";
 import { labelInTz } from "@/lib/time/slots";
 import { CalendarSettingsError } from "@/server/agenda/settings";
 import * as store from "@/server/agenda/reminder-store";
@@ -119,6 +118,8 @@ export type ReminderVariableContext = {
   appointmentType?: string | null;
   /** 023 (A8) — Dirección del negocio; vacía ⇒ "nuestra sucursal". */
   address?: string | null;
+  /** 025 — Trato del perfil del agente: elige los respaldos (tú/usted). */
+  formality?: Formality | null;
 };
 
 /** Un texto por `{{n}}` (índice = n − 1). Nunca devuelve un valor vacío. */
@@ -126,6 +127,7 @@ export function renderReminderVariables(
   fields: readonly ReminderField[],
   ctx: ReminderVariableContext
 ): string[] {
+  const fallback = reminderFallbacks(ctx.formality);
   return fields.map((field) => {
     switch (field) {
       case "contact_name":
@@ -136,13 +138,13 @@ export function renderReminderVariables(
           ctx.scheduledAt.toISOString()
         );
       case "meeting_link":
-        return nonEmpty(ctx.meetingLink) ?? MEETING_LINK_FALLBACK;
+        return nonEmpty(ctx.meetingLink) ?? fallback.meetingLink;
       case "business_name":
         return nonEmpty(ctx.businessName) ?? BUSINESS_NAME_FALLBACK;
       case "appointment_type":
-        return nonEmpty(ctx.appointmentType) ?? APPOINTMENT_TYPE_FALLBACK;
+        return nonEmpty(ctx.appointmentType) ?? fallback.appointmentType;
       case "address":
-        return nonEmpty(ctx.address) ?? ADDRESS_FALLBACK;
+        return nonEmpty(ctx.address) ?? fallback.address;
     }
   });
 }
@@ -184,6 +186,8 @@ type DeliveryContext = {
   config: ReminderOrgConfig;
   template: ReminderTemplate | null;
   businessName: () => Promise<string>;
+  /** 025 — Trato del perfil del agente (perezoso, una lectura por vuelta). */
+  formality: () => Promise<Formality>;
 };
 
 /** Decide, envía y deja la fila en `sent | failed | skipped`. Nunca lanza. */
@@ -260,6 +264,10 @@ async function attemptDelivery(
 
   const fields = config.variables.slice(0, countVariables(template.body));
   const needsBusiness = fields.includes("business_name");
+  // El trato solo cambia los respaldos: sin campos con respaldo, no se lee.
+  const needsFormality = fields.some(
+    (f) => f === "meeting_link" || f === "appointment_type"
+  );
   const variables = renderReminderVariables(fields, {
     contactName: contact.name,
     scheduledAt: booking.scheduledAt,
@@ -268,6 +276,7 @@ async function attemptDelivery(
     businessName: needsBusiness ? await ctx.businessName() : null,
     appointmentType: booking.appointmentTypeName ?? null,
     address: config.address ?? null,
+    formality: needsFormality ? await ctx.formality() : null,
   });
 
   // Segunda barrera del sandbox: si la conversación es de prueba,
@@ -311,6 +320,7 @@ function deliveryContext(
   template: ReminderTemplate | null
 ): DeliveryContext {
   let name: Promise<string> | null = null;
+  let formality: Promise<Formality> | null = null;
   return {
     organizationId,
     config,
@@ -318,6 +328,13 @@ function deliveryContext(
     businessName: () => {
       name ??= store.getOrganizationName(organizationId).catch(() => "");
       return name;
+    },
+    formality: () => {
+      // Un fallo de lectura no tumba el envío: se usa el trato por omisión.
+      formality ??= store
+        .getAgentFormality(organizationId)
+        .catch((): Formality => "tu");
+      return formality;
     },
   };
 }

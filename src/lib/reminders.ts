@@ -8,6 +8,8 @@
  * que los tres miran la MISMA definición de «cuándo sale un recordatorio».
  */
 
+import type { Formality } from "./formality";
+
 // ── Estados y motivos ────────────────────────────────────────────────────
 
 /**
@@ -93,6 +95,36 @@ export const MEETING_LINK_FALLBACK = "te lo compartimos por este medio";
 export const APPOINTMENT_TYPE_FALLBACK = "tu cita";
 /** 023 — `address` sin dirección configurada. */
 export const ADDRESS_FALLBACK = "nuestra sucursal";
+
+export type ReminderFallbacks = {
+  meetingLink: string;
+  appointmentType: string;
+  address: string;
+};
+
+/**
+ * 025 — Los respaldos según el trato del perfil del agente: un negocio que
+ * habla de usted no puede recordar "tu cita". Las constantes de arriba son
+ * las de tú (compatibilidad).
+ */
+export const REMINDER_FALLBACKS: Record<Formality, ReminderFallbacks> = {
+  tu: {
+    meetingLink: MEETING_LINK_FALLBACK,
+    appointmentType: APPOINTMENT_TYPE_FALLBACK,
+    address: ADDRESS_FALLBACK,
+  },
+  usted: {
+    meetingLink: "se lo compartimos por este medio",
+    appointmentType: "su cita",
+    address: ADDRESS_FALLBACK,
+  },
+};
+
+export function reminderFallbacks(
+  formality: Formality | null | undefined
+): ReminderFallbacks {
+  return REMINDER_FALLBACKS[formality === "usted" ? "usted" : "tu"];
+}
 
 // ── Anticipaciones ───────────────────────────────────────────────────────
 

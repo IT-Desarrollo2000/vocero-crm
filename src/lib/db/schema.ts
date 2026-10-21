@@ -16,6 +16,8 @@ import {
   BOOKING_REMINDER_STATUSES,
 } from "../reminders";
 import type { ProductAttribute } from "../catalog";
+import type { AgentActionRecord } from "../agent-action";
+import { FORMALITIES } from "../formality";
 import type {
   LabConfigSnapshot,
   LabExpectFichaRule,
@@ -628,6 +630,13 @@ export const message = pgTable(
       onDelete: "set null",
     }),
     waTimestamp: timestamp("wa_timestamp"),
+    /**
+     * 025 — La acción de agenda que produjo este saliente del motor
+     * (`offer_slots` / `book_slot`, con lo mostrado). El historial del agente
+     * la presenta como esa acción y no como un `reply` con horas. Solo la
+     * escribe el pipeline del agente; NULL en todo lo demás.
+     */
+    agentAction: jsonb("agent_action").$type<AgentActionRecord>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -824,6 +833,11 @@ export const agentProfile = pgTable(
      * Se valida con `fichaFieldsSchema` (src/lib/ficha-fields.ts).
      */
     fichaFields: jsonb("ficha_fields").$type<FichaFieldDef[]>(),
+    /**
+     * 025 — Trato con el cliente: `tu` (default) o `usted`. Lo respetan el
+     * prompt, los textos del motor de agenda y los respaldos de recordatorios.
+     */
+    formality: text("formality", { enum: FORMALITIES }).notNull().default("tu"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

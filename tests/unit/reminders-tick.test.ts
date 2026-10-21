@@ -22,8 +22,10 @@ type Db = {
   bookings: ReminderBooking[];
   rows: (ReminderRow & { organizationId: string; claimedAt: Date })[];
   templates: { id: string; status: string; body: string }[];
+  /** 025 — Trato del perfil del agente. */
+  formality: "tu" | "usted";
 };
-const db: Db = { configs: [], bookings: [], rows: [], templates: [] };
+const db: Db = { configs: [], bookings: [], rows: [], templates: [], formality: "tu" };
 let seq = 0;
 
 function claimKey(bookingId: string, offset: number, scheduledFor: Date) {
@@ -125,6 +127,7 @@ vi.mock("@/server/agenda/reminder-store", async (orig) => {
     getReminderTemplate: async (_org: string, id: string) =>
       db.templates.find((t) => t.id === id) ?? null,
     getOrganizationName: async () => "Clínica Sol",
+    getAgentFormality: async () => db.formality,
     findRealConversation: async () => ({ id: "cv_real", isTest: false, channel: "whatsapp" }),
     getConversationBrief: async (_org: string, id: string) => ({
       id,
@@ -202,6 +205,7 @@ beforeEach(() => {
   db.configs = [config()];
   db.bookings = [booking()];
   db.rows = [];
+  db.formality = "tu";
   db.templates = [
     { id: "tpl_1", status: "approved", body: "Hola {{1}}, tu cita es {{2}}. Sala: {{3}}" },
   ];
@@ -533,6 +537,17 @@ describe("023 — tipo de cita y dirección en la plantilla (A8)", () => {
     await runReminderTick(at(DUE_24, MIN));
     const call = sendTemplate.mock.calls[0]![0];
     expect(call.variables).toEqual(["Ana", "Prueba de manejo", "Av. Juárez 100"]);
+  });
+
+  it("025 — con trato usted, los respaldos no tutean", async () => {
+    db.formality = "usted";
+    db.configs = [config({ variables: ["appointment_type", "meeting_link"] })];
+    db.bookings = [booking({ appointmentTypeName: null, meetingLink: null })];
+    db.templates = [{ id: "tpl_1", status: "approved", body: "Su {{1}}: {{2}}" }];
+
+    await runReminderTick(at(DUE_24, MIN));
+    const call = sendTemplate.mock.calls[0]![0];
+    expect(call.variables).toEqual(["su cita", "se lo compartimos por este medio"]);
   });
 
   it("Instagram/Messenger siguen sin recordatorio (decisión 7)", async () => {

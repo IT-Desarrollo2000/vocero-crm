@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { AgentActionRecord } from "@/lib/agent-action";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
@@ -406,6 +407,8 @@ async function persistOutbound(input: {
   origin: "ai" | "operator";
   mediaAssetId?: string | null;
   media?: typeof schema.mediaAsset.$inferSelect | null;
+  /** 025 — La acción de agenda que produjo el texto (solo el agente). */
+  agentAction?: AgentActionRecord | null;
 }): Promise<string> {
   const db = getDb();
   const inserted = await db
@@ -423,6 +426,7 @@ async function persistOutbound(input: {
       aiGenerated: input.aiGenerated ?? false,
       origin: input.origin,
       mediaAssetId: input.mediaAssetId ?? null,
+      agentAction: input.agentAction ?? null,
     })
     .returning();
   const message = inserted[0]!;
@@ -456,6 +460,11 @@ export async function sendText(input: {
   organizationId: string;
   text: string;
   aiGenerated?: boolean;
+  /**
+   * 025 — La acción de agenda del motor que produjo el texto. El historial
+   * del agente la muestra en vez del texto con horas (A6).
+   */
+  agentAction?: AgentActionRecord | null;
 }): Promise<SendResult> {
   const target = await prepareSend(input.conversationId, input.organizationId);
 
@@ -493,6 +502,7 @@ export async function sendText(input: {
       : "sent",
     aiGenerated: input.aiGenerated,
     origin: input.aiGenerated ? "ai" : "operator",
+    agentAction: input.agentAction ?? null,
   });
 
   return { messageId };

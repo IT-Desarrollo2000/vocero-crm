@@ -42,6 +42,7 @@ function profileRow(overrides: Partial<AgentProfile> = {}): AgentProfile {
     escalationRules: "Urgencias de dolor → humano.",
     greeting: "¡Hola! Soy Sofi 🦷",
     fichaFields: null,
+    formality: "tu",
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

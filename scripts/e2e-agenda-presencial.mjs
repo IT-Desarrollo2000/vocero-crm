@@ -273,6 +273,18 @@ async function offChecks() {
             or (table_name = 'offered_slot' and column_name = 'appointment_type_id'))`;
       ok("migración 0025 aplicada: existe vocero.appointment_type", t?.t === "vocero.appointment_type", JSON.stringify(t));
       ok("…y las columnas nuevas de booking, offered_slot y calendar_settings", cols.length === 6, JSON.stringify(cols));
+      // 025 — Migración 0026 (también con la bandera apagada).
+      const cols26 = await sql`
+        select table_name, column_name, is_nullable, column_default from information_schema.columns
+        where table_schema = 'vocero'
+          and ((table_name = 'agent_profile' and column_name = 'formality')
+            or (table_name = 'message' and column_name = 'agent_action'))`;
+      const formality = cols26.find((c) => c.column_name === "formality");
+      ok(
+        "migración 0026 aplicada: agent_profile.formality (NOT NULL, default 'tu') y message.agent_action",
+        cols26.length === 2 && formality?.is_nullable === "NO" && String(formality?.column_default).includes("'tu'"),
+        JSON.stringify(cols26)
+      );
     } finally {
       await sql.end();
     }
@@ -454,7 +466,7 @@ async function main() {
   if (sinAlternativas.length) {
     info(
       `CA-2: el 409 slot_taken del alta manual llega SIN alternativas (slots vacío) en: ${sinAlternativas.join(" · ")}. ` +
-        "La spec dice 'se rechaza con alternativas'; la UI recarga la rejilla (plan §9)."
+        "Por diseño (service.ts: un humano no recibe alternativas REGISTRADAS como oferta); la UI recarga su rejilla (plan §9)."
     );
   }
   const pruebaT2 = (await allBookings()).filter(
@@ -799,7 +811,8 @@ async function main() {
   const prof = await owner.api("/api/agent/profile", { method: "PUT", body: body({ enabled: true }) });
   ok("agente in-process encendido", prof.res.ok, short(prof));
   const outbox = async () => (await owner.api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
-  const textOf = (o) => String(o?.body?.message?.text ?? "");
+  // Messenger/Instagram: body.message.text · WhatsApp: body.text.body.
+  const textOf = (o) => String(o?.body?.message?.text ?? o?.body?.text?.body ?? "");
   /** Espera un mensaje NUEVO (desde `since`) hacia `to` que cumpla `re`. */
   async function waitOut(to, re, since, ms = 25000) {
     let hit = null;
@@ -961,7 +974,9 @@ async function main() {
       const noOfrecido = ofertas2[0].ms + MIN;
       const antes = (await allBookings()).filter((b) => b.conversationId === conv.id).length;
       const q3 = await say(cx, sender, `[e2e-reserva ${iso(noOfrecido)}]`);
-      const reof = await waitOut(sender, /Déjame confirmarte los horarios que tengo:\n• /, q3.since);
+      // 025: la re-oferta es del DÍA pedido ("Ese horario no lo tengo
+      // disponible." + los horarios reales de ese día).
+      const reof = await waitOut(sender, /^Ese horario no lo tengo disponible\.\n(Para el|Ese día)[^\n]*\n• /, q3.since);
       ok("reservar un horario no ofrecido → re-oferta con horarios reales", !!reof, textOf(reof) || "sin mensaje");
       const despues = (await allBookings()).filter((b) => b.conversationId === conv.id);
       ok(
@@ -971,7 +986,8 @@ async function main() {
       );
     }
   }
-  await owner.api("/api/agent/profile", { method: "PUT", body: body({ enabled: false }) });
+  await agendaIaRobusta025({ outbox, textOf, say, convOf, offersOf, conectados, CANAL_SUF, ADDRESS, PRUEBA, SERVICIO, GARANTIA, c2 });
+  await owner.api("/api/agent/profile", { method: "PUT", body: body({ enabled: false, formality: "tu" }) });
   const settingsFinal = (await owner.api("/api/calendar/settings")).json?.settings;
   ok("la dirección queda configurada", settingsFinal?.address === ADDRESS, JSON.stringify(settingsFinal?.address));
 
@@ -1013,6 +1029,354 @@ async function main() {
   await owner.api(`/api/calendar/types/${GARANTIA.id}`, { method: "PATCH", body: body({ active: true }) });
   const durMala = await owner.api("/api/calendar/types", { method: "POST", body: body({ name: `Corta ${S}`, durationMinutes: 5 }) });
   ok("tipo con duración fuera de 10–480 → 422", durMala.res.status === 422, short(durMala));
+}
+
+/* ============================================================
+ * 025 — Agenda por IA robusta (specs/025-agenda-ia-robusta). Reproduce el
+ * incidente del 21-oct con el agente REAL por WhatsApp y Messenger, trato
+ * usted. El modelo simulado NO recibe ningún ISO: los marcadores del ai-mock
+ * (`[e2e-dia …]`, `[e2e-elige …]`) lo obligan a leer el calendario "Próximos
+ * días" y el bloque HORARIOS OFRECIDOS del prompt, como uno real. El guion
+ * tampoco lee `offered_slot` para ELEGIR: solo para verificar.
+ * ============================================================ */
+
+/** Pronombres/verbos de tuteo que el motor NO debe usar con trato usted. */
+const TUTEO = /\b(te|tu|tus|ti|tienes|déjame|puedes|quieres|prefieres|dime)\b/i;
+const AI_INVENTED_SNIPPET = "24 de octubre a las 10:30";
+const AI_ATTENTION_TEXT =
+  "Abrimos de lunes a sábado de 9:00 a 18:00 y domingo de 10:00 a 15:00.";
+
+async function agendaIaRobusta025(ctx) {
+  const { outbox, textOf, say, convOf, offersOf, conectados, CANAL_SUF, ADDRESS, PRUEBA, GARANTIA, c2 } = ctx;
+  console.log("\n== 025) Agenda por IA robusta (agente real, trato usted) ==");
+  const prof = await owner.api("/api/agent/profile", {
+    method: "PUT",
+    body: body({ enabled: true, formality: "usted" }),
+  });
+  const perfil = (await owner.api("/api/agent/profile")).json?.profile;
+  ok("perfil del agente: trato usted (PUT formality → GET lo devuelve)", prof.res.ok && perfil?.formality === "usted", JSON.stringify(perfil?.formality));
+  const vend = await v1.api("/api/agent/profile", { method: "PUT", body: body({ formality: "tu" }) });
+  ok("el Vendedor no cambia el trato (403)", vend.res.status === 403, short(vend));
+
+  const TZ = (await owner.api("/api/calendar/settings")).json?.settings?.timezone ?? "America/Mexico_City";
+  const dayIsoOf = (d) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const wdOf = (d) => new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(d);
+  // El PRÓXIMO viernes según la zona del negocio (como "Próximos días": desde mañana).
+  let FRI = null;
+  for (let i = 1; i <= 7 && !FRI; i++) {
+    const d = new Date(Date.now() + i * 24 * H);
+    if (wdOf(d) === "Fri") FRI = dayIsoOf(d);
+  }
+  const friNum = Number(FRI.slice(8, 10));
+
+  const last10 = (s) => String(s ?? "").replace(/\D/g, "").slice(-10);
+  const engineUsted = [];
+  const fragments = {};
+  const keep = (label, o) => {
+    const t = textOf(o);
+    if (t) {
+      engineUsted.push({ label, text: t });
+    }
+    return t;
+  };
+  /** Espera un mensaje NUEVO (desde `since`) hacia `match(to)` que cumpla `re`. */
+  async function waitTo(match, re, since, ms = 25000) {
+    let hit = null;
+    await until(async () => {
+      hit = (await outbox()).slice(since).find((o) => match(o.to) && re.test(textOf(o))) ?? null;
+      return !!hit;
+    }, ms);
+    return hit;
+  }
+  /** Saliente más reciente con `agent_action` de la conversación (historial). */
+  async function lastAction(conversationId) {
+    const [row] = await sql`
+      select agent_action as a, text from vocero.message
+      where conversation_id = ${conversationId} and direction = 'out' and agent_action is not null
+      order by created_at desc limit 1`;
+    return row ?? null;
+  }
+  const timesOf = (text) => [...text.matchAll(/^• (?:.* a las )?(\d{2}:\d{2})$/gm)].map((m) => m[1]);
+
+  /** Un "canal" de prueba: WhatsApp (teléfono) o Messenger (PSID). */
+  async function openChannel(kind, label) {
+    if (kind === "whatsapp") {
+      const p = phone();
+      const name = `IA025 ${label} ${S}`;
+      let wseq = 0;
+      const sayIt = async (text) => {
+        const since = (await outbox()).length;
+        const r = await owner.api("/api/dev/wa-mock/inbound", {
+          method: "POST",
+          body: body({ phoneNumberId: PN, from: p, name, text, waMessageId: `wamid.e2e.025.${S}.${label}.${++wseq}` }),
+        });
+        return { r, since };
+      };
+      await sayIt("hola, buenas tardes");
+      let conv = null;
+      await until(async () => {
+        const list = (await owner.api("/api/conversations")).json?.conversations ?? [];
+        conv = list.find((c) => c.contact?.name === name) ?? null;
+        return !!conv;
+      });
+      await sleep(1500); // deja pasar la respuesta de eco al saludo
+      return { conv, say: sayIt, to: (to) => last10(to) === last10(p), label: `WhatsApp ${label}` };
+    }
+    const cx = conectados.find((c) => c.channel === "messenger");
+    if (!cx) return null;
+    const sender = `${cx.pre}${CANAL_SUF}25${label.length}${Math.floor(Math.random() * 9)}`;
+    const marker = `ia025 ${label} ${S}`;
+    await say(cx, sender, `hola ${marker}`);
+    const conv = await convOf(cx, marker);
+    await sleep(1500);
+    return { conv, say: (text) => say(cx, sender, text), to: (to) => to === sender, label: `Messenger ${label}` };
+  }
+
+  const friSlots =
+    (await owner.api(`/api/calendar/availability?typeId=${PRUEBA.id}&sellerId=none&from=${FRI}&to=${FRI}`)).json?.slots ?? [];
+
+  /* ---- a, b, c, i — WhatsApp y Messenger ---- */
+  for (const kind of ["whatsapp", "messenger"]) {
+    const ch = await openChannel(kind, kind === "whatsapp" ? "wa" : "fb");
+    if (!ch?.conv) {
+      ok(`${kind}: conversación lista`, false);
+      continue;
+    }
+    const L = ch.label;
+    console.log(`  -- ${L} --`);
+
+    // a) Oferta inicial.
+    const qa = await ch.say("[e2e-agenda Prueba de manejo]");
+    const oa = await waitTo(ch.to, /Tengo estos horarios disponibles para su prueba de manejo:/, qa.since);
+    const ta = keep(`${L} oferta inicial`, oa);
+    ok(`${L} a) oferta inicial con horarios`, timesOf(ta).length > 0, ta || "sin mensaje");
+    ok(`${L} a) …e invita a pedir otro día: "Si prefiere otro día, dígame cuál."`, ta.includes("Si prefiere otro día, dígame cuál."), ta);
+    if (kind === "whatsapp") fragments.a = ta;
+    // i) El historial: el saliente de la oferta guarda la ACCIÓN.
+    const ia = await lastAction(ch.conv.id);
+    ok(
+      `${L} i) el saliente de la oferta tiene agent_action offer_slots con lo mostrado`,
+      ia?.a?.action === "offer_slots" && Array.isArray(ia?.a?.shown) && ia.a.shown.length === timesOf(ta).length && ia.text === ta,
+      JSON.stringify(ia?.a)
+    );
+
+    // b) CA-1: "¿qué tal el viernes?".
+    const qb = await ch.say("[e2e-dia viernes Prueba de manejo]");
+    const ob = await waitTo(ch.to, /^(Para el|Ese día ya no tengo)/, qb.since);
+    const tb = keep(`${L} oferta del viernes`, ob);
+    if (kind === "whatsapp") fragments.b = tb;
+    const tFri = timesOf(tb);
+    ok(`${L} b) CA-1: "Para el viernes ${friNum} de …" (el viernes REAL, ${FRI})`, tb.startsWith(`Para el viernes ${friNum} de `), tb || "sin mensaje");
+    ok(`${L} b) …nunca el ${friNum + 1} (el día que inventó el modelo del incidente)`, !new RegExp(`\\b${friNum + 1}\\b`).test(tb), tb);
+    const freeFri = new Set(friSlots.map((s) => s.time));
+    ok(
+      `${L} b) …con horarios REALES de ese viernes (contra /api/calendar/availability)`,
+      tFri.length > 0 && tFri.every((t) => freeFri.has(t)),
+      JSON.stringify({ mostrados: tFri, libres: friSlots.length })
+    );
+    const ib = await lastAction(ch.conv.id);
+    ok(`${L} b) agent_action con date=${FRI}`, ib?.a?.action === "offer_slots" && ib?.a?.date === FRI, JSON.stringify(ib?.a));
+
+    // c) CA-2: una hora suelta que se vio ese viernes → cita a esa hora local.
+    const pickT = tFri.includes("11:00") ? "11:00" : (tFri[1] ?? tFri[0]);
+    const hourArg = pickT?.endsWith(":00") ? String(Number(pickT.slice(0, 2))) : pickT;
+    const qc = await ch.say(`[e2e-elige ${hourArg}]`);
+    const oc = await waitTo(ch.to, /Le agendé|agend/, qc.since);
+    const tc = keep(`${L} confirmación`, oc);
+    if (kind === "whatsapp") fragments.c = tc;
+    ok(`${L} c) CA-2: "¡Listo! Le agendé su prueba de manejo para …"`, tc.startsWith("¡Listo! Le agendé su prueba de manejo para "), tc || "sin mensaje");
+    ok(`${L} c) …"Le esperamos en <dirección>"`, tc.includes(`Le esperamos en ${ADDRESS}.`), tc);
+    const expected = friSlots.find((s) => s.time === pickT)?.startUtc;
+    const cita = (await allBookings()).find((b) => b.conversationId === ch.conv.id && b.status === "agendada");
+    ok(
+      `${L} c) …cita creada el viernes ${FRI} a las ${pickT} (hora local), source=ai, Prueba de manejo`,
+      !!expected && cita?.scheduledAtUtc === expected && cita?.source === "ai" && cita?.type?.id === PRUEBA.id,
+      JSON.stringify({ esperado: expected, cita: cita && { at: cita.scheduledAtUtc, source: cita.source, type: cita.type?.name } })
+    );
+    const ic = await lastAction(ch.conv.id);
+    ok(`${L} c) agent_action book_slot con lo agendado`, ic?.a?.action === "book_slot" && typeof ic?.a?.booked === "string", JSON.stringify(ic?.a));
+  }
+
+  /* ---- d) CA-3: hora no ofrecida → re-oferta del MISMO día, sin repetir, sin cita ---- */
+  {
+    const ch = await openChannel("whatsapp", "d");
+    const q1 = await ch.say("[e2e-agenda Servicio]");
+    const o1 = await waitTo(ch.to, /Tengo estos horarios disponibles para su servicio:/, q1.since);
+    keep("CA-3 oferta", o1);
+    const first = (await lastAction(ch.conv.id))?.a;
+    const q2 = await ch.say("[e2e-elige 23:45]");
+    const o2 = await waitTo(ch.to, /^Ese horario no lo tengo disponible\./, q2.since);
+    const t2 = keep("CA-3 re-oferta", o2);
+    fragments.d = t2;
+    const re = (await lastAction(ch.conv.id))?.a;
+    ok("d) CA-3: [e2e-elige 23:45] (no ofrecida) → \"Ese horario no lo tengo disponible.\" + horarios", !!o2 && timesOf(t2).length > 0, t2 || "sin mensaje");
+    const firstDayNum = Number(String(first?.shown?.[0] ?? "").split(" ")[1]);
+    ok(
+      "d) …del MISMO día de la oferta que vio",
+      re?.action === "offer_slots" && Number(String(re?.date).slice(8, 10)) === firstDayNum,
+      JSON.stringify({ vio: first?.shown, reoferta: { date: re?.date, shown: re?.shown } })
+    );
+    const repetidos = (re?.shown ?? []).filter((s) => (first?.shown ?? []).includes(s));
+    ok("d) …sin repetir los horarios ya mostrados", (re?.shown ?? []).length > 0 && repetidos.length === 0, JSON.stringify(repetidos));
+    const citas = (await allBookings()).filter((b) => b.conversationId === ch.conv.id);
+    ok("d) …y sin cita", citas.length === 0, `citas=${citas.length}`);
+
+    // slot_taken (para CA-5): un humano ocupa el horario que el cliente vio.
+    const ch3 = await openChannel("whatsapp", "st");
+    const q3 = await ch3.say("[e2e-agenda Servicio]");
+    const o3 = await waitTo(ch3.to, /Tengo estos horarios disponibles para su servicio:/, q3.since);
+    keep("slot_taken oferta", o3);
+    const t3 = timesOf(textOf(o3))[0];
+    const target = (await offersOf(ch3.conv.id))[0]?.ms; // solo para preparar el choque
+    const manual = await book(owner, { contact: c2, typeId: GARANTIA.id, startMs: target, confirmOverlap: true });
+    ok("slot_taken: un humano ocupa el horario mostrado → 201", manual.res.status === 201, short(manual));
+    const q4 = await ch3.say(`[e2e-elige ${t3}]`);
+    const o4 = await waitTo(ch3.to, /^Se me acaba de ocupar ese horario/, q4.since);
+    const t4 = keep("slot_taken re-oferta", o4);
+    ok("slot_taken: \"Se me acaba de ocupar ese horario, ¡disculpe!\" + re-oferta", t4.startsWith("Se me acaba de ocupar ese horario, ¡disculpe!") && timesOf(t4).length > 0, t4 || "sin mensaje");
+    // Pregunta de tipo (usted).
+    const q5 = await ch3.say("[e2e-agenda Inexistente]");
+    const o5 = await waitTo(ch3.to, /^¿Qué tipo de cita le interesa\? Tengo: /, q5.since);
+    const t5 = keep("pregunta de tipo", o5);
+    ok("pregunta de tipo en usted: \"¿Qué tipo de cita le interesa? Tengo: …\"", !!o5, t5 || "sin mensaje");
+  }
+
+  /* ---- e) CA-4: barrera de horarios inventados ---- */
+  {
+    const ch = await openChannel("whatsapp", "e");
+    const q1 = await ch.say("[e2e-agenda Servicio]");
+    await waitTo(ch.to, /Tengo estos horarios disponibles para su servicio:/, q1.since);
+    const q2 = await ch.say("[e2e-inventa]");
+    const o2 = await waitTo(ch.to, /^(Para el|Ese día ya no tengo)/, q2.since);
+    await sleep(1500);
+    const nuevos = (await outbox()).slice(q2.since).filter((o) => ch.to(o.to)).map(textOf);
+    const t2 = keep("barrera → oferta real", o2);
+    fragments.e = t2;
+    ok(`e) CA-4: el texto inventado NO sale ("${AI_INVENTED_SNIPPET}")`, nuevos.length > 0 && !nuevos.some((t) => t.includes(AI_INVENTED_SNIPPET)), JSON.stringify(nuevos));
+    ok(`e) …sale una oferta REAL del motor para el viernes ${friNum}`, t2.startsWith(`Para el viernes ${friNum} de `) && timesOf(t2).length > 0, t2 || "sin mensaje");
+    const ofs = await offersOf(ch.conv.id);
+    ok(
+      "e) …y offered_slot quedó con las filas de esa oferta (todas del viernes)",
+      ofs.length > 0 && ofs.every((o) => dayIsoOf(new Date(o.ms)) === FRI),
+      JSON.stringify(ofs.slice(0, 3).map((o) => iso(o.ms)))
+    );
+    const logFile = process.env.E2E_SERVER_LOG;
+    if (logFile) {
+      const { readFileSync } = await import("node:fs");
+      const log = readFileSync(logFile, "utf8");
+      ok("e) …el log del server registra \"[agente] barrera de horarios\"", log.includes("[agente] barrera de horarios") && log.includes(AI_INVENTED_SNIPPET));
+    } else {
+      info("sin E2E_SERVER_LOG: no se verifica el log de la barrera");
+    }
+    const q3 = await ch.say("[e2e-horario-atencion]");
+    const o3 = await waitTo(ch.to, /^Abrimos de lunes a sábado/, q3.since);
+    ok("e) un horario de atención NO dispara la barrera: sale tal cual", textOf(o3) === AI_ATTENTION_TEXT, textOf(o3) || "sin mensaje");
+  }
+
+  /* ---- g) coalescido: "15" + otro texto en la ventana de coalescing ---- */
+  {
+    const ch = await openChannel("whatsapp", "g");
+    const q1 = await ch.say("[e2e-agenda Servicio]");
+    const o1 = await waitTo(ch.to, /Tengo estos horarios disponibles para su servicio:/, q1.since);
+    keep("coalescido oferta", o1);
+    const shownTimes = timesOf(textOf(o1));
+    const pickT = shownTimes.includes("15:00") ? "15:00" : shownTimes[0];
+    const arg = pickT?.endsWith(":00") ? String(Number(pickT.slice(0, 2))) : pickT;
+    const since = (await outbox()).length;
+    const t0g = Date.now();
+    await ch.say(`[e2e-elige ${arg}]`);
+    await ch.say("¿y cuánto cuesta?");
+    const gap = Date.now() - t0g;
+    const conf = await waitTo(ch.to, /^¡Listo! Le agendé su servicio para /, since);
+    keep("coalescido confirmación", conf);
+    await sleep(2500);
+    const replies = (await outbox()).slice(since).filter((o) => ch.to(o.to)).map(textOf);
+    const citas = (await allBookings()).filter((b) => b.conversationId === ch.conv.id && b.status === "agendada");
+    ok(`g) coalescido: "[e2e-elige ${arg}]" + "¿y cuánto cuesta?" → UNA cita a las ${pickT}`, !!conf && citas.length === 1, JSON.stringify({ replies, citas: citas.length }));
+    info(
+      `g) coalescido (AGENT_COALESCE_MS=${process.env.AGENT_COALESCE_MS ?? "?"}; los dos entrantes salieron con ${gap} ms de diferencia): ` +
+        `${replies.length} respuesta(s) del agente — ${replies.length === 1 ? "un solo turno con los dos mensajes (el mock lee todos los mensajes nuevos del cliente)" : "dos turnos: el primero reserva y el segundo responde la pregunta"}.`
+    );
+  }
+
+  /* ---- B1/R3: el reply de book_slot (el precio) llega junto a la confirmación ---- */
+  {
+    const ch = await openChannel("whatsapp", "precio");
+    const q1 = await ch.say("[e2e-agenda Servicio]");
+    const o1 = await waitTo(ch.to, /Tengo estos horarios disponibles para su servicio:/, q1.since);
+    keep("precio oferta", o1);
+    const t = timesOf(textOf(o1))[0];
+    const q2 = await ch.say(`[e2e-elige-con-precio ${t}]`);
+    const o2 = await waitTo(ch.to, /Le agendé su servicio/, q2.since);
+    const t2 = textOf(o2);
+    fragments.precio = t2;
+    ok(
+      "B1: book_slot con reply → el outbox trae el precio Y \"Le agendé\" (precio primero)",
+      t2.startsWith("El Macaron 2P cuesta $285,990.\n¡Listo! Le agendé su servicio para "),
+      t2 || "sin mensaje"
+    );
+    const r3 = (await lastAction(ch.conv.id))?.a;
+    ok("R3: agent_action del book_slot guarda el reply del modelo", r3?.action === "book_slot" && r3?.reply === "El Macaron 2P cuesta $285,990.", JSON.stringify(r3));
+    const citas = (await allBookings()).filter((b) => b.conversationId === ch.conv.id && b.status === "agendada");
+    ok("B1: …y la cita existe", citas.length === 1, `citas=${citas.length}`);
+  }
+
+  /* ---- f) CA-5: ningún texto del motor tutea con trato usted ---- */
+  const tuteo = engineUsted.filter((e) => TUTEO.test(e.text));
+  ok(
+    `f) CA-5: ninguno de los ${engineUsted.length} textos del motor (oferta, re-oferta, confirmación, pregunta de tipo, slot_taken) tutea`,
+    engineUsted.length >= 10 && tuteo.length === 0,
+    JSON.stringify(tuteo)
+  );
+  // Con trato tú, la confirmación sí tutea.
+  await owner.api("/api/agent/profile", { method: "PUT", body: body({ formality: "tu" }) });
+  {
+    const ch = await openChannel("whatsapp", "tu");
+    const q1 = await ch.say("[e2e-agenda Servicio]");
+    const o1 = await waitTo(ch.to, /Tengo estos horarios disponibles para tu servicio:/, q1.since);
+    ok("f) trato tú: la oferta dice \"para tu servicio\" y \"Si prefieres otro día, dime cuál.\"", textOf(o1).includes("Si prefieres otro día, dime cuál."), textOf(o1) || "sin mensaje");
+    const t = timesOf(textOf(o1))[0];
+    const q2 = await ch.say(`[e2e-elige ${t}]`);
+    const o2 = await waitTo(ch.to, /^¡Listo! Te agendé tu servicio para /, q2.since);
+    ok("f) trato tú: la confirmación dice \"Te agendé\" y \"Te esperamos en\"", !!o2 && textOf(o2).includes(`Te esperamos en ${ADDRESS}.`), textOf(o2) || "sin mensaje");
+  }
+  await owner.api("/api/agent/profile", { method: "PUT", body: body({ formality: "usted" }) });
+
+  /* ---- j) Laboratorio: el saliente de agenda en is_test guarda agent_action ---- */
+  {
+    const per = await owner.api("/api/lab/personas", {
+      method: "POST",
+      body: body({ name: `Agenda 025 ${S}`, objetivo: "Agendar un servicio", guion: ["[e2e-agenda Servicio]"] }),
+    });
+    const key = per.json?.persona?.key;
+    ok("j) Laboratorio: persona con guion \"[e2e-agenda Servicio]\" → 201", per.res.status === 201 && !!key, short(per));
+    if (key) {
+      await until(async () => !((await owner.api("/api/lab/runs")).json?.runs ?? []).some((r) => r.status === "running"), 180_000);
+      const run = await owner.api("/api/lab/runs", { method: "POST", body: body({ personaKeys: [key] }) });
+      ok("j) corrida corta del Laboratorio con esa persona → 202", run.res.status === 202, short(run));
+      let row = null;
+      await until(async () => {
+        const d = await owner.api(`/api/lab/runs/${run.json?.runId}`);
+        const convId = (d.json?.cases ?? []).find((c) => c.conversationId)?.conversationId;
+        if (!convId) return false;
+        [row] = await sql`
+          select m.agent_action as a, c.is_test from vocero.message m
+          join vocero.conversation c on c.id = m.conversation_id
+          where m.conversation_id = ${convId} and m.direction = 'out' and m.agent_action is not null
+          limit 1`;
+        return !!row;
+      }, 120_000);
+      ok(
+        "j) …el saliente de agenda en la conversación is_test guarda agent_action (persistTestOutbound)",
+        row?.is_test === true && row?.a?.action === "offer_slots" && Array.isArray(row?.a?.shown),
+        JSON.stringify(row)
+      );
+    }
+  }
+
+  console.log("\n  Fragmentos del outbox (textos reales del motor):");
+  for (const [k, v] of Object.entries(fragments)) console.log(`  [${k}] ${JSON.stringify(v)}`);
 }
 
 main()

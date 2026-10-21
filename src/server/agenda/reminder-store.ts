@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
+import { normalizeFormality, type Formality } from "@/lib/formality";
 import {
   REMINDER_FIELDS,
   REMINDER_MAX_MANUAL_RETRIES,
@@ -556,6 +557,16 @@ export async function getReminderTemplate(
     )
     .limit(1);
   return rows[0] ?? null;
+}
+
+/** 025 — Trato del perfil del agente (respaldos de los recordatorios). */
+export async function getAgentFormality(organizationId: string): Promise<Formality> {
+  const rows = await getDb()
+    .select({ formality: schema.agentProfile.formality })
+    .from(schema.agentProfile)
+    .where(scoped(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  return normalizeFormality(rows[0]?.formality);
 }
 
 export async function getOrganizationName(organizationId: string): Promise<string> {

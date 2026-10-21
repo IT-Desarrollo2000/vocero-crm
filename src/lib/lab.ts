@@ -133,6 +133,11 @@ export type LabConfigSnapshot = {
     instructions: string | null;
     escalationRules: string | null;
     greeting: string | null;
+    /**
+     * 025 (A9) — Trato con el cliente. Opcional: los snapshots anteriores a
+     * la 025 no lo traen.
+     */
+    formality?: "tu" | "usted";
   } | null;
   kb: { mode: "full" | "hashed"; entries: LabKbSnapshotEntry[] };
   personas: { id: string | null; key: string; name: string; hash: string }[];

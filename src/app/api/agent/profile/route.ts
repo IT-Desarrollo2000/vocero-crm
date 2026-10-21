@@ -3,6 +3,7 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isAiConfigured } from "@/lib/env";
+import { FORMALITIES } from "@/lib/formality";
 import { isOwner } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export const GET = withAuth(async (session) => {
       instructions: p.instructions,
       escalationRules: p.escalationRules,
       greeting: p.greeting,
+      formality: p.formality,
     },
     aiConfigured: isAiConfigured(),
   });
@@ -44,6 +46,8 @@ const putSchema = z.object({
   instructions: z.string().max(8000).nullable().optional(),
   escalationRules: z.string().max(4000).nullable().optional(),
   greeting: z.string().max(1000).nullable().optional(),
+  /** 025 — Trato con el cliente (tú/usted). */
+  formality: z.enum(FORMALITIES).optional(),
 });
 
 export const PUT = withAuth(async (session, req: Request) => {

@@ -183,6 +183,13 @@
       "when": 1792520084985,
       "tag": "0025_agenda_presencial",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792610354557,
+      "tag": "0026_agenda_ia_robusta",
+      "breakpoints": true
     }
   ]
 }

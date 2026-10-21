@@ -170,6 +170,19 @@ describe("023 — variables de agenda presencial (A8)", () => {
     ]);
   });
 
+  it("025 — con trato usted los respaldos no tutean: «su cita», «se lo compartimos…»", () => {
+    const out = renderReminderVariables(["appointment_type", "meeting_link", "address"], {
+      ...base,
+      formality: "usted",
+    });
+    expect(out).toEqual(["su cita", "se lo compartimos por este medio", "nuestra sucursal"]);
+    for (const v of out) expect(v).not.toMatch(/\b(te|tu|tus|ti)\b/i);
+    // Trato tú (o sin trato): los de siempre.
+    expect(
+      renderReminderVariables(["appointment_type", "meeting_link"], { ...base, formality: "tu" })
+    ).toEqual(["tu cita", "te lo compartimos por este medio"]);
+  });
+
   it("forman parte del catálogo cerrado, con etiqueta", async () => {
     const { REMINDER_FIELDS, REMINDER_FIELD_LABEL } = await import("@/lib/reminders");
     expect(REMINDER_FIELDS).toContain("appointment_type");
