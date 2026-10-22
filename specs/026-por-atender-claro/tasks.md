@@ -22,4 +22,4 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 - [x] Revisión Fable (plan + implementación): 3 bloqueantes del plan corregidos; implementación sin bloqueantes (backfill acotado a filas que esperan).
 
 ## T5. Despliegue
-- [ ] Merge + push + deploy (pedir OK al dueño).
+- [x] Push 0e2c690 a main + deploy 9apkixbqahvhgzti0w0e86eq (22-oct, OK del dueño, ~5 min, running:healthy, migración 0027 aplicada, smoke OK). Reversa = redeploy de dce9dc5.
