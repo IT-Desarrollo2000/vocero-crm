@@ -416,8 +416,10 @@ async function main() {
     ok("counts.closing coherente con la lista", counts?.closing === closingList.length, `${counts?.closing} vs ${closingList.length}`);
     // 020 (rediseño 4.4): «Ventana por cerrar» dejó de ser pastilla: es el
     // filtro combinable «Por cerrar» del panel "Filtros" (un interruptor con
-    // su contador).
-    await p1.goto(`${BASE}/inbox`, { waitUntil: "load" });
+    // su contador). 027: en modo equipo el filtro cuenta DENTRO del alcance;
+    // Caro está sin asignar → se mira en el Buzón y se compara con su conteo.
+    const buzon = (await owner.api("/api/conversations/counts?assigned=unassigned")).json;
+    await p1.goto(`${BASE}/inbox?scope=inbox`, { waitUntil: "load" });
     const filtrosBtn = p1.getByRole("button", { name: /^Filtros/ });
     await filtrosBtn.waitFor({ timeout: 20000 }).catch(() => {});
     await filtrosBtn.click().catch(() => {});
@@ -425,10 +427,10 @@ async function main() {
     await pill.first().waitFor({ timeout: 10000 }).catch(() => {});
     ok("filtro «Por cerrar» visible en el panel", (await pill.count()) > 0);
     // `/counts` llega después de pintar el panel (arranca en 0): esperar.
-    const pillRe = new RegExp(`\\(${counts?.closing}\\)`);
+    const pillRe = new RegExp(`\\(${buzon?.closing}\\)`);
     await until(async () => pillRe.test((await pill.first().innerText()).trim()), 10000);
     const pillTxt = (await pill.first().innerText().catch(() => "")).replace(/\s+/g, " ");
-    ok(`el filtro cuenta ${counts?.closing}`, pillTxt.includes(`(${counts?.closing})`), pillTxt);
+    ok(`el filtro cuenta ${buzon?.closing} (Buzón)`, pillTxt.includes(`(${buzon?.closing})`), pillTxt);
     await pill.first().click().catch(() => {});
     await p1.getByRole("button", { name: "Listo" }).click().catch(() => {});
     const row = p1.locator(`[data-conversation-id="${caroConv.id}"]`);

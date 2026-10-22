@@ -55,7 +55,7 @@ export type ListConversationsOptions = Partial<InboxQuery> & {
   /**
    * 09 (RF-09-12): filtro de responsable, SIEMPRE dentro de lo visible.
    * `me` = asignadas a `viewer.userId`; `unassigned` = sin responsable;
-   * `all` (default) = todo lo visible.
+   * `all` (default) = todo lo visible. 027: `others` = de OTRO miembro.
    */
   assigned?: AssignedFilter;
 };
@@ -63,14 +63,23 @@ export type ListConversationsOptions = Partial<InboxQuery> & {
 /** Responsable resuelto para el DTO (null = sin asignar). */
 export type Assignee = { userId: string; name: string } | null;
 
-function assignedCondition(
+/**
+ * Predicado de responsable (09; 027 `others`). `others` = asignada y no a
+ * quien mira: para el Propietario es la pestaña "Equipo"; para el Vendedor es
+ * `false` explícito (su visibilidad ya lo vaciaría, pero no se deja al azar).
+ * Exportado para el unit que fija su forma.
+ */
+export function assignedCondition(
   viewer: Viewer,
   assigned: AssignedFilter | undefined
 ): SQL | undefined {
-  if (assigned === "me") {
-    return eq(schema.conversation.assignedUserId, viewer.userId);
+  const c = schema.conversation;
+  if (assigned === "me") return eq(c.assignedUserId, viewer.userId);
+  if (assigned === "unassigned") return isNull(c.assignedUserId);
+  if (assigned === "others") {
+    if (!isOwner(viewer)) return sql`false`;
+    return and(isNotNull(c.assignedUserId), ne(c.assignedUserId, viewer.userId));
   }
-  if (assigned === "unassigned") return isNull(schema.conversation.assignedUserId);
   return undefined;
 }
 
@@ -185,7 +194,10 @@ type Facet = "channel" | "origin" | "unassigned" | "closing";
  */
 function panelFilters(
   viewer: Viewer,
-  opts: Pick<ListConversationsOptions, "channel" | "origin" | "unassigned" | "closing">,
+  opts: Pick<
+    ListConversationsOptions,
+    "channel" | "origin" | "mine" | "unassigned" | "closing"
+  >,
   now: Date,
   omit?: Facet
 ): (SQL | undefined)[] {
@@ -193,6 +205,8 @@ function panelFilters(
   return [
     omit !== "channel" && opts.channel ? eq(c.channel, opts.channel) : undefined,
     omit !== "origin" ? originCondition(opts.origin) : undefined,
+    // 027: `filter=mine` de enlaces viejos (sin faceta propia: `counts.mine`).
+    opts.mine ? assignedCondition(viewer, "me") : undefined,
     omit !== "unassigned" && opts.unassigned
       ? assignedCondition(viewer, "unassigned")
       : undefined,
@@ -446,6 +460,10 @@ function anuncioDeFila(r: {
  * Las vistas usan la suya (`archived` no lleva capa: su predicado ya es
  * IS NOT NULL); las facetas, la vista activa. Con `q`, nadie lleva capa.
  *   teamMode      = !owner ∨ miembros > 1 ∨ alguna visible con responsable
+ *   scopes.x      = SOLO visibilidad ∧ no archivada ∧ alcance x (027; `unread`
+ *                   ∧ unread_count > 0). Van AL FINAL del SELECT: los units
+ *                   leen los segmentos por posición. Misma forma para ambos
+ *                   roles (`team` del Vendedor = `false`).
  *
  * Sin vista ni filtros del panel, coincide con el contrato 06-0. Una sola
  * pasada: el WHERE lleva solo org ∧ is_test ∧ visibilidad y el resto de capas
@@ -458,7 +476,15 @@ export async function countConversations(
   viewer: Viewer,
   query: Pick<
     ListConversationsOptions,
-    "q" | "stageId" | "channel" | "assigned" | "filter" | "origin" | "unassigned" | "closing"
+    | "q"
+    | "stageId"
+    | "channel"
+    | "assigned"
+    | "filter"
+    | "origin"
+    | "mine"
+    | "unassigned"
+    | "closing"
   > = {}
 ): Promise<ConversationCounts> {
   const c = schema.conversation;
@@ -477,6 +503,7 @@ export async function countConversations(
   const countWhere = (...conds: (SQL | undefined)[]) =>
     sql<number>`count(*) filter (where ${and(...conds) ?? always})::int`.mapWith(Number);
   const notArchived = isNull(c.archivedAt);
+  const unreadOnly = gt(c.unreadCount, 0);
 
   const aggregates = db
     .select({
@@ -504,6 +531,21 @@ export async function countConversations(
           Number
         ),
       anyAssigned: sql<boolean>`coalesce(bool_or(${c.assignedUserId} is not null), false)`,
+      // 027: pestañas del selector de alcance (solo visibilidad ∧ no archivada).
+      scopeMine: countWhere(notArchived, assignedCondition(viewer, "me")),
+      scopeMineUnread: countWhere(notArchived, assignedCondition(viewer, "me"), unreadOnly),
+      scopeInbox: countWhere(notArchived, assignedCondition(viewer, "unassigned")),
+      scopeInboxUnread: countWhere(
+        notArchived,
+        assignedCondition(viewer, "unassigned"),
+        unreadOnly
+      ),
+      scopeTeam: countWhere(notArchived, assignedCondition(viewer, "others")),
+      scopeTeamUnread: countWhere(
+        notArchived,
+        assignedCondition(viewer, "others"),
+        unreadOnly
+      ),
     })
     .from(c)
     .innerJoin(schema.contact, eq(c.contactId, schema.contact.id))
@@ -545,7 +587,37 @@ export async function countConversations(
     unreadMessages: n(agg?.unreadMessages),
     teamMode:
       !isOwner(viewer) || n(memberRow?.n) > 1 || agg?.anyAssigned === true,
+    scopes: {
+      mine: { all: n(agg?.scopeMine), unread: n(agg?.scopeMineUnread) },
+      inbox: { all: n(agg?.scopeInbox), unread: n(agg?.scopeInboxUnread) },
+      team: { all: n(agg?.scopeTeam), unread: n(agg?.scopeTeamUnread) },
+    },
   };
+}
+
+/**
+ * 027 — `teamMode` para el PRIMER pintado de la Bandeja (lo calcula la página
+ * en el servidor y evita que el selector de alcance aparezca un instante
+ * después, cuando llega `/counts`). Misma regla que `countConversations`:
+ * Vendedor → siempre; Propietario → hay más de un miembro o alguna
+ * conversación (no de prueba) con responsable.
+ */
+export async function teamModeFor(organizationId: string, viewer: Viewer): Promise<boolean> {
+  if (!isOwner(viewer)) return true;
+  const db = getDb();
+  const c = schema.conversation;
+  const [[members], [assigned]] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)::int`.mapWith(Number) })
+      .from(schema.member)
+      .where(scoped(schema.member.organizationId, organizationId)),
+    db
+      .select({ id: c.id })
+      .from(c)
+      .where(scoped(c.organizationId, organizationId, eq(c.isTest, false), isNotNull(c.assignedUserId)))
+      .limit(1),
+  ]);
+  return Number(members?.n ?? 0) > 1 || assigned !== undefined;
 }
 
 /**

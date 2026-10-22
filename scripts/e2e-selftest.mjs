@@ -1193,6 +1193,9 @@ async function main() {
   await leadsExternosChecks();
   // 024: AL FINAL — da de alta dos Vendedoras y reconfigura la agenda (24/7).
   await reportesVendedoresChecks();
+  // 027: AL FINAL — da de alta un Vendedor y mueve una conversación propia
+  // entre alcances (la deja en el Buzón, como llegó).
+  await bandejaAlcanceChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -3864,6 +3867,182 @@ async function asignacionChecks() {
   );
   const malo = await api("/api/conversations?assigned=otro");
   ok("?assigned inválido → 422", malo.res.status === 422, `status=${malo.res.status}`);
+}
+
+/* ============================================================
+ * 027 — Bandeja por alcance (tests/e2e/us-bandeja-alcance.md). Por API:
+ * `assigned=others`, la partición exacta Buzón + Mis chats + Equipo = Todas
+ * (CA-2), `counts.scopes` coherente con cada alcance, el Vendedor sin
+ * "Equipo" (CA-9), "Mis chats → Por atender" (CA-3), contestar desde el
+ * Buzón muda el chat a Mis chats (CA-4), "Devolver al buzón" (CA-5), la
+ * vista vieja `filter=mine` (CA-7) y 422 con `assigned` desconocido. La UI
+ * (pestañas, aviso "ahora está en…", recordatorio del Buzón, móvil) la
+ * conduce scripts/e2e-bandeja-alcance.mjs.
+ * ============================================================ */
+async function bandejaAlcanceChecks() {
+  console.log("\n== 027: Bandeja por alcance — Buzón · Mis chats · Equipo ==");
+  const SUF = String(Date.now()).slice(-7);
+  const ids = (list) => list.map((c) => c.id).sort();
+  const lista = async (qs, as = api) =>
+    (await as(`/api/conversations${qs ? `?${qs}` : ""}`)).json?.conversations ?? [];
+  const cuenta = async (qs, as = api) =>
+    (await as(`/api/conversations/counts${qs ? `?${qs}` : ""}`)).json ?? null;
+
+  // Setup: un Vendedor con su propia sesión (el `cookie` global es del dueño
+  // y `api` lo reescribe con cada Set-Cookie: el vendedor va por `sapi`).
+  const email = `vend.alcance.${SUF}@vocero.test`;
+  const password = "password-vend-alcance-123";
+  const alta = await api("/api/settings/team", {
+    method: "POST",
+    body: JSON.stringify({ name: "Vendedor Alcance", email, password }),
+  });
+  ok("027 (setup) alta del vendedor", alta.res.ok, `${alta.res.status} ${JSON.stringify(alta.json)}`);
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email, password }),
+  });
+  const sellerCookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  ok("027 (setup) el vendedor inicia sesión", login.ok && !!sellerCookie, String(login.status));
+  const sapi = async (path, opts = {}) => {
+    const res = await fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: { "content-type": "application/json", origin: BASE, cookie: sellerCookie },
+    });
+    return { res, json: await res.clone().json().catch(() => null) };
+  };
+  const vendedorId = (await sapi("/api/auth/get-session")).json?.user?.id;
+  const yo = (await api("/api/auth/get-session")).json?.user?.id;
+  ok("027 (setup) ids de dueño y vendedor", !!vendedorId && !!yo);
+
+  // Dos conversaciones propias: A para el vendedor (Equipo del dueño), B en
+  // el Buzón (la contestará el vendedor).
+  const PHONE_A = `521557${SUF}`;
+  const PHONE_B = `521556${SUF}`;
+  const NAME_A = `Alcance A ${SUF}`;
+  const NAME_B = `Alcance B ${SUF}`;
+  let n = 0;
+  const inbound = (from, name, text) =>
+    api("/api/dev/wa-mock/inbound", {
+      method: "POST",
+      body: JSON.stringify({ phoneNumberId: PN, from, name, text, waMessageId: `wamid.e2e.027.${SUF}.${++n}` }),
+    });
+  ok("027 (setup) entrante A", (await inbound(PHONE_A, NAME_A, "hola, soy A")).res.ok);
+  ok("027 (setup) entrante B", (await inbound(PHONE_B, NAME_B, "hola, soy B")).res.ok);
+  await sleep(1500);
+  const byName = async (name, as = api) =>
+    (await lista(`q=${encodeURIComponent(name)}`, as)).find((c) => c.contact?.name === name) ?? null;
+  const convA = await byName(NAME_A);
+  const convB = await byName(NAME_B);
+  ok("027 (setup) conversaciones creadas sin responsable", !!convA && !!convB && !convA.assignedTo && !convB.assignedTo);
+  if (!convA || !convB || !vendedorId || !yo) return;
+  const asg = await api(`/api/conversations/${convA.id}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ userId: vendedorId }),
+  });
+  ok("027 (setup) el dueño asigna A al vendedor", asg.res.ok, `${asg.res.status} ${JSON.stringify(asg.json)}`);
+
+  // CA-2: partición exacta del dueño (sin archivadas, como cada pestaña).
+  const todas = await lista("");
+  const buzon = await lista("assigned=unassigned");
+  const equipo = await lista("assigned=others");
+  const mias = await lista("assigned=me");
+  const union = [...buzon, ...equipo, ...mias];
+  ok(
+    "CA-2: Buzón + Equipo + Mis chats = Todas (sin huecos ni repetidos)",
+    JSON.stringify(ids(union)) === JSON.stringify(ids(todas)) && new Set(union.map((c) => c.id)).size === union.length,
+    `todas=${todas.length} buzon=${buzon.length} equipo=${equipo.length} mias=${mias.length}`
+  );
+  ok("assigned=others: asignadas y no al dueño", equipo.every((c) => c.assignedTo && c.assignedTo.userId !== yo));
+  ok("assigned=others del dueño incluye la de su vendedor", equipo.some((c) => c.id === convA.id));
+  ok("el Buzón trae B y no A", buzon.some((c) => c.id === convB.id) && !buzon.some((c) => c.id === convA.id));
+
+  // US-2: counts.scopes = el conteo de cada alcance (no depende de q/vista).
+  const c0 = await cuenta("");
+  const cIn = await cuenta("assigned=unassigned");
+  const cTeam = await cuenta("assigned=others");
+  const cMe = await cuenta("assigned=me");
+  const sc = c0?.scopes;
+  ok(
+    "counts.scopes presentes con all/unread",
+    !!sc && ["inbox", "mine", "team"].every((k) => Number.isInteger(sc[k]?.all) && Number.isInteger(sc[k]?.unread)),
+    JSON.stringify(sc)
+  );
+  ok(
+    "counts.scopes.X.all = counts(assigned=X).all; unread = su vista No leídas",
+    sc?.inbox.all === cIn?.all && sc?.team.all === cTeam?.all && sc?.mine.all === cMe?.all &&
+      sc?.inbox.unread === cIn?.unread && sc?.team.unread === cTeam?.unread && sc?.mine.unread === cMe?.unread,
+    JSON.stringify({ sc, inbox: [cIn?.all, cIn?.unread], team: [cTeam?.all, cTeam?.unread], mine: [cMe?.all, cMe?.unread] })
+  );
+  ok("los tres alcances suman Todas", sc && sc.inbox.all + sc.team.all + sc.mine.all === c0?.all, JSON.stringify({ sc, all: c0?.all }));
+  const cQ = await cuenta(`q=${encodeURIComponent("zzz-nadie")}&filter=unread`);
+  ok("counts.scopes no depende de la búsqueda ni de la vista", JSON.stringify(cQ?.scopes) === JSON.stringify(sc));
+
+  // CA-9 + CA-1: el Vendedor no tiene Equipo; Mis chats + Buzón = lo suyo.
+  const vTodas = await lista("", sapi);
+  const vOthers = await lista("assigned=others", sapi);
+  const vMias = await lista("assigned=me", sapi);
+  const vBuzon = await lista("assigned=unassigned", sapi);
+  ok("CA-9: assigned=others para el Vendedor → vacío", vOthers.length === 0, `n=${vOthers.length}`);
+  ok("CA-1: Mis chats del vendedor = solo las suyas (trae A)", vMias.every((c) => c.assignedTo?.userId === vendedorId) && vMias.some((c) => c.id === convA.id));
+  ok("CA-1: su Buzón = solo sin asignar (trae B)", vBuzon.every((c) => c.assignedTo === null) && vBuzon.some((c) => c.id === convB.id));
+  ok("CA-1: Mis chats + Buzón = Todas del vendedor", JSON.stringify(ids([...vMias, ...vBuzon])) === JSON.stringify(ids(vTodas)));
+  const vc = await cuenta("", sapi);
+  ok("Vendedor: counts.scopes.team = 0", vc?.scopes?.team?.all === 0 && vc?.scopes?.team?.unread === 0, JSON.stringify(vc?.scopes));
+  ok("Vendedor: counts.scopes.mine.all = su lista Mis chats", vc?.scopes?.mine?.all === vMias.length, `${vc?.scopes?.mine?.all} vs ${vMias.length}`);
+
+  // CA-3: "Mis chats → Por atender" — lista y contador coinciden.
+  const vHuman = await lista("assigned=me&filter=human", sapi);
+  const vcMe = await cuenta("assigned=me", sapi);
+  ok("CA-3: Mis chats → Por atender: lista = contador", vHuman.length === vcMe?.human, `${vHuman.length} vs ${vcMe?.human}`);
+  ok("CA-3: …y todas son del vendedor", vHuman.every((c) => c.assignedTo?.userId === vendedorId));
+
+  // CA-7 (API): la vista vieja filter=mine ≡ assigned=me.
+  const legacy = await lista("filter=mine", sapi);
+  ok("CA-7: filter=mine (viejo) = assigned=me", JSON.stringify(ids(legacy)) === JSON.stringify(ids(vMias)));
+
+  // CA-4: el vendedor contesta B desde el Buzón → se le asigna y se muda.
+  const antes = vc?.scopes;
+  const env = await sapi(`/api/conversations/${convB.id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text: "¡hola! te atiendo yo" }),
+  });
+  ok("CA-4: el vendedor contesta B", env.res.ok, `${env.res.status} ${JSON.stringify(env.json)}`);
+  await sleep(800);
+  const vBuzon2 = await lista("assigned=unassigned", sapi);
+  const vMias2 = await lista("assigned=me", sapi);
+  ok("CA-4: B sale del Buzón y entra en Mis chats", !vBuzon2.some((c) => c.id === convB.id) && vMias2.some((c) => c.id === convB.id));
+  const despues = (await cuenta("", sapi))?.scopes;
+  ok(
+    "CA-4: contadores ±1 (Buzón −1, Mis chats +1)",
+    !!antes && !!despues && despues.inbox.all === antes.inbox.all - 1 && despues.mine.all === antes.mine.all + 1,
+    JSON.stringify({ antes, despues })
+  );
+  ok("CA-4: para el dueño, B ahora está en Equipo", (await lista("assigned=others")).some((c) => c.id === convB.id));
+
+  // CA-5: "Devolver al buzón" (assign null) → vuelve al Buzón.
+  const dev = await sapi(`/api/conversations/${convB.id}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ userId: null }),
+  });
+  ok("CA-5: Devolver al buzón responde ok", dev.res.ok, `${dev.res.status} ${JSON.stringify(dev.json)}`);
+  ok("CA-5: B vuelve al Buzón", (await lista("assigned=unassigned", sapi)).some((c) => c.id === convB.id));
+  ok("CA-5: …y sale de Mis chats", !(await lista("assigned=me", sapi)).some((c) => c.id === convB.id));
+
+  // CA-6: con texto se busca en todos los alcances (la UI no manda assigned).
+  const busq = await lista(`q=${SUF}`);
+  ok("CA-6: la búsqueda del dueño (sin alcance) encuentra A (Equipo) y B (Buzón)",
+     busq.some((c) => c.id === convA.id) && busq.some((c) => c.id === convB.id), `n=${busq.length}`);
+
+  // 422: `assigned` fuera del catálogo, en lista y contadores, con el catálogo nuevo.
+  const malo = await api("/api/conversations?assigned=nadie");
+  const maloC = await api("/api/conversations/counts?assigned=nadie");
+  ok("assigned desconocido → 422 en lista y counts", malo.res.status === 422 && maloC.res.status === 422,
+     `${malo.res.status} ${maloC.res.status}`);
+  ok("el 422 nombra others en el catálogo", /others/.test(malo.json?.error?.message ?? ""), JSON.stringify(malo.json));
+
+  // Limpieza: A vuelve al Buzón (como llegó).
+  await api(`/api/conversations/${convA.id}/assign`, { method: "POST", body: JSON.stringify({ userId: null }) });
 }
 
 /* ============================================================

@@ -12,13 +12,15 @@
 
 import { CHANNEL_ORDER, type Channel } from "@/lib/channels";
 import type {
+  AssignedFilter,
   ConversationCounts,
   ConversationDto,
   InboxFilter,
   InboxOrigin,
+  InboxScope,
   InboxView,
 } from "@/lib/types";
-import { filterConversations } from "./helpers";
+import { filterConversations, isMine } from "./helpers";
 
 /** Tamaño de página que pide la UI (el servidor acepta [1, 200]). */
 export const PAGE_SIZE = 50;
@@ -28,11 +30,18 @@ export const PAGE_SIZE = 50;
  * de la página (020: compartir/recargar conserva la vista y el panel).
  *
  * 020 (rediseño 4.4): `filter` es la VISTA (excluyente: Todas · No leídas ·
- * Mías · Por atender — 026: solo las que esperan respuesta); canal, etapa,
- * origen, sin asignar y por cerrar son filtros COMBINABLES entre sí y con la
- * vista.
+ * Por atender — 026: solo las que esperan respuesta — · Archivadas); canal,
+ * etapa, origen y por cerrar son filtros COMBINABLES entre sí y con la vista.
+ *
+ * 027: `scope` es el ALCANCE (Buzón · Mis chats · Equipo), por ENCIMA de la
+ * vista y de los filtros. En el estado es el ELEGIDO (pestaña activa, URL,
+ * preferencia guardada); el que viaja al servidor sale de `effectiveFilters`
+ * (null sin modo equipo o con búsqueda). No es un filtro del panel: no cuenta
+ * en `panelFilterCount` ni en `hasActiveFilters`.
  */
 export type InboxFilters = {
+  /** 027: alcance; null = sin alcance (todo lo visible, como antes de 027). */
+  scope: InboxScope | null;
   filter: InboxView;
   /** Etapa por id (D-06-2), o null = toda etapa. */
   stageId: string | null;
@@ -45,25 +54,54 @@ export type InboxFilters = {
   q: string;
   /** 020: Origen — `ad` (de anuncio), `none` (sin anuncio) o null (todos). */
   origin: InboxOrigin | null;
-  /** 020: solo las que nadie ha tomado (antes, pastilla "Sin asignar"). */
-  unassigned: boolean;
   /** 020: solo las de ventana por cerrar (antes, pastilla). */
   closing: boolean;
 };
 
 export const DEFAULT_FILTERS: InboxFilters = {
+  scope: null,
   filter: "all",
   stageId: null,
   stageName: null,
   channel: null,
   q: "",
   origin: null,
-  unassigned: false,
   closing: false,
 };
 
 /** Vistas de la URL: espejo de `INBOX_VIEWS` del servidor (un unit los compara). */
-export const VIEWS: readonly InboxView[] = ["all", "unread", "mine", "human", "archived"];
+export const VIEWS: readonly InboxView[] = ["all", "unread", "human", "archived"];
+
+/** 027: alcances válidos de `?scope=`. */
+export const SCOPES: readonly InboxScope[] = ["mine", "inbox", "team"];
+
+/** 027: alcance → `?assigned=` del servidor. */
+export const SCOPE_ASSIGNED: Record<InboxScope, AssignedFilter> = {
+  mine: "me",
+  inbox: "unassigned",
+  team: "others",
+};
+
+/**
+ * 027 — Alcance con que abre la Bandeja la primera vez (sin `?scope=` ni
+ * preferencia guardada). El Vendedor trabaja sus chats; el Propietario, el
+ * Buzón (sus respuestas no le asignan chats, regla 09: su "Mis chats" suele
+ * estar vacío).
+ */
+export function defaultScope(owner: boolean): InboxScope {
+  return owner ? "inbox" : "mine";
+}
+
+/** 027: ¿en qué alcance cae esta conversación para quien mira? */
+export function scopeOf(c: ConversationDto, viewerId: string | undefined): InboxScope {
+  if (c.assignedTo === null) return "inbox";
+  return isMine(c, viewerId) ? "mine" : "team";
+}
+
+/** 027: valor de `?scope=` (o de la preferencia guardada) → alcance, o null. */
+export function parseScope(raw: string | null | undefined): InboxScope | null {
+  return (SCOPES as readonly string[]).includes(raw ?? "") ? (raw as InboxScope) : null;
+}
 
 /**
  * 020 — Cuántos filtros del PANEL hay puestos (el número del botón
@@ -74,12 +112,14 @@ export function panelFilterCount(f: InboxFilters): number {
     (f.channel ? 1 : 0) +
     (f.stageId ? 1 : 0) +
     (f.origin ? 1 : 0) +
-    (f.unassigned ? 1 : 0) +
     (f.closing ? 1 : 0)
   );
 }
 
-/** ¿Hay algún filtro puesto? (decide entre "Sin conversaciones" y "Sin resultados"). */
+/**
+ * ¿Hay algún filtro puesto? (decide entre "Sin conversaciones" y "Sin
+ * resultados"). 027: el alcance no cuenta: tiene sus propios vacíos.
+ */
 export function hasActiveFilters(f: InboxFilters): boolean {
   return f.filter !== "all" || panelFilterCount(f) > 0 || f.q.trim() !== "";
 }
@@ -91,18 +131,28 @@ export function clearPanelFilters(): Partial<InboxFilters> {
     stageName: null,
     channel: null,
     origin: null,
-    unassigned: false,
     closing: false,
   };
 }
 
 /**
- * Sin asignación a la vista (Propietario trabajando solo), la vista "Mías" o
- * el filtro "Sin asignar" ya elegidos no deben seguir filtrando a escondidas.
+ * 027 — El alcance que de veras filtra (lo que viaja como `assigned=`):
+ * - sin modo equipo (Propietario trabajando solo) → ninguno: la Bandeja queda
+ *   como antes de 027, sin filtrar a escondidas por lo elegido;
+ * - con texto en la búsqueda → ninguno: se busca en TODOS los alcances, para
+ *   que nadie crea perdido a un cliente que está en otro;
+ * - Vendedor con `team` (enlace o preferencia de otro rol) → `mine`: no ve
+ *   chats ajenos.
  */
-export function effectiveFilters(f: InboxFilters, teamMode: boolean): InboxFilters {
-  if (teamMode || (f.filter !== "mine" && !f.unassigned)) return f;
-  return { ...f, filter: f.filter === "mine" ? "all" : f.filter, unassigned: false };
+export function effectiveFilters(
+  f: InboxFilters,
+  teamMode: boolean,
+  owner = true
+): InboxFilters {
+  if (f.scope === null) return f;
+  if (!teamMode || f.q.trim() !== "") return { ...f, scope: null };
+  if (!owner && f.scope === "team") return { ...f, scope: "mine" };
+  return f;
 }
 
 /** Parámetros compartidos por lista, contadores y URL de la página (sin `filter`). */
@@ -111,15 +161,19 @@ function baseParams(f: InboxFilters): URLSearchParams {
   if (f.stageId) p.set("stage", f.stageId);
   if (f.channel) p.set("channel", f.channel);
   if (f.origin) p.set("origin", f.origin);
-  if (f.unassigned) p.set("unassigned", "1");
   if (f.closing) p.set("closing", "1");
   const q = f.q.trim();
   if (q) p.set("q", q);
   return p;
 }
 
-/** Claves de la URL de la página que son de filtros (las demás, p. ej. `contact`, se respetan). */
+/**
+ * Claves de la URL de la página que son de filtros (las demás, p. ej.
+ * `contact`, se respetan). 027: `unassigned` ya no se escribe, pero sigue
+ * aquí para que un `?unassigned=1` viejo se retire al reescribir la URL.
+ */
 export const FILTER_URL_KEYS = [
+  "scope",
   "filter",
   "stage",
   "channel",
@@ -134,11 +188,17 @@ const FLAG_ON = new Set(["1", "true", "on", "si", "sí", "yes"]);
 /**
  * 020 — Filtros desde la URL de la página (`/inbox?filter=unread&origin=ad…`),
  * con el mismo parseo tolerante que el servidor: valor desconocido = sin
- * filtro. Compatibles con los enlaces viejos: `filter=unassigned` y
- * `filter=closing` eran pastillas y hoy son los filtros `unassigned`/`closing`.
+ * filtro. Compatibles con los enlaces viejos: `filter=closing` era pastilla y
+ * hoy es el filtro `closing`.
+ *
+ * 027 — Alcance: `?scope=` manda; si no viene, los enlaces viejos dicen el
+ * equivalente (`filter=mine` → Mis chats; `filter=unassigned` o
+ * `unassigned=1` → Buzón); si tampoco, `fallbackScope` (el default del rol;
+ * la preferencia guardada la aplica quien llama, tras montar).
  */
 export function filtersFromSearchParams(
-  params: Pick<URLSearchParams, "get">
+  params: Pick<URLSearchParams, "get">,
+  fallbackScope: InboxScope | null = null
 ): InboxFilters {
   const raw = params.get("filter") ?? "";
   const flag = (k: string) => FLAG_ON.has((params.get(k) ?? "").trim().toLowerCase());
@@ -146,6 +206,7 @@ export function filtersFromSearchParams(
   const origin = params.get("origin") ?? "";
   const stage = (params.get("stage") ?? "").trim();
   return {
+    scope: scopeFromSearchParams(params) ?? fallbackScope,
     filter: (VIEWS as readonly string[]).includes(raw) ? (raw as InboxView) : "all",
     stageId: stage && stage.length <= 64 ? stage : null,
     stageName: null,
@@ -154,21 +215,43 @@ export function filtersFromSearchParams(
       : null,
     q: (params.get("q") ?? "").slice(0, 200),
     origin: origin === "ad" || origin === "post" || origin === "none" ? origin : null,
-    unassigned: raw === "unassigned" || flag("unassigned"),
     closing: raw === "closing" || flag("closing"),
   };
 }
 
 /**
+ * 027 — El alcance que dice la URL (`?scope=` o un enlace viejo), o null si
+ * no dice ninguno. Quien llama lo usa para saber si aplicar la preferencia
+ * guardada (solo cuando la URL calla).
+ */
+export function scopeFromSearchParams(
+  params: Pick<URLSearchParams, "get">
+): InboxScope | null {
+  const explicit = parseScope(params.get("scope"));
+  if (explicit) return explicit;
+  const raw = params.get("filter") ?? "";
+  if (raw === "mine") return "mine";
+  const unassigned = FLAG_ON.has((params.get("unassigned") ?? "").trim().toLowerCase());
+  if (raw === "unassigned" || unassigned) return "inbox";
+  return null;
+}
+
+/**
  * 020 — Query string de la página para estos filtros (con `?`, o "" si no hay
  * nada), conservando las claves ajenas a los filtros de `current` (el enlace
- * `?contact=`).
+ * `?contact=`). 027: en modo equipo el alcance elegido va SIEMPRE (`scope=`),
+ * aunque sea el default del rol; sin modo equipo, nunca.
  */
-export function filtersToSearch(f: InboxFilters, current: URLSearchParams): string {
+export function filtersToSearch(
+  f: InboxFilters,
+  current: URLSearchParams,
+  opts: { teamMode?: boolean } = {}
+): string {
   const p = new URLSearchParams();
   for (const [k, v] of current) {
     if (!(FILTER_URL_KEYS as readonly string[]).includes(k)) p.append(k, v);
   }
+  if (opts.teamMode && f.scope) p.set("scope", f.scope);
   if (f.filter !== "all") p.set("filter", f.filter);
   for (const [k, v] of baseParams(f)) p.set(k, v);
   const out = p.toString();
@@ -177,9 +260,10 @@ export function filtersToSearch(f: InboxFilters, current: URLSearchParams): stri
 
 /**
  * Query string de `GET /api/conversations` (sin el `?`). Siempre con `limit`
- * (sin él, el servidor devuelve la lista completa, D-06-1). La UI NUNCA manda
- * `assigned` (es el único parámetro estricto: 422) ni `since` (RF-06-13): las
- * pastillas "Mías"/"Sin asignar" viajan como `filter`.
+ * (sin él, el servidor devuelve la lista completa, D-06-1). Nunca `since`
+ * (RF-06-13). 027: el alcance EFECTIVO viaja como `assigned=` (el único
+ * parámetro estricto: un valor fuera del catálogo es 422; aquí sale siempre
+ * de `SCOPE_ASSIGNED`).
  */
 export function buildListQuery(
   f: InboxFilters,
@@ -187,6 +271,7 @@ export function buildListQuery(
 ): string {
   const p = new URLSearchParams();
   p.set("limit", String(opts.limit ?? PAGE_SIZE));
+  if (f.scope) p.set("assigned", SCOPE_ASSIGNED[f.scope]);
   if (f.filter !== "all") p.set("filter", f.filter);
   for (const [k, v] of baseParams(f)) p.set(k, v);
   if (opts.cursor) p.set("cursor", opts.cursor);
@@ -196,10 +281,12 @@ export function buildListQuery(
 /**
  * Query string de `GET /api/conversations/counts`: los mismos filtros que la
  * lista. 020: la vista también viaja — los contadores del panel (origen, canal,
- * sin asignar, por cerrar) se cuentan DENTRO de ella (facetados).
+ * por cerrar) se cuentan DENTRO de ella (facetados). 027: y el alcance, salvo
+ * `counts.scopes`, que no depende de él.
  */
 export function buildCountsQuery(f: InboxFilters): string {
   const p = new URLSearchParams();
+  if (f.scope) p.set("assigned", SCOPE_ASSIGNED[f.scope]);
   if (f.filter !== "all") p.set("filter", f.filter);
   for (const [k, v] of baseParams(f)) p.set(k, v);
   return p.toString();
@@ -303,8 +390,8 @@ export function visibleConversations(
     stageId: f.stageId ?? undefined,
     inbox: f.channel ?? "all",
     filter: f.filter,
+    scope: f.scope,
     origin: f.origin,
-    unassigned: f.unassigned,
     closing: f.closing,
     viewerId,
     now,
@@ -406,7 +493,8 @@ export function applyResolvedIds(
  * 06, o error): se calculan sobre lo cargado, con la misma regla facetada del
  * contrato (020): cada número = lo que verías al elegir esa opción dejando lo
  * demás fijo. `teamMode` aquí solo mira si hay alguna asignada; quien llama le
- * suma la regla de rol/equipo.
+ * suma la regla de rol/equipo. 027: `scopes` = lo cargado no archivado por
+ * alcance (lo cargado suele ser de UN alcance: es un respaldo, no la verdad).
  */
 export function countsFromLoaded(
   items: readonly ConversationDto[],
@@ -414,19 +502,30 @@ export function countsFromLoaded(
   viewerId: string | undefined,
   now: number = Date.now()
 ): ConversationCounts {
-  const count = (over: Partial<InboxFilters> & { filter?: InboxFilter }) =>
+  const count = (
+    over: Partial<Omit<InboxFilters, "filter">> & {
+      filter?: InboxFilter;
+      unassigned?: boolean;
+    }
+  ) =>
     filterConversations(items, {
       query: f.q,
       stage: f.stageName ?? "all",
       stageId: f.stageId ?? undefined,
       inbox: ("channel" in over ? over.channel : f.channel) ?? "all",
       filter: over.filter ?? f.filter,
+      scope: f.scope,
       origin: "origin" in over ? over.origin : f.origin,
-      unassigned: over.unassigned ?? f.unassigned,
+      unassigned: over.unassigned ?? false,
       closing: over.closing ?? f.closing,
       viewerId,
       now,
     }).visible.length;
+  const live = items.filter((c) => c.archivedAt == null);
+  const scopeCount = (s: InboxScope) => {
+    const inScope = live.filter((c) => scopeOf(c, viewerId) === s);
+    return { all: inScope.length, unread: inScope.filter((c) => c.unreadCount > 0).length };
+  };
   return {
     all: count({ filter: "all" }),
     unread: count({ filter: "unread" }),
@@ -453,5 +552,6 @@ export function countsFromLoaded(
       0
     ),
     teamMode: items.some((c) => c.assignedTo !== null),
+    scopes: { mine: scopeCount("mine"), inbox: scopeCount("inbox"), team: scopeCount("team") },
   };
 }

@@ -77,6 +77,7 @@ describe("parseInboxQuery (tolerante)", () => {
       stageId: undefined,
       channel: undefined,
       origin: undefined,
+      mine: false,
       unassigned: false,
       closing: false,
       q: undefined,
@@ -101,6 +102,12 @@ describe("parseInboxQuery (tolerante)", () => {
     expect(parseInboxQuery(params("filter=closing"))).toMatchObject({
       filter: "all",
       closing: true,
+    });
+    // 027: la vista vieja "Mías" → filtro `mine` (≡ assigned=me).
+    expect(parseInboxQuery(params("filter=mine"))).toMatchObject({
+      filter: "all",
+      mine: true,
+      unassigned: false,
     });
     // Tolerante: valores desconocidos = sin filtro.
     expect(parseInboxQuery(params("origin=organico&unassigned=quizas"))).toMatchObject({

@@ -16,8 +16,9 @@ export type TeamOption = { userId: string; name: string };
  *
  *  - Propietario: selector con los miembros + "Sin asignar" (reasigna sin
  *    condiciones, D-09-6).
- *  - Vendedor: "Tomar" si nadie la tiene, "Liberar" si es suya. No puede
- *    pasarla a otro: para eso está el Propietario.
+ *  - Vendedor: "Tomar" si nadie la tiene, "Devolver al buzón" (027; antes
+ *    "Liberar") si es suya. No puede pasarla a otro: para eso está el
+ *    Propietario.
  */
 export function AssignmentControl({
   conversation,
@@ -97,10 +98,11 @@ export function AssignmentControl({
 
   if (isMine(conversation, viewerId)) {
     return (
+      // 027: "Liberar" pasó a "Devolver al buzón": dice a dónde va el chat.
       <button
         type="button"
-        aria-label="Liberar conversación"
-        title="Liberar: vuelve a 'Sin asignar' para que otro la tome"
+        aria-label="Devolver al buzón"
+        title="Devolver al Buzón para que otro vendedor la tome"
         disabled={busy}
         onClick={() => void run(null)}
         className={cn(
@@ -109,7 +111,9 @@ export function AssignmentControl({
         )}
       >
         <UserMinus className="h-3.5 w-3.5" strokeWidth={1.8} />
-        {busy ? "Liberando…" : "Liberar"}
+        {/* En móvil la cabecera del hilo no tiene ancho para el texto
+            largo: queda el icono (el aria-label lo nombra). */}
+        <span className="max-md:sr-only">{busy ? "Devolviendo…" : "Devolver al buzón"}</span>
       </button>
     );
   }

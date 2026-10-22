@@ -13,6 +13,12 @@
 > Gasta 3 inicios de sesión (owner, A, B). Los vendedores llevan sufijo
 > aleatorio. La parte de handoff necesita `BOT_API_KEY` (si falta, se omite).
 > Abre como mucho 2 streams SSE a la vez y siempre los cierra.
+>
+> **027**: en la Bandeja, "Sin asignar" es el alcance **Buzón** y "Mías" el
+> alcance **Mis chats** (el Propietario tiene además **Equipo**: asignadas a
+> otro); "Liberar" se llama **Devolver al buzón**. La API conserva
+> `?filter=mine` / `?filter=unassigned` / `?unassigned=1` (compat) y suma
+> `?assigned=others`. Recorrido de UI: [us-bandeja-alcance.md](us-bandeja-alcance.md).
 
 ## a) Preparación
 
@@ -39,8 +45,8 @@
 ## d) El que perdió ya no la ve
 
 5. Con la sesión del perdedor:
-   ✅ No está en su lista (ni en "Sin asignar"); `GET`/`POST messages`,
-   `POST messages/template`, `PATCH` (marcar leído) y liberarla → 404;
+   ✅ No está en su lista (ni en el Buzón); `GET`/`POST messages`,
+   `POST messages/template`, `PATCH` (marcar leído) y devolverla → 404;
    tomarla → 409; asignársela a otro → 403. El ganador con una plantilla
    inexistente recibe 404 **de plantilla** (pasó la compuerta).
 6. Owner: conversación inexistente → 404; asignar a un no-miembro → 422
@@ -65,7 +71,8 @@
 ## g) Responder = tomar
 
 10. Un vendedor responde la conversación sin asignar.
-    ✅ 200 y queda asignada a él sin pasos extra; el otro deja de verla.
+    ✅ 200 y queda asignada a él sin pasos extra (027: pasa de su Buzón a
+    Mis chats); el otro deja de verla.
 11. El owner responde una conversación de un vendedor.
     ✅ 200 y NO se la queda (D-09-3).
 12. Carrera de envío: A y B mandan texto a la vez a una sin asignar (IA
@@ -73,13 +80,14 @@
     ✅ Uno 200 y el otro 404; en el outbox del wa-mock hay UN solo mensaje (el
     del ganador), que queda como responsable.
 
-## h) Reasignar y liberar
+## h) Reasignar y devolver al buzón
 
 13. El owner reasigna la conversación de un vendedor al otro.
     ✅ El anterior deja de verla (lista, mensajes y su adjunto → 404); el nuevo
-    la ve en "Mías".
-14. El nuevo responsable la libera → 200 con `assignedTo: null`; liberarla otra
-    vez → 200 sin cambios; vuelve a "Sin asignar" para todos.
+    la ve en "Mis chats" (para el owner sigue en "Equipo").
+14. El nuevo responsable la devuelve al buzón ("Devolver al buzón",
+    `assign { userId: null }`) → 200 con `assignedTo: null`; devolverla otra
+    vez → 200 sin cambios; vuelve al Buzón para todos.
 15. El owner se asigna una a sí mismo → 200; el vendedor que la tenía la pierde.
 
 ## i) Iniciar desde Contactos
@@ -98,5 +106,5 @@
 ## k) Baja de un vendedor
 
 18. El owner da de baja a un vendedor con conversaciones asignadas.
-    ✅ Todas quedan "Sin asignar" y el otro vendedor las ve ahí; el owner sigue
-    viendo todo.
+    ✅ Todas vuelven al Buzón (sin asignar) y el otro vendedor las ve ahí; el
+    owner sigue viendo todo.

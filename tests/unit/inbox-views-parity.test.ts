@@ -17,7 +17,23 @@ describe("vistas de la Bandeja: servidor ≡ cliente", () => {
       expect(INBOX_FILTERS).toContain(v);
       expect(parseView(v).view).toBe(v);
     }
-    expect(parseView("archived")).toEqual({ view: "archived", unassigned: false, closing: false });
+    expect(parseView("archived")).toEqual({
+      view: "archived",
+      mine: false,
+      unassigned: false,
+      closing: false,
+    });
     expect(parseView("archivadas").view).toBe("all");
+  });
+
+  it("027: `mine` ya no es vista, pero filter=mine sigue valiendo (≡ assigned=me)", () => {
+    expect(INBOX_VIEWS).not.toContain("mine");
+    expect(VIEWS).not.toContain("mine");
+    expect(parseView("mine")).toEqual({
+      view: "all",
+      mine: true,
+      unassigned: false,
+      closing: false,
+    });
   });
 });

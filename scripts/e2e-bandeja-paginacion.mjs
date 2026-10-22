@@ -638,7 +638,9 @@ async function liveListUi() {
       const u = new URL(r.url());
       if (u.pathname.startsWith("/api/conversations")) reqs.push(`${u.pathname}${u.search}`);
     });
-    await page.goto(`${BASE}/inbox`, { waitUntil: "load" });
+    // 027: hay vendedor (modo equipo) → la Bandeja del owner abre en un
+    // alcance. Se fija el Buzón (las 7 y 9 del guion están sin asignar).
+    await page.goto(`${BASE}/inbox?scope=inbox`, { waitUntil: "load" });
     await page.locator("li[data-conversation-id]").first().waitFor({ timeout: 20000 });
     await sleep(2500); // primera página, contadores y SSE conectado
 
@@ -658,7 +660,8 @@ async function liveListUi() {
       countReqs.length <= idsReqs.length,
       JSON.stringify(reqs)
     );
-    const all = (await counts(owner)).all;
+    // 027: lo que la lista del Buzón debe llegar a cargar completo.
+    const all = (await counts(owner, { assigned: "unassigned" })).all;
 
     // 2) Scroll infinito hasta el final.
     const end = page.getByText("No hay más conversaciones");

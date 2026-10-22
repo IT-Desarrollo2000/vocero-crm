@@ -33,14 +33,9 @@ export const INBOX_FILTERS: readonly InboxFilter[] = [
 /**
  * 020: vistas excluyentes de la Bandeja (`?filter=`). 022: `archived`. Espejo
  * de `VIEWS` en `src/components/inbox/list-state.ts` (un unit los compara).
+ * 027: sin `mine` (es el alcance "Mis chats"; `parseView` lo traduce).
  */
-export const INBOX_VIEWS: readonly InboxView[] = [
-  "all",
-  "unread",
-  "mine",
-  "human",
-  "archived",
-];
+export const INBOX_VIEWS: readonly InboxView[] = ["all", "unread", "human", "archived"];
 
 /** 020: valores de `?origin=`. */
 export const INBOX_ORIGINS: readonly InboxOrigin[] = ["ad", "post", "none"];
@@ -64,6 +59,8 @@ export type InboxQuery = {
   channel?: Channel;
   /** 020: filtros combinables del panel (se intersectan entre sí y con la vista). */
   origin?: InboxOrigin;
+  /** 027: `filter=mine` (vista vieja) ≡ `assigned=me`, combinable como `unassigned`. */
+  mine?: boolean;
   unassigned?: boolean;
   closing?: boolean;
   q?: string;
@@ -133,7 +130,12 @@ function optionalText(raw: string | null, max = 200): string | undefined {
   return v && v.length <= max ? v : undefined;
 }
 
-export const ASSIGNED_FILTERS: readonly AssignedFilter[] = ["me", "unassigned", "all"];
+export const ASSIGNED_FILTERS: readonly AssignedFilter[] = [
+  "me",
+  "unassigned",
+  "others",
+  "all",
+];
 
 /**
  * `assigned` ESTRICTO (09, RF-09-12): ausente → `all`; un valor fuera del
@@ -155,19 +157,23 @@ export function parseFlagParam(raw: string | null): boolean {
 /**
  * 020 — `filter` de la URL → vista + filtros que implica. Tolerante: valor
  * desconocido → `all`. Las pastillas viejas `unassigned` y `closing` (06/05)
- * siguen valiendo: eran excluyentes y hoy son filtros combinables.
+ * siguen valiendo: eran excluyentes y hoy son filtros combinables. 027: lo
+ * mismo `mine` (la vista "Mías" pasó a ser el alcance "Mis chats").
  */
 export function parseView(raw: string | null): {
   view: InboxView;
+  mine: boolean;
   unassigned: boolean;
   closing: boolean;
 } {
   const v = (INBOX_FILTERS as readonly string[]).includes(raw ?? "")
     ? (raw as InboxFilter)
     : "all";
-  if (v === "unassigned") return { view: "all", unassigned: true, closing: false };
-  if (v === "closing") return { view: "all", unassigned: false, closing: true };
-  return { view: v, unassigned: false, closing: false };
+  const none = { view: "all" as const, mine: false, unassigned: false, closing: false };
+  if (v === "mine") return { ...none, mine: true };
+  if (v === "unassigned") return { ...none, unassigned: true };
+  if (v === "closing") return { ...none, closing: true };
+  return { ...none, view: v };
 }
 
 /** Parseo tolerante de todo menos `assigned` (estricto, en la ruta). */
@@ -188,6 +194,7 @@ export function parseInboxQuery(params: URLSearchParams): InboxQuery {
     origin: (INBOX_ORIGINS as readonly string[]).includes(originRaw ?? "")
       ? (originRaw as InboxOrigin)
       : undefined,
+    mine: legacy.mine,
     unassigned: legacy.unassigned || parseFlagParam(params.get("unassigned")),
     closing: legacy.closing || parseFlagParam(params.get("closing")),
     q: optionalText(params.get("q")),

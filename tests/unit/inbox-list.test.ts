@@ -181,10 +181,10 @@ describe("listConversations — lista paginada (keyset)", () => {
     expect(q.params).toContain("usr_a");
   });
 
-  it("filtros combinados: filter ∧ channel ∧ q ∧ stage ∧ assigned (se intersectan)", async () => {
+  it("filtros combinados: mine (027: filter=mine viejo) ∧ channel ∧ q ∧ stage ∧ assigned (se intersectan)", async () => {
     await listConversations("org_1", seller, {
       limit: 10,
-      filter: "mine",
+      mine: true,
       channel: "whatsapp",
       q: "José 462",
       stageId: "stg_1",
@@ -200,6 +200,18 @@ describe("listConversations — lista paginada (keyset)", () => {
     expect(q.params).toEqual(
       expect.arrayContaining(["org_1", "whatsapp", "stg_1", "%jose 462%", "%462%"])
     );
+  });
+
+  it("027: assigned=others — Propietario: asignada y no a mí; Vendedor: false", async () => {
+    await listConversations("org_1", owner, { limit: 10, assigned: "others" });
+    const own = calls.find(isList)!;
+    expect(own.sql).toMatch(
+      /\("conversation"\."assigned_user_id" is not null and "conversation"\."assigned_user_id" <> \$\d+\)/
+    );
+    expect(own.params).toContain("usr_owner");
+    calls.length = 0;
+    await listConversations("org_1", seller, { limit: 10, assigned: "others" });
+    expect(calls.find(isList)!.sql).toMatch(/ and false/);
   });
 
   it("filter=unread y filter=human", async () => {
@@ -222,7 +234,7 @@ describe("listConversations — lista paginada (keyset)", () => {
       return calls.find(isList)!.sql;
     };
     // Vistas normales (y sin vista): excluyen archivadas.
-    for (const filter of ["all", "unread", "human", "mine"] as const) {
+    for (const filter of ["all", "unread", "human"] as const) {
       const s = await listSql({ filter });
       expect(s, filter).toContain('"conversation"."archived_at" is null');
       expect(s, filter).not.toContain('"archived_at" is not null');
@@ -607,7 +619,14 @@ describe("countConversations — capas del contrato 06-0", () => {
 
   it("los números vuelven como Number aunque el driver mande texto", async () => {
     responder = (c) => {
-      if (isCounts(c)) return [["9", "2", "3", "1", "8", "4", "2", "7", "1", "1", "3", "2", "6", "5", "12", false]];
+      if (isCounts(c))
+        return [
+          [
+            "9", "2", "3", "1", "8", "4", "2", "7", "1", "1", "3", "2", "6", "5", "12", false,
+            // 027: scopes al final (mine, mine/unread, inbox, inbox/unread, team, team/unread).
+            "1", "0", "4", "2", "3", "1",
+          ],
+        ];
       if (isMembers(c)) return [["1"]];
       return [];
     };
@@ -625,7 +644,56 @@ describe("countConversations — capas del contrato 06-0", () => {
       unreadConversations: 5,
       unreadMessages: 12,
       teamMode: false,
+      scopes: {
+        mine: { all: 1, unread: 0 },
+        inbox: { all: 4, unread: 2 },
+        team: { all: 3, unread: 1 },
+      },
     });
+  });
+
+  /** Segmentos de `scopes` (los 6 últimos `count(*) filter`). */
+  const scopeSegments = (sqlText: string) => {
+    const all = segments(sqlText);
+    const [mine, mineUnread, inbox, inboxUnread, team, teamUnread] = all.slice(KEYS.length);
+    return { mine, mineUnread, inbox, inboxUnread, team, teamUnread, total: all.length };
+  };
+
+  it("027: scopes al final — solo visibilidad ∧ no archivada ∧ alcance; sin q/vista/filtros", async () => {
+    await countConversations("org_1", owner, {
+      q: "ana",
+      filter: "unread",
+      channel: "instagram",
+      assigned: "me",
+    });
+    const q = calls.find(isCounts)!;
+    const s = scopeSegments(q.sql);
+    expect(s.total).toBe(KEYS.length + 6);
+    expect(s.mine).toMatch(
+      /^\("conversation"\."archived_at" is null and "conversation"\."assigned_user_id" = \$\d+\)$/
+    );
+    expect(s.inbox).toBe(
+      '("conversation"."archived_at" is null and "conversation"."assigned_user_id" is null)'
+    );
+    expect(s.team).toMatch(
+      /^\("conversation"\."archived_at" is null and \("conversation"\."assigned_user_id" is not null and "conversation"\."assigned_user_id" <> \$\d+\)\)$/
+    );
+    for (const k of ["mineUnread", "inboxUnread", "teamUnread"] as const) {
+      expect(s[k]).toContain('"conversation"."unread_count" > $');
+    }
+    for (const seg of [s.mine, s.inbox, s.team]) {
+      expect(seg).not.toContain("like");
+      expect(seg).not.toContain('"channel"');
+    }
+  });
+
+  it("027: Vendedor — misma forma de SELECT; Equipo = false", async () => {
+    await countConversations("org_1", seller, {});
+    const s = scopeSegments(calls.find(isCounts)!.sql);
+    expect(s.total).toBe(KEYS.length + 6);
+    expect(s.team).toBe('("conversation"."archived_at" is null and false)');
+    expect(s.teamUnread).toContain("false");
+    expect(s.mine).toContain('"assigned_user_id" = $');
   });
 
   it("teamMode: owner solo y sin asignadas → false; con 2 miembros o una asignada → true; vendedor → true", async () => {
@@ -649,6 +717,7 @@ describe("parseAssigned — estricto (422 en lista y counts)", () => {
     expect(parseAssigned(null)).toBe("all");
     expect(parseAssigned("me")).toBe("me");
     expect(parseAssigned("unassigned")).toBe("unassigned");
+    expect(parseAssigned("others")).toBe("others");
     expect(parseAssigned("all")).toBe("all");
     expect(parseAssigned("todas")).toBeNull();
     expect(parseAssigned("")).toBeNull();

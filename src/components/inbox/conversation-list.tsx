@@ -5,6 +5,7 @@ import {
   Archive,
   ArchiveRestore,
   Hourglass,
+  Inbox,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -14,6 +15,7 @@ import type {
   ConversationCounts,
   ConversationDto,
   InboxOrigin,
+  InboxScope,
   InboxView,
 } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
@@ -44,6 +46,7 @@ import {
 import { EtiquetaDeOrigen } from "@/components/anuncio-origen";
 import { CLOSING_TICK_MS, type InboxListError } from "./use-inbox-list";
 import { AlertsBanner } from "./alerts-banner";
+import { ScopeTabs } from "./scope-tabs";
 
 /** Pausa de la búsqueda antes de pedirla al servidor. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -126,6 +129,56 @@ function EmptyState({ onSeeded }: { onSeeded: () => void }) {
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * 027 — Vacío de un alcance (sin vista ni filtros puestos). En "Mis chats"
+ * recuerda el Buzón (US-6): si hay chats esperando, un botón lleva a él.
+ */
+function ScopeEmpty({
+  scope,
+  owner,
+  inboxWaiting,
+  onGoToInbox,
+}: {
+  scope: InboxScope;
+  /** Al Propietario contestar no le asigna el chat (regla 09). */
+  owner: boolean;
+  inboxWaiting: number;
+  onGoToInbox: () => void;
+}) {
+  if (scope === "mine") {
+    return (
+      <div
+        data-testid="scope-empty"
+        className="flex flex-col items-center gap-2 p-6 text-center"
+      >
+        <p className="text-sm font-medium">Aún no tienes chats.</p>
+        {inboxWaiting > 0 ? (
+          <>
+            <p className="text-xs text-text-3">
+              {owner
+                ? "Asígnate uno desde el Buzón."
+                : "Toma uno del Buzón o contesta uno y se vendrá aquí."}
+            </p>
+            <Button size="sm" variant="outline" onClick={onGoToInbox}>
+              <Inbox className="h-4 w-4" strokeWidth={1.7} />
+              Ir al Buzón ({inboxWaiting})
+            </Button>
+          </>
+        ) : (
+          <p className="text-xs text-text-3">El Buzón también está vacío por ahora.</p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <p data-testid="scope-empty" className="p-6 text-center text-xs text-text-3">
+      {scope === "inbox"
+        ? "No hay chats sin asignar."
+        : "Nadie del equipo tiene chats asignados."}
+    </p>
   );
 }
 
@@ -293,6 +346,7 @@ export function ConversationList({
   onSelect,
   onSeeded,
   teamMode = false,
+  scope = null,
   hasMore = false,
   loadingMore = false,
   error = null,
@@ -309,10 +363,15 @@ export function ConversationList({
   filters: InboxFilters;
   onFiltersChange: (patch: Partial<InboxFilters>) => void;
   /**
-   * 09: ¿se enseña la asignación (pastillas "Mías"/"Sin asignar" y
-   * responsable en la fila)? No con el Propietario trabajando solo.
+   * 09: ¿se enseña la asignación (027: selector de alcance y responsable en
+   * la fila)? No con el Propietario trabajando solo.
    */
   teamMode?: boolean;
+  /**
+   * 027: alcance EFECTIVO (el que filtra): null sin modo equipo o con
+   * búsqueda. La pestaña marcada es `filters.scope` (el elegido).
+   */
+  scope?: InboxScope | null;
   /** Canales encendidos en esta instancia (ADR-001). */
   channels: readonly Channel[];
   selectedId: string | null;
@@ -336,15 +395,12 @@ export function ConversationList({
   const inputRef = useRef<HTMLInputElement>(null);
   const viewer = useViewer();
   const viewerOwner = isOwner(viewer);
-  // Sin asignación a la vista (Propietario solo), "Mías" y "Sin asignar" no
-  // se enseñan ni filtran (lo mismo hace `effectiveFilters` con lo que viaja).
-  const filter: InboxView = !teamMode && filters.filter === "mine" ? "all" : filters.filter;
-  const unassignedOn = teamMode && filters.unassigned;
+  const filter: InboxView = filters.filter;
   const stage = filters.stageId ?? "all";
   const inbox: Channel | "all" = filters.channel ?? "all";
   // 020: panel "Filtros" (desplegable en escritorio, hoja inferior en móvil).
   const [panelOpen, setPanelOpen] = useState(false);
-  const activeCount = panelFilterCount({ ...filters, unassigned: unassignedOn });
+  const activeCount = panelFilterCount(filters);
   useEffect(() => {
     if (!panelOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -400,14 +456,18 @@ export function ConversationList({
     return () => clearInterval(t);
   }, []);
 
-  const loading = conversationsProp === null;
+  // 027: un alcance vacío no decide su mensaje (demo, "Ir al Buzón (N)"…)
+  // hasta que llegan los contadores: mientras, sigue "Cargando…".
+  const loading =
+    conversationsProp === null ||
+    (scope !== null && counts === null && conversationsProp.length === 0);
   const visible = conversationsProp ?? [];
   // 020 (rediseño 4.4): un renglón de VISTAS excluyentes. Lo demás (canal,
-  // etapa, origen, sin asignar, por cerrar) vive en el panel "Filtros".
+  // etapa, origen, por cerrar) vive en el panel "Filtros". 027: "Mías" y
+  // "Sin asignar" los absorbe el selector de alcance de arriba.
   const views: { id: InboxView; label: string; count: number }[] = [
     { id: "all", label: "Todas", count: counts?.all ?? 0 },
     { id: "unread", label: "No leídas", count: counts?.unread ?? 0 },
-    ...(teamMode ? [{ id: "mine" as const, label: "Mías", count: counts?.mine ?? 0 }] : []),
     { id: "human", label: "Por atender", count: counts?.human ?? 0 },
     // 022: las archivadas viven aparte (las demás vistas las excluyen).
     { id: "archived", label: "Archivadas", count: counts?.archived ?? 0 },
@@ -497,7 +557,15 @@ export function ConversationList({
     }
   }, [selectedId, activeRendered]);
 
-  const noFilters = !hasActiveFilters({ ...filters, filter, unassigned: unassignedOn, q: query });
+  const noFilters = !hasActiveFilters({ ...filters, q: query });
+  // 027 — Alcance. `searching`: con texto se busca en todos los alcances.
+  const searching = teamMode && query.trim() !== "";
+  const scopes = counts?.scopes;
+  const scopesTotal = scopes
+    ? scopes.inbox.all + scopes.mine.all + scopes.team.all
+    : null;
+  // Responsable en la fila: en Buzón y Mis chats el alcance ya lo dice.
+  const showAssignee = teamMode && scope !== "inbox" && scope !== "mine";
   const stageLabel =
     filters.stageName ?? pipelineStages.find((s) => s.id === filters.stageId)?.name ?? "Etapa";
   // Filtros activos como etiquetas removibles (x).
@@ -533,9 +601,6 @@ export function ConversationList({
             remove: () => onFiltersChange({ origin: null }),
           },
         ]
-      : []),
-    ...(unassignedOn
-      ? [{ key: "unassigned", label: "Sin asignar", remove: () => onFiltersChange({ unassigned: false }) }]
       : []),
     ...(filters.closing
       ? [{ key: "closing", label: "Por cerrar", remove: () => onFiltersChange({ closing: false }) }]
@@ -609,6 +674,25 @@ export function ConversationList({
           Si no cabe en la columna, el botón baja de línea (flex-wrap) en vez
           de salirse por la derecha. */}
       <div className="relative border-b px-4 py-2.5">
+        {/* 027: el ALCANCE (de quién es) va arriba, como control segmentado;
+            las vistas de estado (cómo está) quedan debajo como pastillas y
+            se aplican DENTRO del alcance elegido. */}
+        {teamMode && (
+          <div className="mb-2.5">
+            <ScopeTabs
+              owner={viewerOwner}
+              active={!viewerOwner && filters.scope === "team" ? "mine" : filters.scope}
+              scopes={scopes}
+              searching={searching}
+              onChange={(s) => onFiltersChange({ scope: s })}
+            />
+            {searching && (
+              <p role="status" className="mt-1.5 text-[11.5px] text-text-3">
+                {viewerOwner ? "Buscando en todos los chats" : "Buscando en todos tus chats"}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           {views.map((v) => (
             <button
@@ -765,15 +849,6 @@ export function ConversationList({
               </section>
 
               <section className="mb-3 space-y-0.5">
-                {teamMode && (
-                  <PanelToggle
-                    on={unassignedOn}
-                    label="Sin asignar"
-                    hint="Solo las que nadie ha tomado"
-                    count={counts?.unassigned ?? 0}
-                    onChange={(on) => onFiltersChange({ unassigned: on })}
-                  />
-                )}
                 <PanelToggle
                   on={filters.closing}
                   label="Por cerrar"
@@ -813,8 +888,21 @@ export function ConversationList({
           ) : (
             <p className="p-6 text-center text-xs text-text-3">Cargando…</p>
           )
-        ) : visible.length === 0 && noFilters && !hasMore ? (
+        ) : visible.length === 0 &&
+          noFilters &&
+          !hasMore &&
+          (scope === null || (viewerOwner && scopesTotal === 0)) ? (
+          // 027: con alcance, la demo solo si NO hay chats en ningún alcance
+          // y solo para el Propietario: el Vendedor no ve Equipo (su total
+          // puede ser 0 con un negocio lleno) y su vacío es el de CA-10.
           <EmptyState onSeeded={onSeeded} />
+        ) : visible.length === 0 && noFilters && !hasMore && scope !== null ? (
+          <ScopeEmpty
+            scope={scope}
+            owner={viewerOwner}
+            inboxWaiting={scopes?.inbox.all ?? 0}
+            onGoToInbox={() => onFiltersChange({ scope: "inbox" })}
+          />
         ) : visible.length === 0 && !hasMore ? (
           <p className="p-6 text-center text-xs text-text-3">
             {activeCount > 0
@@ -823,9 +911,7 @@ export function ConversationList({
                 ? "No hay conversaciones archivadas."
                 : filter === "human"
                   ? "Nadie está esperando respuesta."
-                  : filter === "mine"
-                    ? "No tienes conversaciones a tu nombre."
-                    : "Sin resultados para este filtro."}
+                  : "Sin resultados para este filtro."}
           </p>
         ) : (
           <ul>
@@ -943,7 +1029,7 @@ export function ConversationList({
                             Cierra en {formatRemaining(closesIn)}
                           </span>
                         )}
-                        {teamMode && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
+                        {showAssignee && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
                       </span>
                     </span>
                   </button>

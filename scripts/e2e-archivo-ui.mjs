@@ -226,14 +226,16 @@ const calc = page.getByRole("button", { name: "Calcular" });
 ok("días inválidos no calculan (botón deshabilitado o error)",
    (await calc.isDisabled()) || (await (async () => { await calc.click(); return soft((ms) => page.getByRole("alert").first().waitFor({ timeout: ms }), 4000); })()));
 await sw.click();
-await page.getByRole("button", { name: "Guardar" }).click();
+// 026 sumó otra sección con su propio «Guardar» (Por atender): se acota a la del archivo.
+const saveArchive = page.getByRole("region", { name: "Archivado automático" }).getByRole("button", { name: "Guardar" });
+await saveArchive.click();
 ok("guardar muestra confirmación", await soft((ms) => page.getByText("Ajustes guardados").first().waitFor({ timeout: ms })));
 await page.reload({ waitUntil: "load" });
 await sw.waitFor({ timeout: 15000 });
 await sleep(800);
 ok("el interruptor encendido persiste", (await sw.getAttribute("aria-checked")) === "true");
 await sw.click();
-await page.getByRole("button", { name: "Guardar" }).click();
+await saveArchive.click();
 await soft((ms) => page.getByText("Ajustes guardados").first().waitFor({ timeout: ms }));
 
 // ------------------------------------------------------------------ d
@@ -281,7 +283,8 @@ ok("el Vendedor no ve el interruptor de auto-archivo",
 await sp.goto(`${BASE}/settings`, { waitUntil: "load" });
 await sleep(1000);
 ok("…ni la pestaña Ajustes → Bandeja", (await sp.locator('a[href="/settings/inbox"]').count()) === 0, sp.url());
-await sp.goto(`${BASE}/inbox`, { waitUntil: "load" });
+// 027: el Vendedor abre en "Mis chats"; la conversación está sin asignar → Buzón.
+await sp.goto(`${BASE}/inbox?scope=inbox`, { waitUntil: "load" });
 await sp.locator(`li[data-conversation-id="${archId}"]`).waitFor({ timeout: 20000 }).catch(() => {});
 ok("el Vendedor ve el botón Archivar en la fila", (await sp.locator(`li[data-conversation-id="${archId}"]`).getByRole("button", { name: "Archivar conversación" }).count()) > 0);
 await sctx.close();

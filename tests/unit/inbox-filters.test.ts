@@ -248,6 +248,27 @@ describe("filterConversations — asignación (09)", () => {
     expect(names(visible)).toEqual(["Libre IG"]);
   });
 
+  it("027: alcance en la capa 2 — Buzón, Mis chats, Equipo; la vista cuenta dentro", () => {
+    const run = (scope: "inbox" | "mine" | "team", filter: "all" | "unread" = "all") =>
+      names(filterConversations(all, { ...base, filter, scope, viewerId: yo }).visible);
+    expect(run("inbox")).toEqual(["Libre"]);
+    expect(run("mine")).toEqual(["Mía"]);
+    expect(run("team")).toEqual(["Ajena"]);
+    expect(run("inbox", "unread")).toEqual(["Libre"]);
+    expect(run("mine", "unread")).toEqual([]);
+    // `inInbox` (base de las vistas) ya va acotado por el alcance.
+    const { inInbox, searched } = filterConversations(all, {
+      ...base,
+      filter: "all",
+      scope: "team",
+      viewerId: yo,
+    });
+    expect(names(inInbox)).toEqual(["Ajena"]);
+    expect(searched).toHaveLength(3);
+    // Sin alcance, como antes.
+    expect(filterConversations(all, { ...base, filter: "all", scope: null, viewerId: yo }).visible).toHaveLength(3);
+  });
+
   it("isMine / assigneeLabel / initials", () => {
     expect(isMine(mia, yo)).toBe(true);
     expect(isMine(ajena, yo)).toBe(false);

@@ -23,16 +23,16 @@ export const GET = withAuth(async (session, req: Request) => {
     return apiError(
       422,
       "invalid_query",
-      "assigned debe ser me, unassigned o all"
+      "assigned debe ser me, unassigned, others o all"
     );
   }
-  const { q, stageId, channel, filter, origin, unassigned, closing } = parseInboxQuery(
+  const { q, stageId, channel, filter, origin, mine, unassigned, closing } = parseInboxQuery(
     url.searchParams
   );
   const counts: ConversationCounts = await countConversations(
     session.organizationId,
     session,
-    { q, stageId, channel, assigned, filter, origin, unassigned, closing }
+    { q, stageId, channel, assigned, filter, origin, mine, unassigned, closing }
   );
   return Response.json(counts);
 });

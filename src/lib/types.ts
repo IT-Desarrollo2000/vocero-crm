@@ -114,8 +114,24 @@ export type AnuncioDto = {
 /**
  * 09: filtro de responsable de `GET /api/conversations?assigned=`. Siempre
  * DENTRO de lo visible para quien pide: `all` = todo lo visible (default).
+ * 027: `others` = asignadas a OTRO miembro (pestaña "Equipo" del
+ * Propietario; para el Vendedor siempre vacío: no ve chats ajenos).
  */
-export type AssignedFilter = "me" | "unassigned" | "all";
+export type AssignedFilter = "me" | "unassigned" | "others" | "all";
+
+/**
+ * 027 — ALCANCE de la Bandeja en modo equipo (selector encima de las vistas):
+ * `mine` = Mis chats (`assigned=me`), `inbox` = Buzón (`assigned=unassigned`),
+ * `team` = Equipo, solo Propietario (`assigned=others`). `?scope=` en la URL.
+ */
+export type InboxScope = "mine" | "inbox" | "team";
+
+/** 027: lo que dice cada pestaña del selector (sin archivadas). */
+export type ScopeCount = {
+  all: number;
+  /** Conversaciones con `unread_count > 0` (el punto de acento). */
+  unread: number;
+};
 
 /**
  * 06: pastilla de la Bandeja, `GET /api/conversations?filter=`.
@@ -139,8 +155,11 @@ export type InboxFilter =
  * 020 (rediseño 4.4): VISTA de la Bandeja, excluyente — `?filter=`. Los
  * valores viejos `unassigned`/`closing` del mismo parámetro siguen
  * aceptándose: hoy son filtros combinables (`?unassigned=1`, `?closing=1`).
+ * 027: `mine` dejó de ser vista (la absorbe el alcance "Mis chats"); el
+ * servidor sigue aceptando `filter=mine` como filtro equivalente a
+ * `assigned=me` (enlaces y guiones viejos).
  */
-export type InboxView = "all" | "unread" | "mine" | "human" | "archived";
+export type InboxView = "all" | "unread" | "human" | "archived";
 
 /**
  * 020: filtro Origen, `?origin=`. `ad` = la conversación llegó por un anuncio;
@@ -201,6 +220,12 @@ export type ConversationCounts = {
    * conversación visible con responsable`. Estable: no depende de lo cargado.
    */
   teamMode: boolean;
+  /**
+   * 027: pestañas del selector de alcance. Misma capa que
+   * `unreadConversations` (solo visibilidad ∧ no archivada): no dependen de
+   * la búsqueda, la vista ni los filtros. `team` del Vendedor, siempre 0.
+   */
+  scopes: Record<InboxScope, ScopeCount>;
 };
 
 /**

@@ -19,6 +19,9 @@ import {
   filtersFromSearchParams,
   filtersToSearch,
   panelFilterCount,
+  defaultScope,
+  scopeFromSearchParams,
+  scopeOf,
   type InboxFilters,
 } from "@/components/inbox/list-state";
 import type { ConversationDto } from "@/lib/types";
@@ -87,19 +90,32 @@ describe("query strings (contrato 06-0)", () => {
     });
   });
 
-  it("nunca manda assigned ni since; el nombre de etapa no viaja", () => {
-    const qs = buildListQuery(f({ filter: "mine", stageName: "Nuevo" }));
+  it("nunca manda since; sin alcance no manda assigned; el nombre de etapa no viaja", () => {
+    const qs = buildListQuery(f({ filter: "unread", stageName: "Nuevo" }));
     expect(qs).not.toMatch(/assigned=|since=|Nuevo/);
-    expect(params(qs).filter).toBe("mine");
+    expect(params(qs).filter).toBe("unread");
+  });
+
+  it("027: el alcance viaja como assigned=me|unassigned|others (lista y counts)", () => {
+    expect(params(buildListQuery(f({ scope: "mine" }))).assigned).toBe("me");
+    expect(params(buildListQuery(f({ scope: "inbox" }))).assigned).toBe("unassigned");
+    expect(params(buildListQuery(f({ scope: "team" }))).assigned).toBe("others");
+    expect(params(buildCountsQuery(f({ scope: "team", filter: "human" })))).toEqual({
+      assigned: "others",
+      filter: "human",
+    });
+    // Nunca el parámetro viejo `unassigned=1`.
+    expect(buildListQuery(f({ scope: "inbox" }))).not.toMatch(/unassigned=1/);
   });
 
   it("counts: mismos filtros que la lista (020: la vista también), sin limit/cursor", () => {
     expect(
       params(buildCountsQuery(f({ filter: "unread", stageId: "stg_2", channel: "whatsapp", q: "ana" })))
     ).toEqual({ filter: "unread", stage: "stg_2", channel: "whatsapp", q: "ana" });
-    expect(
-      params(buildCountsQuery(f({ origin: "ad", unassigned: true, closing: true })))
-    ).toEqual({ origin: "ad", unassigned: "1", closing: "1" });
+    expect(params(buildCountsQuery(f({ origin: "ad", closing: true })))).toEqual({
+      origin: "ad",
+      closing: "1",
+    });
     expect(buildCountsQuery(f())).toBe("");
   });
 
@@ -110,17 +126,34 @@ describe("query strings (contrato 06-0)", () => {
     expect(got).toHaveLength(50);
   });
 
-  it("sin equipo, Mías/Sin asignar no filtran a escondidas", () => {
-    expect(effectiveFilters(f({ filter: "mine" }), false).filter).toBe("all");
-    expect(effectiveFilters(f({ unassigned: true }), true).unassigned).toBe(true);
-    expect(effectiveFilters(f({ unassigned: true }), false).unassigned).toBe(false);
+  it("027: sin equipo el alcance no filtra a escondidas", () => {
+    expect(effectiveFilters(f({ scope: "mine" }), false).scope).toBeNull();
+    expect(effectiveFilters(f({ scope: "inbox" }), false).scope).toBeNull();
+    expect(effectiveFilters(f({ scope: "inbox" }), true).scope).toBe("inbox");
     expect(effectiveFilters(f({ filter: "unread" }), false).filter).toBe("unread");
   });
 
-  it("hasActiveFilters", () => {
+  it("027: con texto en la búsqueda se busca en todos los alcances", () => {
+    expect(effectiveFilters(f({ scope: "mine", q: "ana" }), true).scope).toBeNull();
+    expect(effectiveFilters(f({ scope: "mine", q: "   " }), true).scope).toBe("mine");
+    expect(params(buildListQuery(effectiveFilters(f({ scope: "team", q: "ana" }), true)))).toEqual({
+      limit: "50",
+      q: "ana",
+    });
+  });
+
+  it("027: el Vendedor no tiene Equipo (→ Mis chats); el Propietario sí", () => {
+    expect(effectiveFilters(f({ scope: "team" }), true, false).scope).toBe("mine");
+    expect(effectiveFilters(f({ scope: "team" }), true, true).scope).toBe("team");
+    expect(effectiveFilters(f({ scope: "inbox" }), true, false).scope).toBe("inbox");
+  });
+
+  it("hasActiveFilters (027: el alcance no cuenta como filtro)", () => {
     expect(hasActiveFilters(f())).toBe(false);
     expect(hasActiveFilters(f({ q: "   " }))).toBe(false);
     expect(hasActiveFilters(f({ channel: "messenger" }))).toBe(true);
+    expect(hasActiveFilters(f({ scope: "mine" }))).toBe(false);
+    expect(panelFilterCount(f({ scope: "team" }))).toBe(0);
   });
 });
 
@@ -217,11 +250,41 @@ describe("espejo del filtro", () => {
     expect(matchesFilters(jose, f({ q: "zzz" }), undefined)).toBe(false);
   });
 
-  it("canal y pastillas de asignación", () => {
+  it("canal y alcance (027)", () => {
     const mia = mk({ channel: "instagram", assignedTo: { userId: "u1", name: "Yo" } });
-    expect(matchesFilters(mia, f({ channel: "instagram", filter: "mine" }), "u1")).toBe(true);
-    expect(matchesFilters(mia, f({ unassigned: true }), "u1")).toBe(false);
+    expect(matchesFilters(mia, f({ channel: "instagram", scope: "mine" }), "u1")).toBe(true);
+    expect(matchesFilters(mia, f({ scope: "inbox" }), "u1")).toBe(false);
     expect(visibleConversations([mia], f({ channel: "whatsapp" }), "u1")).toHaveLength(0);
+  });
+
+  it("027: espejo del alcance — Buzón, Mis chats y Equipo (asignada y no a mí)", () => {
+    const libre = mk();
+    const mia = mk({ assignedTo: { userId: "u1", name: "Yo" } });
+    const ajena = mk({ assignedTo: { userId: "u2", name: "Ana" } });
+    const all = [libre, mia, ajena];
+    expect(ids(visibleConversations(all, f({ scope: "inbox" }), "u1"))).toEqual([libre.id]);
+    expect(ids(visibleConversations(all, f({ scope: "mine" }), "u1"))).toEqual([mia.id]);
+    expect(ids(visibleConversations(all, f({ scope: "team" }), "u1"))).toEqual([ajena.id]);
+    expect(visibleConversations(all, f({ scope: null }), "u1")).toHaveLength(3);
+    // Partición exacta: los tres alcances suman Todas.
+    const sum = (["inbox", "mine", "team"] as const)
+      .map((s) => visibleConversations(all, f({ scope: s }), "u1").length)
+      .reduce((a, b) => a + b, 0);
+    expect(sum).toBe(3);
+    // Las vistas aplican DENTRO del alcance.
+    const miaSinLeer = mk({ assignedTo: { userId: "u1", name: "Yo" }, unreadCount: 2 });
+    const libreSinLeer = mk({ unreadCount: 1 });
+    expect(
+      ids(visibleConversations([miaSinLeer, libreSinLeer, mia], f({ scope: "mine", filter: "unread" }), "u1"))
+    ).toEqual([miaSinLeer.id]);
+  });
+
+  it("027: scopeOf y defaultScope", () => {
+    expect(scopeOf(mk(), "u1")).toBe("inbox");
+    expect(scopeOf(mk({ assignedTo: { userId: "u1", name: "Yo" } }), "u1")).toBe("mine");
+    expect(scopeOf(mk({ assignedTo: { userId: "u2", name: "Ana" } }), "u1")).toBe("team");
+    expect(defaultScope(true)).toBe("inbox");
+    expect(defaultScope(false)).toBe("mine");
   });
 });
 
@@ -326,6 +389,25 @@ describe("countsFromLoaded — respaldo si /counts no responde", () => {
   it("sin asignadas, teamMode del respaldo es false", () => {
     expect(countsFromLoaded([mk()], f(), "u1").teamMode).toBe(false);
   });
+
+  it("027: scopes = no archivadas por alcance, sin depender de búsqueda ni vista", () => {
+    const ajena = mk({ unreadCount: 2, assignedTo: { userId: "u2", name: "Ana" } });
+    const archivada = mk({ unreadCount: 1, archivedAt: "2026-10-05T12:00:00.000Z" });
+    const todos = [...items, ajena, archivada];
+    const esperado = {
+      inbox: { all: 3, unread: 2 },
+      mine: { all: 1, unread: 0 },
+      team: { all: 1, unread: 1 },
+    };
+    expect(countsFromLoaded(todos, f(), "u1").scopes).toEqual(esperado);
+    expect(countsFromLoaded(todos, f({ q: "zoe", filter: "unread" }), "u1").scopes).toEqual(
+      esperado
+    );
+    // Las vistas cuentan DENTRO del alcance.
+    const enMis = countsFromLoaded(todos, f({ scope: "mine" }), "u1");
+    expect(enMis.all).toBe(1);
+    expect(enMis.unread).toBe(0);
+  });
 });
 
 /* 020 (rediseño 4.4): vistas + filtros combinables, con estado en la URL. */
@@ -337,11 +419,12 @@ describe("filtros combinables y URL de la página (020)", () => {
       filtersFromSearchParams(sp("filter=unread&channel=instagram&stage=stg_1&origin=ad&unassigned=1&closing=true&q=ana"))
     ).toEqual({
       ...DEFAULT_FILTERS,
+      // 027: `unassigned=1` (viejo) = alcance Buzón.
+      scope: "inbox",
       filter: "unread",
       channel: "instagram",
       stageId: "stg_1",
       origin: "ad",
-      unassigned: true,
       closing: true,
       q: "ana",
     });
@@ -352,20 +435,50 @@ describe("filtros combinables y URL de la página (020)", () => {
     );
   });
 
-  it("enlaces viejos: las pastillas Sin asignar / Ventana por cerrar son hoy filtros", () => {
-    expect(filtersFromSearchParams(sp("filter=unassigned"))).toMatchObject({
-      filter: "all",
-      unassigned: true,
-    });
+  it("enlaces viejos: Ventana por cerrar es hoy filtro; Mías / Sin asignar, alcances (027)", () => {
     expect(filtersFromSearchParams(sp("filter=closing"))).toMatchObject({
       filter: "all",
       closing: true,
     });
+    expect(filtersFromSearchParams(sp("filter=mine"))).toMatchObject({
+      filter: "all",
+      scope: "mine",
+    });
+    expect(filtersFromSearchParams(sp("filter=unassigned"))).toMatchObject({
+      filter: "all",
+      scope: "inbox",
+    });
+    expect(filtersFromSearchParams(sp("unassigned=1"))).toMatchObject({ scope: "inbox" });
+    // `scope=` manda sobre el enlace viejo.
+    expect(filtersFromSearchParams(sp("scope=team&filter=mine")).scope).toBe("team");
+  });
+
+  it("027: alcance por defecto del rol solo si la URL calla", () => {
+    expect(filtersFromSearchParams(sp(""), "mine").scope).toBe("mine");
+    expect(filtersFromSearchParams(sp("q=ana"), "inbox").scope).toBe("inbox");
+    expect(filtersFromSearchParams(sp("scope=team"), "mine").scope).toBe("team");
+    expect(filtersFromSearchParams(sp("scope=nada"), "inbox").scope).toBe("inbox");
+    expect(scopeFromSearchParams(sp(""))).toBeNull();
+    expect(scopeFromSearchParams(sp("scope=xyz"))).toBeNull();
+    expect(scopeFromSearchParams(sp("filter=mine"))).toBe("mine");
+  });
+
+  it("027: scope= va siempre en la URL en modo equipo, nunca fuera; los viejos se retiran", () => {
+    const inbox = f({ scope: "inbox" });
+    expect(filtersToSearch(inbox, sp(""), { teamMode: true })).toBe("?scope=inbox");
+    expect(filtersToSearch(inbox, sp(""), { teamMode: false })).toBe("");
+    expect(
+      filtersToSearch(f({ scope: "mine" }), sp("filter=mine&unassigned=1&contact=ct_1"), {
+        teamMode: true,
+      })
+    ).toBe("?contact=ct_1&scope=mine");
   });
 
   it("ida y vuelta por la URL sin perder nada, conservando ?contact=", () => {
-    const filtros = f({ filter: "mine", origin: "none", stageId: "stg_9", closing: true });
-    const search = filtersToSearch(filtros, sp("contact=ct_1&origin=ad&filter=human"));
+    const filtros = f({ scope: "team", filter: "human", origin: "none", stageId: "stg_9", closing: true });
+    const search = filtersToSearch(filtros, sp("contact=ct_1&origin=ad&filter=unread"), {
+      teamMode: true,
+    });
     const back = new URLSearchParams(search);
     expect(back.get("contact")).toBe("ct_1");
     expect(back.getAll("origin")).toEqual(["none"]);
@@ -375,12 +488,12 @@ describe("filtros combinables y URL de la página (020)", () => {
   });
 
   it("los filtros combinables viajan a la lista y se cuentan en el botón", () => {
-    const filtros = f({ filter: "unread", stageId: "stg_2", origin: "ad", unassigned: true });
+    const filtros = f({ filter: "unread", stageId: "stg_2", origin: "ad", closing: true });
     expect(params(buildListQuery(filtros))).toMatchObject({
       filter: "unread",
       stage: "stg_2",
       origin: "ad",
-      unassigned: "1",
+      closing: "1",
     });
     expect(panelFilterCount(filtros)).toBe(3); // la vista no cuenta
     expect(panelFilterCount(f({ q: "ana", filter: "human" }))).toBe(0);
@@ -418,7 +531,7 @@ describe("022 — espejo de la regla de archivo", () => {
   const items = [viva, archivada];
 
   it("vistas normales excluyen archivadas; la vista archived solo trae ellas", () => {
-    for (const filter of ["all", "unread", "mine", "human"] as const) {
+    for (const filter of ["all", "unread", "human"] as const) {
       expect(ids(visibleConversations(items, f({ filter }), undefined)), filter).not.toContain(
         archivada.id
       );

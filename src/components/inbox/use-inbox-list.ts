@@ -16,6 +16,7 @@ import {
   displayedConversations,
   effectiveFilters,
   filtersToSearch,
+  matchesFilters,
   mergeConversations,
   mergeFirstPage,
   pinFirst,
@@ -40,11 +41,14 @@ export type InboxListError = "first" | "more" | null;
  */
 export function useInboxList({
   viewerId,
+  owner = true,
   localTeamMode,
   onResolved,
   initialFilters = DEFAULT_FILTERS,
 }: {
   viewerId: string;
+  /** 027: rol de quien mira (el Vendedor no tiene alcance "Equipo"). */
+  owner?: boolean;
   /**
    * 020: filtros con que arranca (los de la URL de la página, leídos con
    * `useSearchParams` para que el HTML del servidor ya los pinte).
@@ -69,13 +73,18 @@ export function useInboxList({
   const [serverCounts, setServerCounts] = useState<ConversationCounts | null>(
     null
   );
+  // 027: ¿ya respondió (o falló) `/counts` al menos una vez? Antes de eso no
+  // hay respaldo sobre lo cargado: una primera página vacía daría
+  // `scopes` en 0 y pintaría la demo un instante aunque haya chats en otro
+  // alcance.
+  const [countsSettled, setCountsSettled] = useState(false);
 
   const teamMode =
     serverCounts?.teamMode ??
     (localTeamMode || (items?.some((c) => c.assignedTo !== null) ?? false));
   const active = useMemo(
-    () => effectiveFilters(filters, teamMode),
-    [filters, teamMode]
+    () => effectiveFilters(filters, teamMode, owner),
+    [filters, teamMode, owner]
   );
 
   const activeRef = useRef(active);
@@ -88,6 +97,8 @@ export function useInboxList({
   onResolvedRef.current = onResolved;
   const viewerRef = useRef(viewerId);
   viewerRef.current = viewerId;
+  // Copia de la fila anclada por `?contact=` (ver `upsert` y `loadFirst`).
+  const pinnedDtoRef = useRef<ConversationDto | null>(null);
 
   // Generación de la lista: cada `loadFirst` invalida las páginas en vuelo
   // (filtros viejos, cursor viejo) para que no se mezclen con la nueva.
@@ -121,7 +132,17 @@ export function useInboxList({
       return;
     }
     setError(null);
-    setList(mergeConversations([], data.conversations));
+    // 027: el enlace `?contact=` puede cambiar de alcance justo después de
+    // anclar su fila; la página nueva no la trae si es antigua. Se conserva
+    // si cumple los filtros nuevos (si no, sale como cualquier otra).
+    const pin = pinnedDtoRef.current;
+    const keepPin =
+      pin &&
+      !data.conversations.some((c) => c.id === pin.id) &&
+      matchesFilters(pin, f, viewerRef.current)
+        ? [pin]
+        : [];
+    setList(mergeConversations([], [...data.conversations, ...keepPin]));
     setLoadedKey(buildListQuery(f));
     setNextCursor(data.nextCursor ?? null);
   }, [setList]);
@@ -204,6 +225,7 @@ export function useInboxList({
     if (seq !== countsSeq.current) return;
     // 501 (servidor anterior a 06) o error: se cuenta sobre lo cargado.
     setServerCounts(data && typeof data.all === "number" ? data : null);
+    setCountsSettled(true);
     // 05: `unreadConversations` no depende de los filtros: es el N del
     // título/favicon/menú de esta pestaña (una sola petición por evento).
     if (data && typeof data.unreadConversations === "number") {
@@ -281,13 +303,17 @@ export function useInboxList({
   const upsert = useCallback(
     (c: ConversationDto, opts: { pin?: boolean } = {}) => {
       setList(mergeConversations(itemsRef.current ?? [], [c]));
-      if (opts.pin) setPinnedId(c.id);
+      if (opts.pin) {
+        pinnedDtoRef.current = c;
+        setPinnedId(c.id);
+      }
     },
     [setList]
   );
 
   /** Al elegir otra conversación, la del enlace vuelve a su lugar por orden. */
   const releasePin = useCallback((selectedId: string) => {
+    if (pinnedDtoRef.current?.id !== selectedId) pinnedDtoRef.current = null;
     setPinnedId((prev) => (prev === selectedId ? prev : null));
   }, []);
 
@@ -302,7 +328,7 @@ export function useInboxList({
     []
   );
 
-  // Cada cambio de filtros (incluido `teamMode`, que decide si "Mías"
+  // Cada cambio de filtros (incluido `teamMode`, que decide si el alcance
   // filtra) recarga la primera página y los contadores.
   const activeKey = buildListQuery(active);
   useEffect(() => {
@@ -316,12 +342,13 @@ export function useInboxList({
 
   // 020 — Los filtros viven en la URL de la página (compartir/recargar). Se
   // REEMPLAZA la entrada del historial (no se apila una por clic) y se
-  // conservan las claves ajenas, como el enlace `?contact=`.
-  const urlKey = filtersToSearch(filters, new URLSearchParams());
+  // conservan las claves ajenas, como el enlace `?contact=`. 027: el alcance
+  // elegido va en `scope=` solo en modo equipo.
+  const urlKey = filtersToSearch(filters, new URLSearchParams(), { teamMode });
   useEffect(() => {
     if (typeof window === "undefined") return;
     const here = new URLSearchParams(window.location.search);
-    const next = filtersToSearch(filters, here);
+    const next = filtersToSearch(filters, here, { teamMode });
     if (next === window.location.search) return;
     window.history.replaceState(
       window.history.state,
@@ -359,9 +386,9 @@ export function useInboxList({
   );
   const counts = useMemo<ConversationCounts | null>(() => {
     if (serverCounts) return serverCounts;
-    if (!items) return null;
+    if (!items || !countsSettled) return null;
     return countsFromLoaded(items, active, viewerId);
-  }, [serverCounts, items, active, viewerId]);
+  }, [serverCounts, items, active, viewerId, countsSettled]);
 
   return {
     /** Todo lo cargado (para buscar la abierta o el contacto del enlace). */

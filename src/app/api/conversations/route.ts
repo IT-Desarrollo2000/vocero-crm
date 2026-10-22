@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Lista de la Bandeja para quien pide (09: el Vendedor ve las suyas + las sin
- * asignar; el Propietario, todas). `?assigned=me|unassigned|all` (default
+ * asignar; el Propietario, todas). `?assigned=me|unassigned|others|all` (default
  * `all` = todo lo visible); otro valor → 422 `invalid_query`.
  *
  * 06 (contrato 06-0): `limit`, `cursor`, `filter`, `stage`, `channel`, `q`,
@@ -23,7 +23,7 @@ export const GET = withAuth(async (session, req: Request) => {
     return apiError(
       422,
       "invalid_query",
-      "assigned debe ser me, unassigned o all"
+      "assigned debe ser me, unassigned, others o all"
     );
   }
   const query = parseInboxQuery(url.searchParams);

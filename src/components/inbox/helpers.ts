@@ -5,7 +5,7 @@ import { matchesQuery } from "@/lib/search";
 import { isClosingSoon } from "@/lib/closing-window";
 import { tipoDeOrigen } from "@/lib/anuncios";
 import { inHumanHands } from "@/lib/awaiting";
-import type { ConversationDto, InboxFilter, InboxOrigin } from "@/lib/types";
+import type { ConversationDto, InboxFilter, InboxOrigin, InboxScope } from "@/lib/types";
 
 /**
  * Pastillas de la bandeja: todas, no leídas, pidiendo atención humana, (09)
@@ -37,7 +37,8 @@ export function isAwaiting(c: ConversationDto): boolean {
  *  1. búsqueda (solo NOMBRE y TELÉFONO) + etapa del embudo → `searched`
  *     (base de los contadores por canal);
  *  2. bandeja/canal elegido + (020) filtros combinables del panel (origen,
- *     sin asignar, por cerrar) → `inInbox` (base de las vistas);
+ *     sin asignar, por cerrar) + (027) alcance (Buzón · Mis chats · Equipo)
+ *     → `inInbox` (base de las vistas);
  *  3. vista → `visible`.
  *
  * 022: la capa 1 excluye además las archivadas, salvo vista `archived` o
@@ -69,6 +70,11 @@ export function filterConversations(
     origin?: InboxOrigin | null;
     unassigned?: boolean;
     closing?: boolean;
+    /**
+     * 027: alcance (espejo de `assigned=me|unassigned|others`); null o
+     * ausente = sin alcance. `team` = asignada y no a `viewerId`.
+     */
+    scope?: InboxScope | null;
     /** 09: user id de quien mira, para "Mías". Sin él, "Mías" queda vacía. */
     viewerId?: string;
     /** 05: reloj de «Ventana por cerrar» (ms); por defecto, ahora. */
@@ -95,7 +101,16 @@ export function filterConversations(
     includeArchived || c.archivedAt == null;
   // Los filtros combinables se aplican en la capa del canal: las vistas
   // cuentan dentro de ellos.
+  const scope = opts.scope ?? null;
+  const scopeOk = (c: ConversationDto): boolean =>
+    scope === null ||
+    (scope === "inbox"
+      ? c.assignedTo === null
+      : scope === "mine"
+        ? isMine(c, viewerId)
+        : c.assignedTo !== null && !isMine(c, viewerId));
   const panelOk = (c: ConversationDto): boolean =>
+    scopeOk(c) &&
     (origin == null || origin === tipoDeOrigen(c.anuncio)) &&
     (!opts.unassigned || c.assignedTo === null) &&
     (!opts.closing || isClosingSoon(c.channel, c.lastInboundAt, now));

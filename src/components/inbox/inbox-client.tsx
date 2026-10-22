@@ -7,6 +7,7 @@ import {
   ArchiveRestore,
   CalendarPlus,
   ChevronLeft,
+  Inbox,
   Info,
   PanelRight,
   X,
@@ -18,6 +19,7 @@ import type {
   AssignBody,
   ConversationDto,
   ConversationsPage,
+  InboxScope,
   MessageDto,
 } from "@/lib/types";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
@@ -32,7 +34,14 @@ import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
 import { AssignmentControl, type TeamOption } from "./assignment-control";
 import { useInboxList } from "./use-inbox-list";
-import { filtersFromSearchParams } from "./list-state";
+import {
+  defaultScope,
+  filtersFromSearchParams,
+  parseScope,
+  scopeFromSearchParams,
+  scopeOf,
+} from "./list-state";
+import { SCOPE_LABEL } from "./scope-tabs";
 import { BookingDialog } from "@/components/bookings/booking-dialog";
 import { OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
 
@@ -75,6 +84,7 @@ export function InboxClient({
   channels,
   agenda = false,
   overdueMinutes = OVERDUE_DEFAULT_MINUTES,
+  initialTeamMode = false,
 }: {
   channels: readonly Channel[];
   /** 023 — Agenda encendida (`AGENDA`): muestra "Agendar" en el hilo. */
@@ -84,6 +94,12 @@ export function InboxClient({
    * la página: el endpoint de ajustes es solo del Propietario.
    */
   overdueMinutes?: number;
+  /**
+   * 027 — Modo equipo calculado en el servidor de la página (`teamModeFor`):
+   * el selector de alcance sale desde el primer pintado. Luego manda
+   * `/counts`.
+   */
+  initialTeamMode?: boolean;
 }) {
   const multiChannel = channels.length > 1;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -191,12 +207,22 @@ export function InboxClient({
    * aunque haya salido de la lista por el filtro.
    */
   // 020: los filtros arrancan de la URL (`/inbox?filter=unread&origin=ad…`).
+  // 027: el alcance también (`?scope=` o un enlace viejo); si la URL calla,
+  // el default del rol — igual en el servidor y en el cliente: la preferencia
+  // guardada se aplica DESPUÉS de montar (ver abajo), sin descuadrar el HTML.
   const searchParams = useSearchParams();
-  const [initialFilters] = useState(() => filtersFromSearchParams(searchParams));
+  const [initialFilters] = useState(() => {
+    const f = filtersFromSearchParams(searchParams, defaultScope(owner));
+    // Un Vendedor no tiene Equipo: `?scope=team` (URL compartida por el
+    // Propietario) abre sus chats y no se queda escrito en la URL.
+    return !owner && f.scope === "team" ? { ...f, scope: "mine" as const } : f;
+  });
+  const [scopeInUrl] = useState(() => scopeFromSearchParams(searchParams) !== null);
   const list = useInboxList({
     initialFilters,
     viewerId: viewer.userId,
-    localTeamMode: !owner || (team?.length ?? 0) > 1,
+    owner,
+    localTeamMode: initialTeamMode || !owner || (team?.length ?? 0) > 1,
     onResolved: ({ gone, present }) => {
       const sel = selectedIdRef.current;
       if (!sel) return;
@@ -205,7 +231,65 @@ export function InboxClient({
       if (gone.includes(sel)) closeLost(sel, true);
     },
   });
-  const { resolveIds, refreshCounts, loadFirst, refreshFirst } = list;
+  const { resolveIds, refreshCounts, loadFirst, refreshFirst, setFilters } = list;
+
+  // 027 — Último alcance usado, por usuario y navegador. La escritura va
+  // declarada ANTES que la lectura: en el primer commit aún no se restauró
+  // nada y no debe pisar la preferencia guardada con el default del rol.
+  const scopeKey = `vocero.inboxScope.${viewer.userId}`;
+  const scopeRestored = useRef(false);
+  const chosenScope = list.filters.scope;
+  const teamModeNow = list.teamMode;
+  const saveScope = useCallback(
+    (scope: InboxScope | null) => {
+      // El Vendedor no tiene "Equipo": no se guarda lo que no puede usar.
+      if (!scope || (!owner && scope === "team")) return;
+      try {
+        localStorage.setItem(scopeKey, scope);
+      } catch {
+        // Modo privado / almacenamiento lleno: la Bandeja funciona igual.
+      }
+    },
+    [owner, scopeKey]
+  );
+  useEffect(() => {
+    if (!scopeRestored.current || !teamModeNow) return;
+    saveScope(chosenScope);
+  }, [chosenScope, teamModeNow, saveScope]);
+  useEffect(() => {
+    if (scopeRestored.current) return;
+    scopeRestored.current = true;
+    // La URL manda (enlace compartido, `?scope=` o un enlace viejo) y cuenta
+    // como el último alcance usado.
+    if (scopeInUrl) {
+      if (teamModeNow) saveScope(chosenScope);
+      return;
+    }
+    let saved: ReturnType<typeof parseScope> = null;
+    try {
+      saved = parseScope(localStorage.getItem(scopeKey));
+    } catch {
+      saved = null;
+    }
+    if (saved && (owner || saved !== "team")) setFilters({ scope: saved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar
+  }, []);
+
+  // 027 — Para el enlace `?contact=`: si el chat vive en otro alcance, se
+  // cambia a ese alcance (con búsqueda no hace falta: busca en todos).
+  const teamModeRef = useRef(teamModeNow);
+  teamModeRef.current = teamModeNow;
+  const activeQRef = useRef(list.active.q);
+  activeQRef.current = list.active.q;
+  const goToScopeOf = useCallback(
+    (dto: ConversationDto) => {
+      if (!teamModeRef.current || activeQRef.current.trim() !== "") return;
+      const target = scopeOf(dto, viewer.userId);
+      if (!ownerRef.current && target === "team") return;
+      setFilters({ scope: target });
+    },
+    [setFilters, viewer.userId]
+  );
 
   /** Una conversación cambió por algo que hicimos aquí: se relee solo esa. */
   const refreshOne = useCallback(
@@ -304,6 +388,7 @@ export function InboxClient({
     if (selectedIdRef.current) return;
     const match = itemsRef.current?.find((c) => c.contact.id === contactParam);
     if (match) {
+      goToScopeOf(match);
       select(match.id, match);
       return;
     }
@@ -318,6 +403,9 @@ export function InboxClient({
       // aún no entiende `contact` devuelve la lista completa.
       const found = data?.conversations?.find((c) => c.contact.id === contactParam);
       if (found) {
+        // 027: primero el alcance del chat (la lista se recarga con él y
+        // conserva la fila anclada); luego la selección.
+        goToScopeOf(found);
         // Anclada arriba (CA-06-05): por su `sortAt` caería al fondo de lo
         // cargado y el scroll infinito la empujaría fuera de la vista.
         list.upsert(found, { pin: true });
@@ -327,7 +415,7 @@ export function InboxClient({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `list.upsert` es estable
-  }, [contactParam, loaded, select]);
+  }, [contactParam, loaded, select, goToScopeOf]);
 
   /**
    * 09 — Tomar / liberar / (re)asignar. `POST .../assign` con `AssignBody`;
@@ -603,6 +691,29 @@ export function InboxClient({
    */
   const teamMode = list.teamMode;
 
+  /**
+   * 027 — "Este chat ahora está en X · Ir": la abierta ya no pertenece al
+   * alcance activo (el Vendedor la contestó desde el Buzón y se le asignó,
+   * la devolvió, o el Propietario la pasó a otro). DERIVADO del DTO (no de
+   * eventos), como la nota de archivada: desaparece solo cuando deja de ser
+   * cierto. Sin modo equipo o con búsqueda (todos los alcances) no aplica.
+   */
+  const activeScope = list.active.scope;
+  const selectedScope = selected ? scopeOf(selected, viewer.userId) : null;
+  const movedTo =
+    teamMode &&
+    activeScope !== null &&
+    selectedScope !== null &&
+    selectedScope !== activeScope &&
+    (owner || selectedScope !== "team")
+      ? selectedScope
+      : null;
+
+  // 027 — Recordatorio del Buzón (US-6) en el panel vacío: el Vendedor sin
+  // chat abierto en "Mis chats" ve cuántos esperan en el Buzón.
+  const inboxWaiting =
+    teamMode && activeScope === "mine" ? (list.counts?.scopes?.inbox.all ?? 0) : 0;
+
   const assignmentControl = (className?: string) =>
     selected && teamMode ? (
       <AssignmentControl
@@ -635,6 +746,7 @@ export function InboxClient({
           onSelect={select}
           onSeeded={() => reloadList()}
           teamMode={teamMode}
+          scope={activeScope}
           hasMore={list.hasMore}
           loadingMore={list.loadingMore}
           error={list.error}
@@ -744,6 +856,25 @@ export function InboxClient({
                 </button>
               )}
             </header>
+            {movedTo && (
+              <div
+                role="note"
+                aria-label="El chat cambió de lugar"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-brand-tint px-3 py-2 text-[13px] text-brand-text md:px-4"
+              >
+                <Inbox className="h-4 w-4 shrink-0" strokeWidth={1.7} aria-hidden />
+                <p className="min-w-0 flex-1">
+                  Este chat ahora está en <strong className="font-semibold">{SCOPE_LABEL[movedTo]}</strong>
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFilters({ scope: movedTo })}
+                >
+                  Ir
+                </Button>
+              </div>
+            )}
             <MessageThread
               messages={thread}
               onPendingMedia={() => {
@@ -789,8 +920,28 @@ export function InboxClient({
             />
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center bg-chat text-sm text-text-3">
-            Elige una conversación para ver el hilo
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-chat p-6 text-center text-sm text-text-3">
+            <p>Elige una conversación para ver el hilo</p>
+            {inboxWaiting > 0 && (
+              <div
+                data-testid="inbox-reminder"
+                className="flex flex-col items-center gap-2"
+              >
+                <p className="text-text-2">
+                  {inboxWaiting === 1
+                    ? "Hay 1 chat esperando en el Buzón"
+                    : `Hay ${inboxWaiting} chats esperando en el Buzón`}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFilters({ scope: "inbox" })}
+                >
+                  <Inbox className="h-4 w-4" strokeWidth={1.7} />
+                  Ver el Buzón
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </section>
