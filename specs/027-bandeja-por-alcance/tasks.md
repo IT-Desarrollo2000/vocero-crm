@@ -20,4 +20,4 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 - [x] Revisión Fable (plan + implementación): 5 bloqueantes del plan resueltos; implementación sin bloqueantes (menores 1 y 3 aplicados).
 
 ## T4. Despliegue
-- [ ] Merge + push + deploy (pedir OK al dueño).
+- [x] Push c8b2ad7 a main + deploy ru37u5zdrgiorerpdsddyf6w (22-oct, OK del dueño, ~4 min, running:healthy, smoke OK). Reversa = redeploy de 0e2c690 (sin migración).
