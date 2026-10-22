@@ -612,7 +612,12 @@ export function ConversationList({
       <header className="border-b px-4 pb-3 pt-4">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="text-[17px] font-[650] tracking-tight">Bandeja</h2>
-          <span className="text-sm text-text-3">{counts?.all ?? visible.length}</span>
+          {/* 027: en modo equipo el total vive en cada pestaña del selector;
+              aquí sería el del alcance activo y se confundía con el número
+              del menú lateral (no leídas de todo el negocio). */}
+          {!teamMode && (
+            <span className="text-sm text-text-3">{counts?.all ?? visible.length}</span>
+          )}
           {multiChannel && (
             <div className="ml-auto flex items-center gap-1">
               {channels.map((ch) => {
