@@ -1,11 +1,18 @@
-import { desc, eq, isNull, or, type SQL } from "drizzle-orm";
+import { asc, desc, eq, gte, isNull, lt, or, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isOwner, type Role } from "@/lib/roles";
-import { partsInTz } from "@/lib/time/slots";
+import type { DateRange } from "@/lib/time/calendar";
+import { addDaysISO, partsInTz, zonedWallClockToUtc } from "@/lib/time/slots";
 import type { BookingReminderDto } from "@/lib/reminders";
+import { getBusyIntervals } from "@/server/agenda/availability";
+import {
+  computeOverlaps,
+  pickOverlaps,
+  type OverlapMap,
+} from "@/server/agenda/overlaps";
 import { remindersForBookings } from "@/server/agenda/reminders";
-import { getSettings } from "@/server/agenda/settings";
+import { getSettings, type CalendarSettings } from "@/server/agenda/settings";
 
 /** 015 — Listado de citas para la UI, con la hora en la zona del negocio. */
 
@@ -99,17 +106,55 @@ export async function getVisibleBooking(
   return row;
 }
 
-export async function listBookings(
+/** Filtros de la pantalla Citas (los mismos con o sin rango). */
+export type BookingListFilters = {
+  viewer: BookingViewer;
+  /** Vendedor: id ⇒ sus citas; null ⇒ solo las sin asignar; ausente ⇒ todas. */
+  sellerId?: string | null;
+  typeId?: string;
+};
+
+/** Tope del listado sin rango: el de siempre (lo leen los guiones E2E). */
+export const LIST_LIMIT = 200;
+
+/**
+ * 028 (de upstream 215) — Tope de seguridad de una consulta por rango. No es
+ * un límite del producto (92 días de un negocio con 30 citas diarias son
+ * 2 760): es el seguro contra una respuesta de megas. Si se alcanza, la
+ * respuesta lo dice (`truncated`) en vez de esconder citas.
+ */
+export const RANGE_LIMIT = 3000;
+
+/**
+ * Cuánto mira hacia atrás la consulta por rango. La API acepta bloqueos de
+ * hasta 600 minutos: uno que empezó a las 20:00 del día anterior al rango
+ * sigue ocupando su madrugada y la rejilla lo tiene que pintar.
+ */
+export const RANGE_LOOKBACK_MS = 24 * 3_600_000;
+
+type BookingRowWithJoins = {
+  booking: typeof schema.booking.$inferSelect;
+  contactId: string | null;
+  contactName: string | null;
+  typeId: string | null;
+  typeName: string | null;
+  sellerId: string | null;
+  sellerName: string | null;
+};
+
+/**
+ * Lo común a la Lista y al calendario: mismas columnas, misma visibilidad y
+ * mismos filtros. Cada llamador decide el corte (`extra`), el orden y el tope.
+ */
+async function queryBookings(
   organizationId: string,
-  opts: {
-    viewer: BookingViewer;
-    /** Vendedor: id ⇒ sus citas; null ⇒ solo las sin asignar; ausente ⇒ todas. */
-    sellerId?: string | null;
-    typeId?: string;
+  opts: BookingListFilters & {
+    extra?: SQL[];
+    order: "asc" | "desc";
+    limit: number;
   }
-): Promise<BookingListItem[]> {
+): Promise<BookingRowWithJoins[]> {
   const db = getDb();
-  const settings = await getSettings(organizationId);
 
   const sellerFilter =
     opts.sellerId === undefined
@@ -118,7 +163,7 @@ export async function listBookings(
         ? isNull(schema.booking.assignedUserId)
         : eq(schema.booking.assignedUserId, opts.sellerId);
 
-  const rows = await db
+  return db
     .select({
       booking: schema.booking,
       contactId: schema.contact.id,
@@ -143,12 +188,24 @@ export async function listBookings(
         sellerFilter,
         opts.typeId
           ? eq(schema.booking.appointmentTypeId, opts.typeId)
-          : undefined
+          : undefined,
+        ...(opts.extra ?? [])
       )
     )
-    .orderBy(desc(schema.booking.scheduledAt))
-    .limit(200);
+    .orderBy(
+      opts.order === "asc"
+        ? asc(schema.booking.scheduledAt)
+        : desc(schema.booking.scheduledAt)
+    )
+    .limit(opts.limit);
+}
 
+/** Filas → DTO de la UI, con recordatorios y la hora en la zona del negocio. */
+async function toListItems(
+  organizationId: string,
+  rows: readonly BookingRowWithJoins[],
+  timezone: string
+): Promise<BookingListItem[]> {
   const reminders = await remindersForBookings(
     organizationId,
     rows.map((r) => r.booking.id),
@@ -157,7 +214,7 @@ export async function listBookings(
 
   return rows.map((r) => {
     const scheduledAtUtc = r.booking.scheduledAt.toISOString();
-    const parts = partsInTz(scheduledAtUtc, settings.timezone);
+    const parts = partsInTz(scheduledAtUtc, timezone);
     return {
       id: r.booking.id,
       kind: r.booking.kind,
@@ -186,4 +243,97 @@ export async function listBookings(
       exclusive: r.booking.exclusive,
     };
   });
+}
+
+/** Las últimas 200 citas visibles: la Lista de siempre (sin rango). */
+export async function listBookings(
+  organizationId: string,
+  opts: BookingListFilters
+): Promise<BookingListItem[]> {
+  const settings = await getSettings(organizationId);
+  const rows = await queryBookings(organizationId, {
+    ...opts,
+    order: "desc",
+    limit: LIST_LIMIT,
+  });
+  return toListItems(organizationId, rows, settings.timezone);
+}
+
+/**
+ * Límites UTC de un rango de días del negocio: de la medianoche de `from` a
+ * la medianoche que sigue a `to` (semiabierto).
+ */
+export function rangeBoundsUtc(
+  range: DateRange,
+  timezone: string
+): { start: Date; end: Date } {
+  // Fechas ya validadas (`parseRangeQuery`): la conversión no puede fallar.
+  const start = zonedWallClockToUtc(range.from, "00:00", timezone)!;
+  const end = zonedWallClockToUtc(addDaysISO(range.to, 1), "00:00", timezone)!;
+  return { start, end };
+}
+
+/**
+ * 028 (de upstream 215) — Las citas visibles que TOCAN un rango de días en la
+ * zona del negocio, en orden ascendente, con los mismos filtros, visibilidad y
+ * recordatorios que la Lista.
+ *
+ * `from`/`to` son fechas de calendario inclusivas; el corte es la medianoche
+ * del NEGOCIO (con cortes en UTC, lo de después de las 18:00 en México caería
+ * en la columna del día siguiente). Se mira 24 h hacia atrás y se queda solo
+ * lo que sigue ocupando el rango.
+ */
+export async function listBookingsInRange(
+  organizationId: string,
+  range: DateRange,
+  opts: BookingListFilters & { settings?: CalendarSettings }
+): Promise<{ bookings: BookingListItem[]; truncated: boolean }> {
+  const settings = opts.settings ?? (await getSettings(organizationId));
+  const { start, end } = rangeBoundsUtc(range, settings.timezone);
+
+  const rows = await queryBookings(organizationId, {
+    viewer: opts.viewer,
+    sellerId: opts.sellerId,
+    typeId: opts.typeId,
+    extra: [
+      gte(
+        schema.booking.scheduledAt,
+        new Date(start.getTime() - RANGE_LOOKBACK_MS)
+      ),
+      lt(schema.booking.scheduledAt, end),
+    ],
+    order: "asc",
+    limit: RANGE_LIMIT,
+  });
+
+  // De lo que empezó antes del rango, solo lo que sigue ocupándolo.
+  const inRange = rows.filter(
+    (r) =>
+      r.booking.scheduledAt.getTime() + r.booking.durationMinutes * 60_000 >
+      start.getTime()
+  );
+  return {
+    bookings: await toListItems(organizationId, inRange, settings.timezone),
+    truncated: rows.length === RANGE_LIMIT,
+  };
+}
+
+/**
+ * 028 (A4) — Traslapes de las citas que el viewer ve, calculados sobre TODA
+ * la organización (antes de la visibilidad: la cita de otro vendedor que el
+ * Vendedor no ve sigue traslapando la suya). `getBusyIntervals` ya deja solo
+ * lo activo (agendada/realizada) y fuera las de prueba; la ventana mira 24 h
+ * antes y después del rango para no perder lo que cruza sus bordes.
+ */
+export async function bookingOverlaps(
+  organizationId: string,
+  window: { start: Date; end: Date },
+  visibleIds: readonly string[]
+): Promise<OverlapMap> {
+  if (visibleIds.length === 0) return {};
+  const busy = await getBusyIntervals(organizationId, {
+    fromUtc: new Date(window.start.getTime() - RANGE_LOOKBACK_MS),
+    toUtc: new Date(window.end.getTime() + RANGE_LOOKBACK_MS),
+  });
+  return pickOverlaps(computeOverlaps(busy), visibleIds);
 }

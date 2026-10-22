@@ -277,6 +277,32 @@ export function dayLabelInTz(startUtc: string, tz: string, now?: Date): string {
   return `${prefijo}${cuerpo}`;
 }
 
+/**
+ * Los formateadores de `partsInTz`, uno por zona. Construir un
+ * `Intl.DateTimeFormat` cuesta mucho más que usarlo, y el calendario de Citas
+ * (215) formatea hasta 3 000 citas por consulta: tres construcciones por cita
+ * eran segundos de CPU por respuesta.
+ */
+const PARTS_FORMATS = new Map<
+  string,
+  { date: Intl.DateTimeFormat; time: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat }
+>();
+
+function partsFormats(tz: string) {
+  let f = PARTS_FORMATS.get(tz);
+  if (!f) {
+    const mk = (opts: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat("es-MX", { timeZone: tz, ...opts });
+    f = {
+      date: mk({ day: "numeric", month: "short", year: "numeric" }),
+      time: mk({ hour: "2-digit", minute: "2-digit", hour12: false }),
+      weekday: mk({ weekday: "long" }),
+    };
+    PARTS_FORMATS.set(tz, f);
+  }
+  return f;
+}
+
 /** Partes por separado para la tabla de Citas. */
 export function partsInTz(
   startUtc: string,
@@ -284,11 +310,10 @@ export function partsInTz(
 ): { date: string; time: string; weekday: string } {
   const d = new Date(startUtc);
   if (Number.isNaN(d.getTime())) return { date: "", time: "", weekday: "" };
-  const fmt = (opts: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat("es-MX", { timeZone: tz, ...opts }).format(d);
+  const f = partsFormats(tz);
   return {
-    date: fmt({ day: "numeric", month: "short", year: "numeric" }),
-    time: fmt({ hour: "2-digit", minute: "2-digit", hour12: false }),
-    weekday: fmt({ weekday: "long" }),
+    date: f.date.format(d),
+    time: f.time.format(d),
+    weekday: f.weekday.format(d),
   };
 }

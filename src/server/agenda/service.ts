@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
+import { wallClock } from "@/lib/time/calendar";
 import { labelInTz } from "@/lib/time/slots";
 import { CONNECTOR_META, type ConnectorId } from "@/lib/agenda-connectors";
 import {
@@ -72,7 +73,12 @@ export type BookingErrorCode =
   | "slot_not_offered"
   | "not_found"
   | "invalid"
-  | "overlap_warning";
+  | "overlap_warning"
+  /** 028 — `move` con `expectedStartUtc`: otra persona ya la movió. */
+  | "stale";
+
+/** 028 — Mensaje del 409 `stale`. */
+export const STALE_MESSAGE = "Otra persona ya movió esta cita";
 
 export class BookingError extends Error {
   code: BookingErrorCode;
@@ -612,26 +618,15 @@ export async function rescheduleBooking(input: {
               sellerId: booking.assignedUserId,
             };
 
-      // excludeBookingId: la propia cita no debe bloquearse a sí misma.
-      const slot = await findSlot(input.organizationId, input.startUtc, {
-        excludeBookingId: booking.id,
-        now: input.now,
-        settings,
-        durationMinutes: booking.durationMinutes,
+      const slot = await findMovableSlot(tx, {
+        organizationId: input.organizationId,
+        booking,
+        startUtc: input.startUtc,
         ctx,
-        db: tx,
+        settings,
+        now: input.now,
+        confirmOverlap: input.confirmOverlap,
       });
-      if (!slot) {
-        throw new BookingError("slot_taken", "Ese horario ya no está disponible");
-      }
-      if (slot.conflicts.length > 0 && !input.confirmOverlap) {
-        throw new BookingError(
-          "overlap_warning",
-          overlapMessage(slot.conflicts),
-          [],
-          slot.conflicts
-        );
-      }
 
       const updated = await tx
         .update(schema.booking)
@@ -860,33 +855,12 @@ export async function assignBooking(input: {
         (ACTIVE_STATUSES as readonly string[]).includes(booking.status) &&
         !booking.isTest;
       if (occupies) {
-        const { hard } = await conflictsAt(
-          input.organizationId,
-          {
-            startUtc: booking.scheduledAt.toISOString(),
-            durationMinutes: booking.durationMinutes,
-            ctx: {
-              mode: "staff",
-              typeId: null,
-              typeExclusive: false,
-              sellerId: input.userId,
-            },
-            bufferMinutes: settings.bufferMinutes,
-            excludeBookingId: booking.id,
-          },
-          tx
-        );
-        const sellerClashes = hard.filter(
-          (i) => i.kind === "session" && i.assignedUserId === input.userId
-        );
-        if (sellerClashes.length > 0) {
-          throw new BookingError(
-            "slot_taken",
-            "Ese vendedor ya tiene una cita a esa hora",
-            [],
-            sellerClashes
-          );
-        }
+        await assertSellerFree(tx, {
+          organizationId: input.organizationId,
+          booking,
+          sellerId: input.userId,
+          settings,
+        });
       }
     }
     const rows = await tx
@@ -909,6 +883,301 @@ export async function assignBooking(input: {
     data: { bookingId: updated.id },
   });
   return updated;
+}
+
+/**
+ * 023/028 — Dentro del candado: el hueco de destino de una cita que se mueve,
+ * con la rejilla y el aviso mínimo (`findSlot`) en el contexto dado. Sin
+ * hueco ⇒ `slot_taken`; con choques soft y sin confirmar ⇒ `overlap_warning`.
+ * Lo comparten `rescheduleBooking` y `moveBooking`.
+ */
+async function findMovableSlot(
+  tx: AgendaTx,
+  input: {
+    organizationId: string;
+    booking: BookingRow;
+    startUtc: string;
+    ctx: ConflictContext;
+    settings: CalendarSettings;
+    now?: Date;
+    confirmOverlap?: boolean;
+  }
+) {
+  // excludeBookingId: la propia cita no debe bloquearse a sí misma.
+  const slot = await findSlot(input.organizationId, input.startUtc, {
+    excludeBookingId: input.booking.id,
+    now: input.now,
+    settings: input.settings,
+    durationMinutes: input.booking.durationMinutes,
+    ctx: input.ctx,
+    db: tx,
+  });
+  if (!slot) {
+    throw new BookingError("slot_taken", "Ese horario ya no está disponible");
+  }
+  if (slot.conflicts.length > 0 && !input.confirmOverlap) {
+    throw new BookingError(
+      "overlap_warning",
+      overlapMessage(slot.conflicts),
+      [],
+      slot.conflicts
+    );
+  }
+  return slot;
+}
+
+/**
+ * 023/028 — Dentro del candado: el vendedor destino no puede tener otra cita
+ * suya traslapada a la hora ACTUAL de la cita (sin rejilla ni aviso mínimo:
+ * reasignar no cambia la hora). Lo comparten `assignBooking` y `moveBooking`.
+ */
+async function assertSellerFree(
+  tx: AgendaTx,
+  input: {
+    organizationId: string;
+    booking: BookingRow;
+    sellerId: string;
+    settings: CalendarSettings;
+  }
+): Promise<void> {
+  const { hard } = await conflictsAt(
+    input.organizationId,
+    {
+      startUtc: input.booking.scheduledAt.toISOString(),
+      durationMinutes: input.booking.durationMinutes,
+      ctx: {
+        mode: "staff",
+        typeId: null,
+        typeExclusive: false,
+        sellerId: input.sellerId,
+      },
+      bufferMinutes: input.settings.bufferMinutes,
+      excludeBookingId: input.booking.id,
+    },
+    tx
+  );
+  const sellerClashes = hard.filter(
+    (i) => i.kind === "session" && i.assignedUserId === input.sellerId
+  );
+  if (sellerClashes.length > 0) {
+    throw new BookingError(
+      "slot_taken",
+      "Ese vendedor ya tiene una cita a esa hora",
+      [],
+      sellerClashes
+    );
+  }
+}
+
+/**
+ * 028 (A5) — Dentro del candado: mover un bloqueo sigue la semántica de
+ * crearlo. Cualquier inicio alineado a `slotMinutes` desde las 00:00 del
+ * negocio (sin exigir horario hábil); si cubre sesiones activas, se pide
+ * confirmación ("Este bloqueo cubrirá N citas").
+ */
+async function checkBlockMove(
+  tx: AgendaTx,
+  input: {
+    organizationId: string;
+    booking: BookingRow;
+    startUtc: string;
+    settings: CalendarSettings;
+    confirmOverlap?: boolean;
+  }
+): Promise<void> {
+  const slot = Math.max(1, input.settings.slotMinutes);
+  const startMs = Date.parse(input.startUtc);
+  const wall = wallClock(new Date(startMs), input.settings.timezone);
+  if (startMs % 60_000 !== 0 || wall.minutes % slot !== 0) {
+    throw new BookingError(
+      "invalid",
+      `El bloqueo debe empezar en múltiplos de ${slot} minutos`
+    );
+  }
+  // Sin margen: "cubrir" es pisar de verdad, no quedar pegado.
+  const { hard } = await conflictsAt(
+    input.organizationId,
+    {
+      startUtc: input.startUtc,
+      durationMinutes: input.booking.durationMinutes,
+      ctx: STRICT,
+      bufferMinutes: 0,
+      excludeBookingId: input.booking.id,
+    },
+    tx
+  );
+  const covered = hard.filter((i) => i.kind === "session");
+  if (covered.length > 0 && !input.confirmOverlap) {
+    const n = covered.length;
+    throw new BookingError(
+      "overlap_warning",
+      `Este bloqueo cubrirá ${n} ${n === 1 ? "cita" : "citas"}.`,
+      [],
+      covered
+    );
+  }
+}
+
+export type MoveResult = BookingResult & {
+  /** ¿Cambió la hora? (solo entonces se avisa al conector). */
+  timeChanged: boolean;
+};
+
+/**
+ * 028 (A2) — Mover una cita en el calendario: hora y/o vendedor de forma
+ * ATÓMICA, bajo UN candado y con UN `UPDATE`.
+ *
+ *  - Solo citas `agendada` y que no son de prueba (`invalid` si no).
+ *  - `expectedStartUtc` (opcional): si la cita ya no está ahí, `stale` (409).
+ *  - Sesión: el contexto de choque usa el vendedor DESTINO. Si cambia la
+ *    hora, `findSlot` en modo staff con el tipo y la duración de la cita
+ *    (rejilla + aviso mínimo); si solo cambia el vendedor, `conflictsAt` sin
+ *    rejilla (como `assign`). El destino debe ser miembro de la organización.
+ *  - Bloqueo (A5): sin vendedor (`userId` ⇒ `invalid`), inicio alineado a
+ *    `slotMinutes` y confirmación si cubre citas.
+ *  - 23505 ⇒ `slot_taken`. Después del commit: el conector solo si cambió la
+ *    hora, y `booking.updated`.
+ *
+ * El permiso de reasignar (solo Propietario) lo exige la ruta.
+ */
+export async function moveBooking(input: {
+  organizationId: string;
+  bookingId: string;
+  startUtc?: string;
+  /** `null` = sin asignar; ausente = el mismo vendedor. */
+  userId?: string | null;
+  confirmOverlap?: boolean;
+  expectedStartUtc?: string;
+  now?: Date;
+}): Promise<MoveResult> {
+  if (input.startUtc === undefined && input.userId === undefined) {
+    throw new BookingError("invalid", "Indica la nueva hora o el vendedor");
+  }
+  if (input.startUtc !== undefined && Number.isNaN(Date.parse(input.startUtc))) {
+    throw new BookingError("invalid", "Instante inválido");
+  }
+  const settings = await getSettings(input.organizationId);
+
+  const { next, timeChanged, typeName } = await withAgendaLock(
+    input.organizationId,
+    async (tx) => {
+      const booking = await getOwnBooking(input.organizationId, input.bookingId, tx);
+      if (booking.status !== "agendada" || booking.isTest) {
+        throw new BookingError(
+          "invalid",
+          "Solo se mueven citas agendadas que no son de prueba"
+        );
+      }
+      if (
+        input.expectedStartUtc !== undefined &&
+        Date.parse(input.expectedStartUtc) !== booking.scheduledAt.getTime()
+      ) {
+        throw new BookingError("stale", STALE_MESSAGE);
+      }
+
+      const targetStart =
+        input.startUtc !== undefined
+          ? new Date(input.startUtc).toISOString()
+          : booking.scheduledAt.toISOString();
+      const timeChanged = targetStart !== booking.scheduledAt.toISOString();
+      let sellerId = booking.assignedUserId;
+
+      if (booking.kind === "block") {
+        if (input.userId !== undefined) {
+          throw new BookingError("invalid", "Un bloqueo no tiene vendedor");
+        }
+        if (timeChanged) {
+          await checkBlockMove(tx, {
+            organizationId: input.organizationId,
+            booking,
+            startUtc: targetStart,
+            settings,
+            confirmOverlap: input.confirmOverlap,
+          });
+        }
+      } else {
+        sellerId = input.userId !== undefined ? input.userId : booking.assignedUserId;
+        if (
+          input.userId &&
+          !(await isOrgMember(input.organizationId, input.userId, tx))
+        ) {
+          throw new BookingError(
+            "invalid",
+            "El vendedor no pertenece a la organización"
+          );
+        }
+        const sellerChanged = sellerId !== booking.assignedUserId;
+        if (timeChanged) {
+          await findMovableSlot(tx, {
+            organizationId: input.organizationId,
+            booking,
+            startUtc: targetStart,
+            ctx: {
+              mode: "staff",
+              typeId: booking.appointmentTypeId,
+              typeExclusive: booking.exclusive,
+              sellerId,
+            },
+            settings,
+            now: input.now,
+            confirmOverlap: input.confirmOverlap,
+          });
+        } else if (sellerChanged && sellerId) {
+          await assertSellerFree(tx, {
+            organizationId: input.organizationId,
+            booking,
+            sellerId,
+            settings,
+          });
+        }
+      }
+
+      const updated = await tx
+        .update(schema.booking)
+        .set({
+          scheduledAt: new Date(targetStart),
+          assignedUserId: sellerId,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.booking.id, booking.id))
+        .returning();
+      const typeName = booking.appointmentTypeId
+        ? ((await getType(input.organizationId, booking.appointmentTypeId, tx))
+            ?.name ?? null)
+        : null;
+      return { next: updated[0]!, timeChanged, typeName };
+    }
+  ).catch((err: unknown) => {
+    // Defensa en profundidad: el índice único vio el choque.
+    if (isUniqueViolation(err)) {
+      throw new BookingError("slot_taken", "Ese horario acaba de ocuparse");
+    }
+    throw err;
+  });
+
+  const startUtc = next.scheduledAt.toISOString();
+  if (timeChanged) {
+    // La MISMA reunión en otra hora (como reprogramar). Best-effort.
+    await withConnector(next, settings, async (conn, externalRef) => {
+      await conn.updateMeeting(externalRef, {
+        startUtc,
+        durationMinutes: next.durationMinutes,
+        timezone: settings.timezone,
+      });
+    });
+  }
+  publish(input.organizationId, {
+    type: "booking.updated",
+    data: { bookingId: next.id },
+  });
+  return {
+    booking: next,
+    meetingLink: next.meetingLink,
+    linkPending: next.linkPending,
+    label: labelInTz(startUtc, settings.timezone),
+    typeName,
+    timeChanged,
+  };
 }
 
 /**

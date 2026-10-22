@@ -6,6 +6,7 @@ import {
   assignBooking,
   cancelBooking,
   markBookingStatus,
+  moveBooking,
   rescheduleBooking,
   retryMeetingLink,
 } from "@/server/agenda/service";
@@ -30,6 +31,15 @@ const patchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("retry_link") }),
   // 023 — Reasignar el vendedor (`null` = sin asignar). Solo Propietario.
   z.object({ action: z.literal("assign"), userId: z.string().min(1).nullable() }),
+  // 028 — Mover desde el calendario: hora y/o vendedor, atómico. Al menos
+  // uno de los dos (se valida abajo). `userId` solo Propietario.
+  z.object({
+    action: z.literal("move"),
+    startUtc: z.string().min(1).optional(),
+    userId: z.string().min(1).nullable().optional(),
+    confirmOverlap: z.boolean().optional(),
+    expectedStartUtc: z.string().min(1).optional(),
+  }),
 ]);
 
 /**
@@ -41,13 +51,27 @@ const patchSchema = z.discriminatedUnion("action", [
  * (409 `slot_taken` / `overlap_warning`); `assign` es del Propietario (403 al
  * Vendedor) y rechaza con 409 `slot_taken` + `conflicts` si el nuevo vendedor
  * ya tiene una cita traslapada; 422 si no es miembro.
+ *
+ * 028 — `move` (calendario): hora y/o vendedor en una sola escritura, con
+ * las reglas de reprogramar + reasignar; `userId` solo Propietario (403);
+ * 409 `slot_taken` / `overlap_warning` / `stale`.
  */
 export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const body = await parseBody(req, patchSchema);
   if (!body.ok) return body.response;
 
-  if (body.data.action === "assign") {
+  if (body.data.action === "move") {
+    if (body.data.startUtc === undefined && body.data.userId === undefined) {
+      return apiError(422, "invalid_body", "Indica la nueva hora o el vendedor");
+    }
+  }
+  // 023/028 — Reasignar (con `assign` o con `move` + `userId`) es del
+  // Propietario.
+  if (
+    body.data.action === "assign" ||
+    (body.data.action === "move" && body.data.userId !== undefined)
+  ) {
     const denied = requireOwner(session);
     if (denied) return denied;
   }
@@ -102,6 +126,22 @@ export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Par
           userId: body.data.userId,
         });
         return Response.json({ ok: true, assignedUserId: row.assignedUserId });
+      }
+      case "move": {
+        const result = await moveBooking({
+          organizationId: session.organizationId,
+          bookingId: id,
+          startUtc: body.data.startUtc,
+          userId: body.data.userId,
+          confirmOverlap: body.data.confirmOverlap ?? false,
+          expectedStartUtc: body.data.expectedStartUtc,
+        });
+        return Response.json({
+          ok: true,
+          label: result.label,
+          scheduledAtUtc: result.booking.scheduledAt.toISOString(),
+          assignedUserId: result.booking.assignedUserId,
+        });
       }
     }
   } catch (err) {

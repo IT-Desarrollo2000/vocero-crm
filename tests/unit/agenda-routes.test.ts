@@ -101,9 +101,13 @@ const createSessionBooking = vi.fn(async (..._a: unknown[]) => ({
 }));
 const assignBooking = vi.fn(async (..._a: unknown[]) => ({ assignedUserId: "u_juan" }));
 const rescheduleBooking = vi.fn(async (..._a: unknown[]) => ({ label: "x" }));
+const moveBooking = vi.fn(async (..._a: unknown[]) => ({
+  label: "mié 5 ago, 10:00",
+  booking: { scheduledAt: new Date("2026-08-05T16:00:00.000Z"), assignedUserId: "u_juan" },
+}));
 vi.mock("@/server/agenda/service", async (orig) => {
   const real = await orig<typeof import("@/server/agenda/service")>();
-  return { ...real, createSessionBooking, assignBooking, rescheduleBooking };
+  return { ...real, createSessionBooking, assignBooking, rescheduleBooking, moveBooking };
 });
 
 const replaceOffers = vi.fn(async (..._a: unknown[]) => {});
@@ -144,7 +148,7 @@ beforeEach(() => {
   vi.stubEnv("AGENDA", "on");
   sessionState.current = null;
   visible = { id: "bk_1", assignedUserId: "u_ana", createdByUserId: null };
-  for (const f of [listTypes, createType, updateType, computeAvailability, listBookings, createSessionBooking, assignBooking, rescheduleBooking]) {
+  for (const f of [listTypes, createType, updateType, computeAvailability, listBookings, createSessionBooking, assignBooking, rescheduleBooking, moveBooking]) {
     f.mockClear();
   }
 });
@@ -346,6 +350,69 @@ describe("/api/bookings/[id]", () => {
     const res = await bookingById.PATCH(patch({ action: "assign", userId: "u_juan" }), params("bk_1"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, assignedUserId: "u_juan" });
+  });
+
+  // 028 — move (calendario).
+  it("move: el Vendedor mueve la hora; con userId es 403", async () => {
+    sessionState.current = SELLER;
+    const ok = await bookingById.PATCH(
+      patch({ action: "move", startUtc: "2026-08-05T16:00:00.000Z", expectedStartUtc: "2026-08-05T15:00:00.000Z" }),
+      params("bk_1")
+    );
+    expect(ok.status).toBe(200);
+    expect(moveBooking.mock.calls[0]![0]).toMatchObject({
+      bookingId: "bk_1",
+      startUtc: "2026-08-05T16:00:00.000Z",
+      expectedStartUtc: "2026-08-05T15:00:00.000Z",
+      confirmOverlap: false,
+    });
+    expect((moveBooking.mock.calls[0]![0] as { userId?: unknown }).userId).toBeUndefined();
+
+    moveBooking.mockClear();
+    for (const userId of ["u_juan", null]) {
+      const res = await bookingById.PATCH(patch({ action: "move", userId }), params("bk_1"));
+      expect(res.status).toBe(403);
+    }
+    expect(moveBooking).not.toHaveBeenCalled();
+  });
+
+  it("move: el Propietario reasigna y mueve en una sola llamada", async () => {
+    sessionState.current = OWNER;
+    const res = await bookingById.PATCH(
+      patch({ action: "move", startUtc: "2026-08-05T16:00:00.000Z", userId: "u_juan", confirmOverlap: true }),
+      params("bk_1")
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      label: "mié 5 ago, 10:00",
+      scheduledAtUtc: "2026-08-05T16:00:00.000Z",
+      assignedUserId: "u_juan",
+    });
+    expect(moveBooking).toHaveBeenCalledOnce();
+  });
+
+  it("move: 404 a la cita que no se ve; 422 sin hora ni vendedor", async () => {
+    sessionState.current = SELLER;
+    visible = null;
+    expect(
+      (await bookingById.PATCH(patch({ action: "move", startUtc: "2026-08-05T16:00:00.000Z" }), params("bk_1"))).status
+    ).toBe(404);
+    visible = { id: "bk_1", assignedUserId: "u_ana", createdByUserId: null };
+    expect((await bookingById.PATCH(patch({ action: "move" }), params("bk_1"))).status).toBe(422);
+    expect(moveBooking).not.toHaveBeenCalled();
+  });
+
+  it("move: stale ⇒ 409 con su código", async () => {
+    sessionState.current = SELLER;
+    const { BookingError, STALE_MESSAGE } = await import("@/server/agenda/service");
+    moveBooking.mockRejectedValueOnce(new BookingError("stale", STALE_MESSAGE));
+    const res = await bookingById.PATCH(
+      patch({ action: "move", startUtc: "2026-08-05T16:00:00.000Z" }),
+      params("bk_1")
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("stale");
   });
 });
 

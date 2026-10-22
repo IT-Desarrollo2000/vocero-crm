@@ -13,6 +13,7 @@ import {
   conflictsTitle,
   groupSlotsByDay,
   parseBookingError,
+  timeOf,
   type SlotConflict,
   type StaffSlot,
 } from "./booking-logic";
@@ -63,6 +64,13 @@ export type BookingDialogProps = {
     contactName?: string | null;
     isBlock?: boolean;
   };
+  /**
+   * 028 (A8) — Hueco elegido en el calendario. Se aplica DESPUÉS de cargar la
+   * rejilla del tipo elegido (la rejilla depende del tipo y del vendedor); si
+   * ese inicio no está en ella, el diálogo lo dice y deja elegir otro.
+   */
+  initialDayIso?: string;
+  initialStartUtc?: string;
   onClose: () => void;
   onDone: (result: { label: string }) => void;
 };
@@ -80,6 +88,8 @@ export function BookingDialog({
   sellers,
   timezone,
   reschedule,
+  initialDayIso,
+  initialStartUtc,
   onClose,
   onDone,
 }: BookingDialogProps) {
@@ -114,6 +124,14 @@ export function BookingDialog({
     conflicts: SlotConflict[];
   } | null>(null);
   const loadSeq = useRef(0);
+  // 028 (A8) — El hueco del calendario sigue "pendiente" hasta que la persona
+  // elige día u horario a mano: cambiar de tipo lo vuelve a intentar.
+  const prefill = useRef<{ dayIso?: string; startUtc?: string } | null>(
+    initialDayIso || initialStartUtc
+      ? { dayIso: initialDayIso, startUtc: initialStartUtc }
+      : null
+  );
+  const [prefillMiss, setPrefillMiss] = useState<string | null>(null);
 
   // Tipos: los del padre o los activos del catálogo.
   useEffect(() => {
@@ -191,6 +209,30 @@ export function BookingDialog({
     setSlotStart(null);
     void loadSlots();
   }, [loadSlots]);
+
+  // 028 (A8) — Ya cargó la rejilla del tipo: aplicar el hueco del calendario.
+  useEffect(() => {
+    const p = prefill.current;
+    if (!p || slots === null || slotsError) return;
+    const hit = p.startUtc
+      ? slots.find((s) => s.startUtc === p.startUtc)
+      : undefined;
+    if (hit) {
+      setDayIso(hit.dayIso);
+      setSlotStart(hit.startUtc);
+      setPrefillMiss(null);
+      return;
+    }
+    if (p.dayIso && slots.some((s) => s.dayIso === p.dayIso)) {
+      setDayIso(p.dayIso);
+    }
+    setPrefillMiss(p.startUtc ? (timeOf(p.startUtc, timezone) ?? "") : null);
+  }, [slots, slotsError, timezone]);
+
+  function pickManually() {
+    prefill.current = null;
+    setPrefillMiss(null);
+  }
 
   const days = useMemo(() => groupSlotsByDay(slots ?? []), [slots]);
   const activeDay = days.find((d) => d.dayIso === dayIso) ?? days[0] ?? null;
@@ -460,6 +502,25 @@ export function BookingDialog({
               {slots === null && (
                 <p className="text-sm text-text-3">Buscando horarios…</p>
               )}
+              {prefillMiss !== null && (
+                <p
+                  role="status"
+                  data-testid="booking-prefill-miss"
+                  className="flex gap-2 rounded-sm border border-warning-soft bg-warning-tint p-2 text-xs text-warning-text"
+                >
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  <span>
+                    {prefillMiss
+                      ? `Las ${prefillMiss} que elegiste en el calendario no están disponibles para este tipo de cita.`
+                      : "El horario que elegiste en el calendario no está disponible para este tipo de cita."}{" "}
+                    Elige otro horario.
+                  </span>
+                </p>
+              )}
               {slotsError && (
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm text-destructive">{slotsError}</p>
@@ -494,6 +555,7 @@ export function BookingDialog({
                         data-day={d.dayIso}
                         aria-pressed={active}
                         onClick={() => {
+                          pickManually();
                           setDayIso(d.dayIso);
                           setSlotStart(null);
                         }}
@@ -549,7 +611,10 @@ export function BookingDialog({
                             busy ? `${s.time}, ocupado: ${detail}` : s.time
                           }
                           title={detail}
-                          onClick={() => setSlotStart(s.startUtc)}
+                          onClick={() => {
+                            pickManually();
+                            setSlotStart(s.startUtc);
+                          }}
                           className={cn(
                             "rounded-sm border px-2 py-1.5 text-sm transition-colors",
                             active

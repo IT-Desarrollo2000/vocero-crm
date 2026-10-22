@@ -208,6 +208,13 @@ try {
     return false;
   }
   const dialog = (pg) => pg.getByTestId("booking-dialog");
+  /**
+   * 028 — Citas abre en Semana en computadora (Día en celular); este guion
+   * revisa la Lista, así que la elige (queda recordada en localStorage).
+   */
+  async function asList(pg) {
+    await clickUntil(pg, pg.getByTestId("cal-view-list"), pg.locator('[data-testid="cal-view-list"][aria-pressed="true"]'));
+  }
   /** Llena el diálogo de Nueva cita hasta elegir el horario. */
   async function fillDialog(pg, { contactName, typeId, slot, seller }) {
     const d = dialog(pg);
@@ -285,6 +292,7 @@ try {
   const slotB = pickFree(gServ, t0 + 26 * H);
   ok("hay un horario libre de Servicio", !!slotB);
   await page.goto(`${BASE}/bookings`, { waitUntil: "load" });
+  await asList(page);
   ok("Nueva cita abre el diálogo", await clickUntil(page, page.getByTestId("bookings-new"), dialog(page)));
   await fillDialog(page, { contactName: names.b, typeId: SERVICIO.id, slot: slotB });
   await page.getByTestId("booking-save").click();
@@ -359,6 +367,7 @@ try {
   /* -------------------------------------------------------------------- e */
   console.log("\n== e) Owner: filtros y reasignación ==");
   await page.goto(`${BASE}/bookings`, { waitUntil: "load" });
+  await asList(page);
   await soft((ms) => rowsOf(page).first().waitFor({ timeout: ms }), 30000);
   const total = await rowsOf(page).count();
   await page.getByTestId("bookings-seller-filter").selectOption(V1);
@@ -396,6 +405,7 @@ try {
   ok("login Ana (Vendedora)", ana.ok);
   const ap = await ana.ctx.newPage();
   await ap.goto(`${BASE}/bookings`, { waitUntil: "load" });
+  await asList(ap);
   await soft((ms) => rowsOf(ap).first().waitFor({ timeout: ms }), 30000);
   const anaRows = await rowsOf(ap).allTextContents();
   ok("Ana NO ve la cita de Juan (Carla)", anaRows.length > 0 && !anaRows.some((t) => t.includes(names.c)), JSON.stringify(anaRows.length));

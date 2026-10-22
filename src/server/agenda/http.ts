@@ -48,6 +48,8 @@ export function bookingErrorStatus(code: BookingError["code"]): number {
     case "slot_taken":
     case "slot_not_offered":
     case "overlap_warning":
+    // 028 — `move` con `expectedStartUtc` vencido: otra persona ya la movió.
+    case "stale":
       return 409;
   }
 }

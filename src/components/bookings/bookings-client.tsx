@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, Info, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,19 +9,56 @@ import { Label } from "@/components/ui/label";
 import { useEvents } from "@/components/use-events";
 import { useViewer } from "@/components/viewer-context";
 import { isOwner } from "@/lib/roles";
-import type { BookingReminderDto } from "@/lib/reminders";
-import { describeReminder, formatDue, retryErrorMessage } from "./reminder-labels";
+import {
+  blockStartUtc,
+  calendarVisible,
+  coalesce,
+  datesOf,
+  rangeLabel,
+  shiftRange,
+  visibleRange,
+  type DateRange,
+} from "@/lib/time/calendar";
+import { todayInTz } from "@/lib/time/slots";
+import type { OverlapMap } from "@/server/agenda/overlaps";
 import {
   BookingDialog,
   type BookingTypeOption,
   type SellerOption,
 } from "./booking-dialog";
+import { BookingActions, type BookingActionHandlers } from "./booking-actions";
+import { BookingDetailPanel } from "./booking-detail-panel";
+import { STATUS_LABEL, type Booking } from "./booking-look";
 import {
   applyClientFilter,
   bookingsQuery,
   parseBookingError,
   type SellerFilter,
+  type SlotConflict,
 } from "./booking-logic";
+import { CalendarLegend } from "./calendar/calendar-legend";
+import {
+  defaultView,
+  parseStoredView,
+  sellerColumns,
+  VIEW_STORAGE_KEY,
+  type CalendarHours,
+  type CalView,
+} from "./calendar/calendar-model";
+import { CalendarDnd } from "./calendar/calendar-dnd";
+import { CalendarToolbar } from "./calendar/calendar-toolbar";
+import { DaySellersView } from "./calendar/day-sellers-view";
+import {
+  applyOverride,
+  moveRequest,
+  parseMoveResponse,
+  wallLabel,
+  type DropPreview,
+  type MoveOverride,
+} from "./calendar/drag-model";
+import { MoveOverlapDialog } from "./calendar/move-overlap-dialog";
+import { WeekView } from "./calendar/week-view";
+import { retryErrorMessage } from "./reminder-labels";
 
 /**
  * 015 — Citas: lo agendado por el operador y por la IA, con sus acciones.
@@ -30,64 +67,82 @@ import {
  * compartido (rejilla por tipo y vendedor, con advertencia de choque);
  * filtros por vendedor y tipo; tipo y vendedor en cada fila; el Propietario
  * reasigna.
+ *
+ * 028 — Calendario: Semana (por defecto en computadora), Día por vendedor
+ * (por defecto en celular) y la Lista de siempre. La vista se recuerda en
+ * `localStorage`. Semana y Día piden `GET /api/bookings?from=&to=` (todo en la
+ * zona del NEGOCIO, con `hours` y `overlaps`); la Lista, lo de siempre. Los
+ * filtros de vendedor y tipo aplican a las tres. Clic en un hueco ⇒ Nueva
+ * cita con esa hora; clic en una cita ⇒ panel de detalle con las MISMAS
+ * acciones que la fila (`BookingActions`).
  */
 
-type Booking = {
-  id: string;
-  kind: "session" | "block";
-  status: "agendada" | "realizada" | "no_show" | "cancelada";
-  source: "manual" | "ai";
-  scheduledAtUtc: string;
-  durationMinutes: number;
-  date: string;
-  time: string;
-  weekday: string;
-  contact: { id: string; name: string } | null;
-  conversationId: string | null;
-  connector: string | null;
-  meetingLink: string | null;
-  linkPending: boolean;
-  isTest: boolean;
-  notes: string | null;
-  /**
-   * 10 — Recordatorios de la hora vigente, uno por anticipación (vacío si
-   * están apagados o la cita no es `session`).
-   */
-  reminders: BookingReminderDto[];
-  /** 023 — Tipo de cita; null en bloqueos y en citas de la 015. */
-  type: { id: string; name: string } | null;
-  /** 023 — Vendedor; null ⇒ "Sin asignar". */
-  assignedUser: { id: string; name: string } | null;
-  createdByUserId: string | null;
-  exclusive: boolean;
-};
-
 type DialogState =
-  | { mode: "create" }
+  | {
+      mode: "create";
+      initialDayIso?: string;
+      initialStartUtc?: string;
+      sellerId?: string;
+    }
   | { mode: "reschedule"; booking: Booking }
   | null;
 
+/** Lo último que respondió `GET /api/bookings` (Lista o rango). */
+type Loaded =
+  | { mode: "list"; bookings: Booking[] }
+  | {
+      mode: "range";
+      bookings: Booking[];
+      hours: CalendarHours;
+      overlaps: OverlapMap;
+      truncated: boolean;
+      range: DateRange;
+    };
+
 const REASSIGN_TAKEN = "Ese vendedor ya tiene una cita a esa hora";
 
-const STATUS_LABEL: Record<Booking["status"], string> = {
-  agendada: "Agendada",
-  realizada: "Realizada",
-  no_show: "No asistió",
-  cancelada: "Cancelada",
-};
+/** Ráfagas de `booking.updated` (la IA agenda en varios pasos): una recarga. */
+const SSE_COALESCE_MS = 250;
+
+function readStoredView(): CalView | null {
+  try {
+    return parseStoredView(window.localStorage.getItem(VIEW_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function storeView(v: CalView) {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, v);
+  } catch {
+    // Modo privado o almacenamiento lleno: la vista simplemente no se recuerda.
+  }
+}
+
+/** Fecha de hoy en la zona del navegador: solo hasta conocer la del negocio. */
+function browserToday(): string {
+  return todayInTz(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+}
 
 export function BookingsClient() {
   const viewer = useViewer();
   const owner = isOwner(viewer);
-  const [bookings, setBookings] = useState<Booking[] | null>(null);
+  // La vista y la fecha se resuelven en el cliente (localStorage, ancho de
+  // pantalla): en el primer render no existen, para no desfasar la hidratación.
+  const [view, setView] = useState<CalView | null>(null);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const navigated = useRef(false);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [types, setTypes] = useState<BookingTypeOption[]>([]);
   const [sellers, setSellers] = useState<SellerOption[]>([]);
   const [sellerFilter, setSellerFilter] = useState<SellerFilter>("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [showTests, setShowTests] = useState(false);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [reassigning, setReassigning] = useState<string | null>(null);
-  const [reassignTo, setReassignTo] = useState("none");
   // 10 — Zona del negocio (de `GET /api/bookings`) para la hora de envío de
   // los recordatorios; sin ella, la del navegador.
   const [businessTimezone, setBusinessTimezone] = useState<string | undefined>();
@@ -95,16 +150,46 @@ export function BookingsClient() {
   const [error, setError] = useState<string | null>(null);
   const [blockStart, setBlockStart] = useState("");
   const [blockMinutes, setBlockMinutes] = useState(60);
+  const [now, setNow] = useState(() => new Date());
+  // 028 (Fase B) — Movimiento optimista, error del arrastre y confirmación.
+  const [override, setOverride] = useState<MoveOverride | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveConfirm, setMoveConfirm] = useState<{
+    booking: Booking;
+    body: NonNullable<ReturnType<typeof moveRequest>>;
+    message: string;
+    conflicts: SlotConflict[];
+  } | null>(null);
+  const [moving, setMoving] = useState(false);
+  // R1 — La carga falló (500, 422, red): se dice y se ofrece reintentar, en
+  // vez de quedarse en "Cargando…" para siempre.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Los filtros viven también en un ref: `refresh` lo llaman el SSE y las
-  // acciones, y siempre debe pedir con los filtros VIGENTES.
-  const query = bookingsQuery(sellerFilter, typeFilter);
+  useEffect(() => {
+    const isWide = window.matchMedia?.("(min-width: 768px)").matches ?? true;
+    setView(readStoredView() ?? defaultView(isWide));
+    setAnchor(browserToday());
+  }, []);
+
+  // La línea de la hora actual avanza sola.
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const calView = view === "semana" || view === "dia" ? view : null;
+  const range = calView && anchor ? visibleRange(calView, anchor) : null;
+
+  // Los filtros y el rango viven también en un ref: `refresh` lo llaman el
+  // SSE y las acciones, y siempre debe pedir con lo VIGENTE.
+  const listQuery = bookingsQuery(sellerFilter, typeFilter);
+  const query = view === null ? null : range ? withRange(listQuery, range) : listQuery;
   const queryRef = useRef(query);
   queryRef.current = query;
   const loadSeq = useRef(0);
 
   useEffect(() => {
-    void refresh();
+    if (query) void refresh();
   }, [query]);
 
   useEffect(() => {
@@ -113,27 +198,77 @@ export function BookingsClient() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  // La agenda cambia también cuando agenda la IA: SSE mantiene la vista viva.
-  useEvents({ onBookingUpdated: () => void refresh() });
+  // La agenda cambia también cuando agenda la IA: SSE mantiene la vista viva
+  // (el rango visible), y una ráfaga de avisos cuesta una sola recarga.
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  refreshRef.current = refresh;
+  const sse = useMemo(
+    () => coalesce(() => void refreshRef.current(), SSE_COALESCE_MS),
+    []
+  );
+  useEffect(() => () => sse.cancel(), [sse]);
+  // 028 (A6) — Mientras se arrastra, el SSE se guarda y se aplica al soltar:
+  // una recarga a media maniobra movería la rejilla bajo el puntero.
+  const dragging = useRef(false);
+  const ssePending = useRef(false);
+  useEvents({
+    onBookingUpdated: () => {
+      if (dragging.current) ssePending.current = true;
+      else sse.trigger();
+    },
+  });
 
   async function refresh() {
+    const url = queryRef.current;
+    if (!url) return;
     const seq = ++loadSeq.current;
-    const list = await fetch(queryRef.current).catch(() => null);
+    const list = await fetch(url).catch(() => null);
     if (seq !== loadSeq.current) return;
     if (list?.ok) {
+      setLoadError(null);
       const data = (await list.json()) as {
         bookings: Booking[];
         businessTimezone?: string;
         types?: BookingTypeOption[];
         sellers?: SellerOption[];
+        hours?: CalendarHours;
+        overlaps?: OverlapMap;
+        truncated?: boolean;
+        range?: DateRange;
       };
       if (seq !== loadSeq.current) return;
-      setBookings(data.bookings);
-      setBusinessTimezone(data.businessTimezone || undefined);
+      setLoaded(
+        data.hours && data.range
+          ? {
+              mode: "range",
+              bookings: data.bookings,
+              hours: data.hours,
+              overlaps: data.overlaps ?? {},
+              truncated: data.truncated === true,
+              range: data.range,
+            }
+          : { mode: "list", bookings: data.bookings }
+      );
+      const tz = data.businessTimezone || undefined;
+      setBusinessTimezone(tz);
       if (data.types) setTypes(data.types);
       if (data.sellers) setSellers(data.sellers);
+      // La fecha inicial salió del navegador; si el negocio ya va en otro
+      // día (otra zona), se corrige mientras nadie haya navegado.
+      if (tz && !navigated.current) {
+        const today = todayInTz(new Date(), tz);
+        setAnchor((a) => (a === today ? a : today));
+      }
     } else {
-      setBookings((b) => b ?? []);
+      const body = (await list?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setLoadError(
+        list
+          ? (body?.error?.message ?? "No se pudieron cargar las citas.")
+          : "Sin conexión con el servidor."
+      );
+      setLoaded((l) => l ?? { mode: "list", bookings: [] });
     }
   }
 
@@ -157,21 +292,18 @@ export function BookingsClient() {
   }
 
   /** 023 — Reasignar (Propietario). Un choque del nuevo vendedor es 409. */
-  async function reassign(b: Booking) {
+  async function reassign(b: Booking, userId: string | null): Promise<boolean> {
     setBusy(b.id);
     setError(null);
     const res = await fetch(`/api/bookings/${b.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "assign",
-        userId: reassignTo === "none" ? null : reassignTo,
-      }),
+      body: JSON.stringify({ action: "assign", userId }),
     }).catch(() => null);
     setBusy(null);
     if (!res) {
       setError("Sin conexión con el servidor.");
-      return;
+      return false;
     }
     if (!res.ok) {
       const body: unknown = await res.json().catch(() => null);
@@ -181,11 +313,11 @@ export function BookingsClient() {
         "No se pudo reasignar la cita."
       );
       setError(failure.kind === "slot_taken" ? REASSIGN_TAKEN : failure.message);
-      return;
+      return false;
     }
-    setReassigning(null);
     setNotice("Cita reasignada.");
     await refresh();
+    return true;
   }
 
   // 10 — Reintento manual (a lo sumo uno) de un recordatorio fallido. La
@@ -208,15 +340,22 @@ export function BookingsClient() {
   }
 
   async function createBlock() {
-    if (!blockStart) return;
+    if (!blockStart || !businessTimezone) return;
     setError(null);
+    // 028 (A8) — El campo da día y hora "de pared"; se leen en la zona del
+    // NEGOCIO, no en la del navegador (antes: `new Date(valor)`).
+    const [day = "", time = ""] = blockStart.split("T");
+    const startUtc = blockStartUtc(day, time.slice(0, 5), businessTimezone);
+    if (!startUtc) {
+      setError("Fecha u hora inválida.");
+      return;
+    }
     const res = await fetch("/api/bookings", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         kind: "block",
-        // El input datetime-local da hora local del navegador.
-        startUtc: new Date(blockStart).toISOString(),
+        startUtc,
         durationMinutes: blockMinutes,
       }),
     }).catch(() => null);
@@ -231,13 +370,174 @@ export function BookingsClient() {
     await refresh();
   }
 
-  if (!bookings) return <p className="text-sm text-text-3">Cargando…</p>;
+  /** 028 (A6) — Inicio/fin del arrastre: pausa y reanuda el SSE. */
+  function onDraggingChange(on: boolean) {
+    dragging.current = on;
+    if (on) {
+      setMoveError(null);
+      return;
+    }
+    if (ssePending.current) {
+      ssePending.current = false;
+      sse.trigger();
+    }
+  }
 
-  const visible = applyClientFilter(bookings, sellerFilter, viewer.userId);
+  /** 028 — Soltar: movimiento optimista y `PATCH move`. */
+  function onDrop(b: Booking, preview: DropPreview) {
+    if (!calView) return;
+    const body = moveRequest(b, preview, { view: calView });
+    if (!body || !preview.startUtc) return;
+    const sellerChanged = body.userId !== undefined;
+    setOverride({
+      id: b.id,
+      scheduledAtUtc: preview.startUtc,
+      assignedUser: sellerChanged
+        ? body.userId
+          ? {
+              id: body.userId,
+              name: sellers.find((s) => s.id === body.userId)?.name ?? "",
+            }
+          : null
+        : b.assignedUser,
+    });
+    void sendMove(b, body);
+  }
+
+  async function sendMove(
+    b: Booking,
+    body: NonNullable<ReturnType<typeof moveRequest>>
+  ) {
+    setMoving(true);
+    setMoveError(null);
+    const res = await fetch(`/api/bookings/${b.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    const json: unknown = res ? await res.json().catch(() => null) : null;
+    setMoving(false);
+    const outcome = parseMoveResponse(res ? res.status : null, json);
+    if (outcome.kind === "overlap_warning") {
+      setMoveConfirm({
+        booking: b,
+        body,
+        message: outcome.message,
+        conflicts: outcome.conflicts,
+      });
+      return;
+    }
+    setMoveConfirm(null);
+    if (outcome.kind === "error") {
+      setOverride(null);
+      setMoveError(outcome.message);
+      await refresh();
+      return;
+    }
+    const label =
+      outcome.label ||
+      (businessTimezone && body.startUtc
+        ? wallLabel(body.startUtc, businessTimezone)
+        : "");
+    setNotice(
+      body.startUtc
+        ? `${b.kind === "block" ? "Bloqueo movido a" : "Cita movida a"} ${label}`
+        : "Cita reasignada."
+    );
+    await refresh();
+    setOverride(null);
+  }
+
+  const handlers: BookingActionHandlers = {
+    onAct: (id, body) => void act(id, body),
+    onReschedule: (b) => {
+      setError(null);
+      setDialog({ mode: "reschedule", booking: b });
+    },
+    onReassign: reassign,
+    onRetryReminder: (id, reminderId) => void retryReminder(id, reminderId),
+    onClearError: () => setError(null),
+  };
+
+  function changeView(v: CalView) {
+    setView(v);
+    storeView(v);
+    setDetailId(null);
+  }
+
+  function navigate(dir: 1 | -1) {
+    if (!calView || !anchor) return;
+    navigated.current = true;
+    setAnchor(shiftRange(calView, anchor, dir).anchor);
+  }
+
+  function goToday() {
+    navigated.current = false;
+    setAnchor(
+      businessTimezone ? todayInTz(new Date(), businessTimezone) : browserToday()
+    );
+  }
+
+  const ready =
+    view !== null &&
+    loaded !== null &&
+    (view === "lista" ? loaded.mode === "list" : loaded.mode === "range");
+
   const filtered = sellerFilter !== "all" || typeFilter !== "all";
+  const allLoaded = loaded?.bookings ?? [];
+  const visible = applyClientFilter(allLoaded, sellerFilter, viewer.userId);
+  const calBookings = calendarVisible(applyOverride(visible, override), {
+    showCancelled,
+    showTests,
+  });
+  const detail = detailId ? allLoaded.find((b) => b.id === detailId) ?? null : null;
+  const overlaps = loaded?.mode === "range" ? loaded.overlaps : {};
+  const scrollKey = `${view}:${anchor}`;
+
+  const blockSection = (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Bloquear un rango</h3>
+      <p className="text-sm text-text-3">
+        Para compromisos que viven fuera del CRM: ese tiempo deja de
+        ofrecerse.
+        {businessTimezone && ` Hora del negocio (${businessTimezone}).`}
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="block-start">Inicio</Label>
+          <Input
+            id="block-start"
+            type="datetime-local"
+            value={blockStart}
+            onChange={(e) => setBlockStart(e.target.value)}
+            className="w-56"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="block-min">Minutos</Label>
+          <Input
+            id="block-min"
+            type="number"
+            min={10}
+            max={480}
+            value={blockMinutes}
+            onChange={(e) => setBlockMinutes(Number(e.target.value))}
+            className="w-24"
+          />
+        </div>
+        <Button
+          variant="secondary"
+          onClick={createBlock}
+          disabled={!blockStart || !businessTimezone}
+        >
+          Bloquear
+        </Button>
+      </div>
+    </section>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button
           data-testid="bookings-new"
@@ -292,275 +592,258 @@ export function BookingsClient() {
         </div>
       </div>
 
-      {error && (
+      {view && (
+        <CalendarToolbar
+          view={view}
+          title={calView && anchor ? rangeLabel(calView, anchor) : ""}
+          showCancelled={showCancelled}
+          showTests={showTests}
+          onView={changeView}
+          onPrev={() => navigate(-1)}
+          onNext={() => navigate(1)}
+          onToday={goToday}
+          onShowCancelled={setShowCancelled}
+          onShowTests={setShowTests}
+        />
+      )}
+
+      {error && !detail && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Bloquear un rango</h3>
-        <p className="text-sm text-text-3">
-          Para compromisos que viven fuera del CRM: ese tiempo deja de
-          ofrecerse.
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="block-start">Inicio</Label>
-            <Input
-              id="block-start"
-              type="datetime-local"
-              value={blockStart}
-              onChange={(e) => setBlockStart(e.target.value)}
-              className="w-56"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="block-min">Minutos</Label>
-            <Input
-              id="block-min"
-              type="number"
-              min={10}
-              max={480}
-              value={blockMinutes}
-              onChange={(e) => setBlockMinutes(Number(e.target.value))}
-              className="w-24"
-            />
-          </div>
-          <Button
-            variant="secondary"
-            onClick={createBlock}
-            disabled={!blockStart}
-          >
-            Bloquear
+      {loadError && (
+        <div
+          role="alert"
+          data-testid="cal-load-error"
+          className="flex flex-wrap items-center gap-2 rounded-sm border border-danger-soft bg-danger-tint p-2 text-sm text-danger-text"
+        >
+          <p className="flex-1">{loadError}</p>
+          <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+            Reintentar
           </Button>
         </div>
-      </section>
+      )}
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold">
-          Citas <span className="text-text-3">({visible.length})</span>
-        </h3>
-        {visible.length === 0 &&
-          (filtered ? (
-            <p className="text-sm text-text-3">No hay citas con estos filtros.</p>
-          ) : (
-            <p className="text-sm text-text-3">
-              Todavía no hay nada agendado. Configura tu horario en Ajustes →
-              Agenda para empezar a recibir citas.
+      {!ready && !loadError && <p className="text-sm text-text-3">Cargando…</p>}
+
+      {ready && loaded?.mode === "range" && range && (
+        <section aria-label="Calendario de citas" className="min-w-0 space-y-3">
+          <CalendarLegend types={types} />
+          {loaded.truncated && (
+            <p className="text-sm text-warning-text">
+              Hay demasiadas citas en este rango: se muestran las primeras.
             </p>
-          ))}
-        <ul className="divide-y rounded-md border">
-          {visible.map((b) => (
-            <li key={b.id} className="space-y-2 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">
-                  {b.weekday} {b.date} · {b.time}
-                </span>
-                <span className="text-xs text-text-3">
-                  {b.durationMinutes} min
-                </span>
-                <Badge
-                  variant={b.status === "cancelada" ? "secondary" : "default"}
-                >
-                  {STATUS_LABEL[b.status]}
-                </Badge>
-                {b.type && <Badge variant="outline">{b.type.name}</Badge>}
-                {b.kind === "block" ? (
-                  <Badge variant="secondary">Bloqueo</Badge>
-                ) : (
-                  <Badge variant="secondary">
-                    {b.source === "ai" ? "Agendó la IA" : "Manual"}
+          )}
+          {moveError && (
+            <div
+              role="alert"
+              data-testid="cal-move-error"
+              className="flex items-start gap-2 rounded-sm border border-danger-soft bg-danger-tint p-2 text-sm text-danger-text"
+            >
+              <p className="flex-1">{moveError}</p>
+              <button
+                type="button"
+                onClick={() => setMoveError(null)}
+                aria-label="Cerrar aviso"
+                className="shrink-0 rounded p-0.5 hover:bg-accent"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          )}
+          {moving && (
+            <p role="status" className="text-xs text-text-3">
+              Moviendo…
+            </p>
+          )}
+          <CalendarDnd
+            view={view === "semana" ? "semana" : "dia"}
+            owner={owner}
+            hours={loaded.hours}
+            now={now}
+            bookings={calBookings}
+            onDraggingChange={onDraggingChange}
+            onDrop={onDrop}
+            onRejected={(message) => setMoveError(message)}
+          >
+            {(drag) =>
+              view === "semana" ? (
+              <WeekView
+                days={datesOf(range)}
+                bookings={calBookings}
+                hours={loaded.hours}
+                overlaps={overlaps}
+                now={now}
+                scrollKey={scrollKey}
+                drag={drag}
+                onOpenBooking={(b) => setDetailId(b.id)}
+                onEmptyCell={(cell) =>
+                  setDialog({
+                    mode: "create",
+                    initialDayIso: cell.dayIso,
+                    initialStartUtc: cell.startUtc,
+                  })
+                }
+              />
+            ) : (
+              <DaySellersView
+                day={range.from}
+                columns={sellerColumns({
+                  owner,
+                  viewerId: viewer.userId,
+                  sellers,
+                  bookings: calBookings,
+                  filter: sellerFilter,
+                })}
+                bookings={calBookings}
+                hours={loaded.hours}
+                overlaps={overlaps}
+                now={now}
+                scrollKey={scrollKey}
+                drag={drag}
+                onOpenBooking={(b) => setDetailId(b.id)}
+                onEmptyCell={(cell) =>
+                  setDialog({
+                    mode: "create",
+                    initialDayIso: cell.dayIso,
+                    initialStartUtc: cell.startUtc,
+                    // El Propietario agenda en la columna que tocó.
+                    sellerId: owner ? cell.columnKey : undefined,
+                  })
+                }
+              />
+            )}
+          </CalendarDnd>
+          {calBookings.length === 0 && (
+            <p className="text-sm text-text-3">
+              {filtered
+                ? "No hay citas con estos filtros en este rango."
+                : "No hay citas en este rango. Toca un horario libre para agendar."}
+            </p>
+          )}
+        </section>
+      )}
+
+      {ready && view === "lista" && blockSection}
+
+      {ready && view === "lista" && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">
+            Citas <span className="text-text-3">({visible.length})</span>
+          </h3>
+          {visible.length === 0 &&
+            (filtered ? (
+              <p className="text-sm text-text-3">No hay citas con estos filtros.</p>
+            ) : (
+              <p className="text-sm text-text-3">
+                Todavía no hay nada agendado. Configura tu horario en Ajustes →
+                Agenda para empezar a recibir citas.
+              </p>
+            ))}
+          <ul className="divide-y rounded-md border">
+            {visible.map((b) => (
+              <li key={b.id} className="space-y-2 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">
+                    {b.weekday} {b.date} · {b.time}
+                  </span>
+                  <span className="text-xs text-text-3">
+                    {b.durationMinutes} min
+                  </span>
+                  <Badge
+                    variant={b.status === "cancelada" ? "secondary" : "default"}
+                  >
+                    {STATUS_LABEL[b.status]}
                   </Badge>
-                )}
-                {b.isTest && <Badge variant="secondary">Prueba</Badge>}
-                {b.linkPending && b.status !== "cancelada" && (
-                  <Badge variant="secondary">Sin enlace</Badge>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3 text-sm text-text-3">
-                {b.contact && <span>{b.contact.name}</span>}
-                {b.kind === "session" && (
-                  <span data-testid="booking-seller-name">
-                    {b.assignedUser?.name || "Sin asignar"}
-                  </span>
-                )}
-                {b.meetingLink && (
-                  <a
-                    href={b.meetingLink}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-brand-text hover:underline"
-                  >
-                    Enlace de la reunión
-                  </a>
-                )}
-                {b.notes && <span>{b.notes}</span>}
-              </div>
-
-              {/* 10 — Recordatorios de esta cita: un chip por anticipación.
-                  Un fallo no toca la cita; se reintenta desde aquí. */}
-              {b.kind === "session" && (b.reminders ?? []).length > 0 && (
-                <ul
-                  aria-label="Recordatorios de la cita"
-                  className="flex flex-wrap items-center gap-2"
-                >
-                  {(b.reminders ?? []).map((r) => {
-                    const view = describeReminder(r, (iso) =>
-                      formatDue(iso, businessTimezone)
-                    );
-                    const reminderId = r.id;
-                    return (
-                      <li
-                        key={`${r.offsetMinutes}-${reminderId ?? "pendiente"}`}
-                        data-reminder-status={r.status}
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        <Badge variant={view.tone}>{view.text}</Badge>
-                        {r.canRetry && reminderId && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            aria-label="Reintentar recordatorio"
-                            disabled={busy === b.id}
-                            onClick={() => retryReminder(b.id, reminderId)}
-                          >
-                            Reintentar recordatorio
-                          </Button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-
-              {/* El proveedor falló al crear la reunión. La cita existe; lo
-                  único que falta es el enlace, y se reintenta desde aquí — sin
-                  esto, un hipo del proveedor sería una pérdida silenciosa. */}
-              {b.linkPending && b.status !== "cancelada" && (
-                <div className="flex flex-wrap items-center gap-2 rounded-sm bg-subtle p-2">
-                  <span className="text-sm text-text-2">
-                    Esta cita quedó sin enlace: el proveedor no respondió.
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy === b.id}
-                    onClick={() => act(b.id, { action: "retry_link" })}
-                  >
-                    Reintentar enlace
-                  </Button>
-                </div>
-              )}
-
-              {b.status === "agendada" && (
-                <div className="flex flex-wrap gap-2">
-                  {/* Un bloqueo no se "realiza" ni tiene quien falte: solo se
-                      mueve o se quita. */}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy === b.id}
-                    onClick={() => {
-                      setError(null);
-                      setDialog({ mode: "reschedule", booking: b });
-                    }}
-                  >
-                    Reprogramar
-                  </Button>
-                  {owner && b.kind === "session" && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      data-testid="booking-reassign"
-                      aria-expanded={reassigning === b.id}
-                      disabled={busy === b.id}
-                      onClick={() => {
-                        setError(null);
-                        setReassignTo(b.assignedUser?.id ?? "none");
-                        setReassigning((r) => (r === b.id ? null : b.id));
-                      }}
-                    >
-                      Reasignar
-                    </Button>
+                  {b.type && <Badge variant="outline">{b.type.name}</Badge>}
+                  {b.kind === "block" ? (
+                    <Badge variant="secondary">Bloqueo</Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      {b.source === "ai" ? "Agendó la IA" : "Manual"}
+                    </Badge>
                   )}
+                  {b.isTest && <Badge variant="secondary">Prueba</Badge>}
+                  {b.linkPending && b.status !== "cancelada" && (
+                    <Badge variant="secondary">Sin enlace</Badge>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-sm text-text-3">
+                  {b.contact && <span>{b.contact.name}</span>}
                   {b.kind === "session" && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy === b.id}
-                        onClick={() =>
-                          act(b.id, { action: "status", status: "realizada" })
-                        }
-                      >
-                        Realizada
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy === b.id}
-                        onClick={() =>
-                          act(b.id, { action: "status", status: "no_show" })
-                        }
-                      >
-                        No asistió
-                      </Button>
-                    </>
+                    <span data-testid="booking-seller-name">
+                      {b.assignedUser?.name || "Sin asignar"}
+                    </span>
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy === b.id}
-                    onClick={() => act(b.id, { action: "cancel" })}
-                  >
-                    {b.kind === "block" ? "Quitar bloqueo" : "Cancelar"}
-                  </Button>
+                  {b.meetingLink && (
+                    <a
+                      href={b.meetingLink}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-brand-text hover:underline"
+                    >
+                      Enlace de la reunión
+                    </a>
+                  )}
+                  {b.notes && <span>{b.notes}</span>}
                 </div>
-              )}
 
-              {reassigning === b.id && owner && (
-                <div className="flex flex-wrap items-center gap-2 rounded-sm bg-subtle p-2">
-                  <label htmlFor={`reassign-${b.id}`} className="text-sm text-text-2">
-                    Vendedor
-                  </label>
-                  <select
-                    id={`reassign-${b.id}`}
-                    data-testid="booking-reassign-select"
-                    value={reassignTo}
-                    onChange={(e) => setReassignTo(e.target.value)}
-                    className="h-8 rounded-md border border-input bg-card px-2 text-sm"
-                  >
-                    {sellers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                    <option value="none">Sin asignar</option>
-                  </select>
-                  <Button
-                    size="sm"
-                    data-testid="booking-reassign-save"
-                    disabled={busy === b.id}
-                    onClick={() => void reassign(b)}
-                  >
-                    {busy === b.id ? "Guardando…" : "Guardar"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy === b.id}
-                    onClick={() => setReassigning(null)}
-                  >
-                    Cancelar
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
+                <BookingActions
+                  booking={b}
+                  owner={owner}
+                  sellers={sellers}
+                  busy={busy}
+                  businessTimezone={businessTimezone}
+                  handlers={handlers}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {ready && view !== "lista" && blockSection}
+
+      {detail && businessTimezone && view !== "lista" && (
+        <BookingDetailPanel
+          booking={detail}
+          overlap={overlaps[detail.id] ?? null}
+          owner={owner}
+          sellers={sellers}
+          busy={busy}
+          error={error}
+          businessTimezone={businessTimezone}
+          handlers={handlers}
+          covered={dialog !== null || moveConfirm !== null}
+          onClose={() => {
+            setDetailId(null);
+            setError(null);
+          }}
+        />
+      )}
+
+      {moveConfirm && (
+        <MoveOverlapDialog
+          message={moveConfirm.message}
+          conflicts={moveConfirm.conflicts}
+          timezone={businessTimezone}
+          saving={moving}
+          onConfirm={() =>
+            void sendMove(moveConfirm.booking, {
+              ...moveConfirm.body,
+              confirmOverlap: true,
+            })
+          }
+          onCancel={() => {
+            // Cancelar devuelve la cita a su lugar.
+            setMoveConfirm(null);
+            setOverride(null);
+          }}
+        />
+      )}
 
       {dialog && (
         <BookingDialog
@@ -568,6 +851,11 @@ export function BookingsClient() {
           types={types}
           sellers={owner ? sellers : undefined}
           timezone={businessTimezone}
+          defaultSellerId={dialog.mode === "create" ? dialog.sellerId : undefined}
+          initialDayIso={dialog.mode === "create" ? dialog.initialDayIso : undefined}
+          initialStartUtc={
+            dialog.mode === "create" ? dialog.initialStartUtc : undefined
+          }
           reschedule={
             dialog.mode === "reschedule"
               ? {
@@ -612,4 +900,12 @@ export function BookingsClient() {
       )}
     </div>
   );
+}
+
+/** `GET /api/bookings?…` + el rango visible del calendario. */
+function withRange(listQuery: string, range: DateRange): string {
+  const url = new URL(listQuery, "http://x");
+  url.searchParams.set("from", range.from);
+  url.searchParams.set("to", range.to);
+  return `${url.pathname}?${url.searchParams.toString()}`;
 }

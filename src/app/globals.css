@@ -68,6 +68,18 @@
     --overlay: rgba(0, 0, 0, 0.6);
     --knob: #ffffff;
 
+    /* 028 — Calendario de Citas. --cal-off: horas fuera del horario del
+       negocio (un paso más que --bg-subtle, que casi no se separa de --bg).
+       --cal-type-N: punto del TIPO de cita (hash estable del id); tonos
+       medios que evitan el verde, ámbar y rojo de los estados. */
+    --cal-off: #f1f2f4;
+    --cal-type-1: #4f7cc4;
+    --cal-type-2: #8a63c9;
+    --cal-type-3: #2b93b5;
+    --cal-type-4: #c25a9e;
+    --cal-type-5: #5f6ad1;
+    --cal-type-6: #8c7a6b;
+
     /* Radios y sombras */
     --radius-sm: 7px;
     --radius: 10px;
@@ -134,6 +146,16 @@
     --overlay: rgba(0, 0, 0, 0.72);
     --knob: #d9dae1;
 
+    /* 028 — Calendario: en oscuro lo no hábil va un paso MÁS oscuro que --bg
+       (--bg-subtle apenas se distingue); los tipos, más claros para leerse. */
+    --cal-off: #08090b;
+    --cal-type-1: #7fa3e0;
+    --cal-type-2: #b195e6;
+    --cal-type-3: #63bfd9;
+    --cal-type-4: #e08cc6;
+    --cal-type-5: #9aa2ef;
+    --cal-type-6: #b8a898;
+
     /* Sombras: sobre oscuro necesitan más negro para leerse */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 6px 20px -6px rgba(0, 0, 0, 0.55);
@@ -159,6 +181,32 @@
   }
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+}
+
+/*
+  028 — Calendario de Citas (adaptado de upstream 215 a nuestros tokens).
+  - .cal-off: horas fuera del horario del negocio en Semana y Día.
+  - .cal-rows: una línea por fila; el alto de la fila lo fija el componente
+    (--cal-row) para que líneas y citas no se desfasen.
+  - .booking-hatch: un bloqueo no es una cita: rayado neutro, legible en ambos
+    temas (sin `color-mix`: el rayado usa el borde fuerte del tema).
+*/
+@layer components {
+  .cal-off {
+    background-color: var(--cal-off);
+  }
+  .cal-rows {
+    background-image: linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 100% var(--cal-row, 24px);
+  }
+  .booking-hatch {
+    background-color: var(--bg-panel);
+    background-image: repeating-linear-gradient(
+      135deg,
+      var(--border-strong) 0 1px,
+      transparent 1px 7px
+    );
   }
 }
 
@@ -239,6 +287,14 @@
 
     --overlay: transparent;
     --knob: #ffffff;
+
+    --cal-off: #f1f2f4;
+    --cal-type-1: #4f7cc4;
+    --cal-type-2: #8a63c9;
+    --cal-type-3: #2b93b5;
+    --cal-type-4: #c25a9e;
+    --cal-type-5: #5f6ad1;
+    --cal-type-6: #8c7a6b;
 
     --shadow-sm: none;
     --shadow-md: none;

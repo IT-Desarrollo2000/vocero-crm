@@ -1,8 +1,15 @@
 import { z } from "zod";
-import { parseBody, requireOwner, withAuth } from "@/lib/api";
+import { apiError, parseBody, requireOwner, withAuth } from "@/lib/api";
 import { isOwner } from "@/lib/roles";
+import { parseRangeQuery, type DateRange } from "@/lib/time/calendar";
 import { agendaFirst } from "@/server/agenda/flag";
-import { listBookings } from "@/server/agenda/queries";
+import {
+  bookingOverlaps,
+  listBookings,
+  listBookingsInRange,
+  rangeBoundsUtc,
+  type BookingListFilters,
+} from "@/server/agenda/queries";
 import { getSettings } from "@/server/agenda/settings";
 import { createBlock, createSessionBooking } from "@/server/agenda/service";
 import {
@@ -23,24 +30,41 @@ export const dynamic = "force-dynamic";
  * `sellerId` (`none` = sin asignar) y `typeId`. Además viajan `types` (tipos
  * activos) y, solo para el Propietario, `sellers` (miembros `{id, name}`),
  * para que la pantalla no necesite otra llamada.
+ *
+ * 028 — Con `?from=AAAA-MM-DD&to=AAAA-MM-DD` (días del NEGOCIO, inclusivos,
+ * máximo 92) responde el calendario: TODAS las citas visibles que tocan el
+ * rango, en orden ascendente, más `range`, `truncated`, `hours` (lo mínimo del
+ * horario para pintar la rejilla; el Vendedor no lee los ajustes) y
+ * `overlaps` (`{[bookingId]: "soft"|"hard"}`, ver `overlaps.ts`). Un rango que
+ * no cuadra es 422 `invalid_range`. Sin rango, EXACTAMENTE lo de antes.
  */
 export const GET = agendaFirst(withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
   const sellerParam = url.searchParams.get("sellerId");
   const typeId = url.searchParams.get("typeId") || undefined;
   const owner = isOwner(session);
+  const filters = {
+    viewer: { userId: session.userId, role: session.role },
+    sellerId:
+      sellerParam === null || sellerParam === ""
+        ? undefined
+        : sellerParam === "none"
+          ? null
+          : sellerParam,
+    typeId,
+  };
+
+  const query = parseRangeQuery(
+    url.searchParams.get("from"),
+    url.searchParams.get("to")
+  );
+  if (!query.ok) return apiError(422, "invalid_range", query.message);
+  if (query.range) {
+    return rangeResponse(session.organizationId, query.range, filters, owner);
+  }
 
   const [bookings, settings, types, members] = await Promise.all([
-    listBookings(session.organizationId, {
-      viewer: { userId: session.userId, role: session.role },
-      sellerId:
-        sellerParam === null || sellerParam === ""
-          ? undefined
-          : sellerParam === "none"
-            ? null
-            : sellerParam,
-      typeId,
-    }),
+    listBookings(session.organizationId, filters),
     getSettings(session.organizationId),
     listTypes(session.organizationId),
     owner ? listMembers(session.organizationId) : Promise.resolve(null),
@@ -57,6 +81,46 @@ export const GET = agendaFirst(withAuth(async (session, req: Request) => {
       : {}),
   });
 }));
+
+/** 028 — La respuesta del calendario (con rango). */
+async function rangeResponse(
+  organizationId: string,
+  range: DateRange,
+  filters: BookingListFilters,
+  owner: boolean
+): Promise<Response> {
+  const settings = await getSettings(organizationId);
+  const [{ bookings, truncated }, types, members] = await Promise.all([
+    listBookingsInRange(organizationId, range, { ...filters, settings }),
+    listTypes(organizationId),
+    owner ? listMembers(organizationId) : Promise.resolve(null),
+  ]);
+  const overlaps = await bookingOverlaps(
+    organizationId,
+    rangeBoundsUtc(range, settings.timezone),
+    bookings.map((b) => b.id)
+  );
+  return Response.json({
+    bookings,
+    businessTimezone: settings.timezone,
+    types: types.map(appointmentTypeDto),
+    ...(members
+      ? { sellers: members.map((m) => ({ id: m.userId, name: m.name })) }
+      : {}),
+    range,
+    truncated,
+    // Solo estos cinco campos: los ajustes completos traen la dirección y la
+    // sala del negocio, que el Vendedor no necesita.
+    hours: {
+      weeklyHours: settings.weeklyHours,
+      slotMinutes: settings.slotMinutes,
+      bufferMinutes: settings.bufferMinutes,
+      minNoticeHours: settings.minNoticeHours,
+      timezone: settings.timezone,
+    },
+    overlaps,
+  });
+}
 
 const postSchema = z.discriminatedUnion("kind", [
   z.object({
