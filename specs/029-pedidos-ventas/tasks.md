@@ -3,22 +3,31 @@
 Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 
 ## T1. Respuestas rápidas del equipo
-- [ ] Migración 0028 + schema + defaults de `inbox-settings`.
-- [ ] Política pura + unit.
-- [ ] Store + rutas + `permissions.ts` + unit de rutas.
-- [ ] Ajustes: página visible al Vendedor, autor, interruptor del Propietario.
-- [ ] Compositor: diálogo, «+ Nueva» en `/`, «Guardar como respuesta rápida».
+- [x] Migración 0028 (`sellers_create_quick_replies`, re-ejecutable) + schema
+  + defaults de `inbox-settings`; `PUT /api/settings/inbox` parcial (no
+  pisa campos que no vienen; también `overdueMinutes`).
+- [x] Política pura `src/lib/quick-reply-policy.ts` + unit.
+- [x] Store + rutas (`forbidden` 403) + `permissions.ts` + `{ quickReplies, canCreate }`.
+- [x] Ajustes: página fuera de `(owner)` (misma URL), autor por fila,
+  interruptor del Propietario.
+- [x] Compositor: `QuickReplyDialog`, «+ Nueva» en `/`, «Guardar como respuesta rápida».
 
 ## T2. Cliente en la cita
-- [ ] `client-card.ts` + `GET /api/bookings/[id]/client` + permisos + unit.
-- [ ] `booking-client-card.tsx` en panel y Lista.
+- [x] `client-card.ts` + `GET /api/bookings/[id]/client` (`any*`) + unit (14).
+- [x] `booking-client-card.tsx` en el panel y en la Lista («Ver cliente»).
 
 ## T3. Botones del detalle de cita
-- [ ] Grupos, bordes, Cancelar rojo con confirmación.
+- [x] Grupos Resultado/Cambios, `outline`, «Cancelar cita» rojo con
+  confirmación de dos pasos. «Realizada» usa `default` = acento white-label.
 
 ## T4. Verificación
-- [ ] Gate técnico.
-- [ ] E2E CA-1..CA-7 + regresión.
-- [ ] Revisión Fable.
+- [x] Gate: typecheck, lint, 2325 unit, build.
+- [x] E2E en BD aislada: respuestas-rapidas 97/97, cita-cliente 61/61; regresión
+  roles 116, catalogo 125, agenda-calendario 125, agenda-presencial 197 + UI 64,
+  archivo 66 + UI 46, selftest 641 on / 411 off. Fixes: overlays de Citas con
+  `!mt-0` (franja de 24 px heredada de `space-y-6`, venía de 028), pie del
+  compositor, guion 025 sección e (hoy viernes).
+- [x] Revisión Fable de la implementación: sin bloqueantes; 3 no bloqueantes corregidos (3014095).
 
 ## T5. Despliegue (requiere OK del dueño)
+- [ ] FF sobre origin/main, push, deploy (migración 0028 al arrancar).
