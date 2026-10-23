@@ -347,7 +347,9 @@ try {
   ok("la Lista no pide clientes antes de abrir «Ver cliente»", clientCalls.length === 0, `peticiones=${clientCalls.length}`);
   const { card: cardA } = await openListCard(page, N.lucia);
   ok("«Ver cliente» muestra la tarjeta", await soft((ms) => cardA.waitFor({ timeout: ms })));
-  ok("…una sola petición", clientCalls.length === 1, `peticiones=${clientCalls.length}`);
+  // En `next dev` StrictMode monta el efecto dos veces (mismo URL); en
+  // producción es una. Lo que importa: solo se pide la cita abierta.
+  ok("…solo pide la cita abierta", new Set(clientCalls).size === 1 && clientCalls.length <= 2, `peticiones=${clientCalls.length} ${[...new Set(clientCalls)].join(",")}`);
   ok("…teléfono", ((await cardA.getByTestId("booking-client-phone").getAttribute("data-phone")) ?? "") !== "");
   ok("…canal WhatsApp", (await cardA.getByTestId("booking-client-channel").textContent())?.includes("WhatsApp"));
   ok("…fuente (Anuncio)", (await cardA.getByTestId("booking-client-source").count()) === 1);

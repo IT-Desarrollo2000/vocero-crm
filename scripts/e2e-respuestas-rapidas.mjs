@@ -551,7 +551,7 @@ async function switchOffChecks(conv) {
     await page.goto(`${BASE}/settings/quick-replies`, { waitUntil: "load", timeout: 90000 });
     const sw = page.getByRole("switch", { name: "Vendedores pueden crear respuestas rápidas" });
     ok("owner ve el interruptor, apagado", await until(async () => (await sw.getAttribute("aria-checked")) === "false", 20000));
-    ok("owner ve el autor de cada una", (await page.getByTestId("qr-author").filter({ hasText: SELLER_NAME }).count()) > 0);
+    ok("owner ve el autor de cada una", await until(async () => (await page.getByTestId("qr-author").filter({ hasText: SELLER_NAME }).count()) > 0, 20000));
     ok("owner: formulario de alta y nunca el aviso de solo lectura", (await page.getByRole("button", { name: "Crear respuesta" }).count()) > 0 && (await page.getByTestId("qr-readonly").count()) === 0);
     // Encenderlo desde la UI (el finally lo deja encendido igualmente).
     await sw.click();
