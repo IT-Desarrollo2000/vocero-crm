@@ -112,13 +112,18 @@ const baseProfile = {
 };
 const withFields = { ...baseProfile, fichaFields: [...FICHA_TEMPLATE_AUTOS_ELECTRICOS] };
 
-async function turn(profile: object, data: unknown) {
+async function turn(
+  profile: object,
+  data: unknown,
+  // 030 — Historial a simular (por defecto, un entrante).
+  rows: unknown[] = [
+    { direction: "in", text: "me interesa el T03, soy de Villahermosa" },
+  ]
+) {
   const { chatJson } = await import("@/lib/ai");
   vi.mocked(chatJson).mockResolvedValueOnce({ ok: true, data, raw: "{}" });
   selectQueue.push([conversation], [profile], [], []);
-  loadHistoryRows.mockResolvedValueOnce([
-    { direction: "in", text: "me interesa el T03, soy de Villahermosa" },
-  ]);
+  loadHistoryRows.mockResolvedValueOnce(rows);
   const { runAgentTurn } = await import("@/server/ai/pipeline");
   await runAgentTurn("cv_lab");
   return vi.mocked(chatJson).mock.calls.at(-1)?.[1] ?? [];
@@ -199,5 +204,49 @@ describe("turno del agente con ficha", () => {
     expect(system).toContain("monto total que dice poder pagar");
     expect(system).toContain("confirmado por el equipo");
     expect(system).not.toContain("- interno (");
+  });
+});
+
+describe("030 — turno con historial que termina en saliente", () => {
+  beforeEach(() => {
+    selectQueue.length = 0;
+    updates.length = 0;
+    timeline.length = 0;
+    upsertFicha.mockReset();
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    vi.stubEnv("OPENROUTER_MODEL", "modelo-test");
+  });
+
+  it("el último mensaje enviado al modelo es el aviso del sistema (rol user)", async () => {
+    const { ENDS_WITH_OUTBOUND_NOTICE } = await import("@/server/ai/history");
+    const messages = await turn(baseProfile, { action: "none" }, [
+      { direction: "in", text: "hola" },
+      { direction: "in", text: "¿tienen el T03?" },
+      { direction: "out", text: "¡Hola! Sí, cuéntame.", aiGenerated: true },
+    ]);
+    expect(messages.at(-1)).toEqual({ role: "user", content: ENDS_WITH_OUTBOUND_NOTICE });
+    expect(messages.at(-2)?.role).toBe("assistant");
+    // `none` no escribe nada al cliente.
+    expect(timeline).toEqual([]);
+  });
+
+  it("el historial que ya termina en el cliente no lleva aviso", async () => {
+    const { ENDS_WITH_OUTBOUND_NOTICE } = await import("@/server/ai/history");
+    const messages = await turn(baseProfile, { action: "reply", text: "ok" });
+    expect(messages.at(-1)?.role).toBe("user");
+    expect(messages.some((m) => m.content === ENDS_WITH_OUTBOUND_NOTICE)).toBe(false);
+  });
+
+  it("el regex de handoff sigue corriendo sobre el último ENTRANTE (no sobre el aviso)", async () => {
+    const { chatJson } = await import("@/lib/ai");
+    vi.mocked(chatJson).mockClear();
+    await turn(baseProfile, { action: "none" }, [
+      { direction: "in", text: "quiero hablar con un asesor" },
+      { direction: "out", text: "Claro, un momento.", aiGenerated: true },
+    ]);
+    expect(chatJson).not.toHaveBeenCalled();
+    expect(updates.some((u) => u.handoffReason === "cliente")).toBe(true);
+    // El valor encolado para este turno no se consumió: no contamina al siguiente.
+    vi.mocked(chatJson).mockReset();
   });
 });

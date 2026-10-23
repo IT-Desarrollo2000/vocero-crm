@@ -17,6 +17,9 @@ type Ev =
 
 const events: Ev[] = [];
 const caseRows: unknown[] = [];
+/** 030 — Estado de la conversación tras cada turno (por defecto, sin pase). */
+const NO_HANDOFF = [{ handoffAt: null, handoffReason: null, handoffNote: null }];
+let convRows: unknown[] = NO_HANDOFF;
 
 const runAgentTurn = vi.fn<(id: string) => Promise<void>>();
 const judgeCase = vi.fn();
@@ -89,7 +92,7 @@ vi.mock("@/lib/db", () => ({
           table.__name === "agentTestCase"
             ? caseRows
             : table.__name === "conversation"
-              ? [{ handoffAt: null }]
+              ? convRows
               : []
         ),
     }),
@@ -142,6 +145,7 @@ describe("timeout del Laboratorio", () => {
     events.length = 0;
     caseRows.length = 0;
     totals.length = 0;
+    convRows = NO_HANDOFF;
     ensureSeedPersonas.mockReset();
     ensureSeedPersonas.mockImplementation(async () => {
       events.push({ kind: "seed" });
@@ -264,6 +268,24 @@ describe("timeout del Laboratorio", () => {
     expect(events.some(isRunFailed)).toBe(false);
   });
 
+  it("030 — pase a asesor: corta el guion y el juez recibe motivo y nota", async () => {
+    vi.stubEnv("LAB_RUN_TIMEOUT_MS", "1000");
+    runAgentTurn.mockResolvedValue(undefined);
+    convRows = [
+      { handoffAt: new Date(), handoffReason: "cliente", handoffNote: "pidió humano" },
+    ];
+
+    const { startRun } = await import("@/server/lab/runner");
+    await startRun("org_1");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(runAgentTurn).toHaveBeenCalledTimes(2); // 1 por persona: corta al pase
+    expect(judgeCase.mock.calls[0]![0]).toMatchObject({
+      personaKey: "p1",
+      handoff: { reason: "cliente", note: "pidió humano" },
+    });
+  });
+
   it("08 — siembra antes del run; snapshot y claves en el INSERT; un caso por persona con su snapshot", async () => {
     vi.stubEnv("LAB_RUN_TIMEOUT_MS", "1000");
     vi.stubEnv("OPENROUTER_MODEL", "modelo/agente");
@@ -298,6 +320,8 @@ describe("timeout del Laboratorio", () => {
     expect(judgeCase.mock.calls[0]![0]).toMatchObject({
       personaKey: "p1",
       persona: { name: "P1", objetivo: "" },
+      // 030 — Sin pase a asesor en la conversación → el juez recibe null.
+      handoff: null,
     });
     expect(totals.at(-1)).toEqual({ status: "done", total: 2 });
 

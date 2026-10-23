@@ -101,6 +101,14 @@ OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
 OPENROUTER_JUDGE_MODEL=anthropic/claude-haiku-4.5   # opcional: juez más barato
 ```
 
+Producción (030) usa la API directa de Anthropic por su endpoint compatible:
+`OPENROUTER_BASE_URL=https://api.anthropic.com` (sin `/v1`),
+`OPENROUTER_MODEL=claude-haiku-5-5`, `OPENROUTER_JUDGE_MODEL=claude-sonnet-5-5`.
+`OPENROUTER_EXTRA_BODY` / `OPENROUTER_JUDGE_EXTRA_BODY` (JSON) agregan
+parámetros por rol; con Haiku NO se apaga el razonamiento (empeora el JSON) y
+a Sonnet 5.5 no se le puede mandar `thinking: disabled` (400). Ver
+[specs/030-ia-haiku/spec.md](specs/030-ia-haiku/spec.md).
+
 Para el self-test local existe además el modo de pruebas interno (mocks) —
 ver `specs/001-vocero-core/quickstart.md`. Nunca actives mocks en producción.
 

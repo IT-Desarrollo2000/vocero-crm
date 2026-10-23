@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
 
 import {
+  ENDS_WITH_OUTBOUND_NOTICE,
+  ensureEndsWithUser,
   inboundMarker,
   lastShownSlots,
   outboundAuthor,
@@ -227,5 +229,35 @@ describe("025 (A6) — salientes del motor de agenda como su ACCIÓN", () => {
     ]);
     expect(lastShownSlots([offer, booked])).toEqual([]);
     expect(lastShownSlots([{ direction: "in", text: "hola" }])).toEqual([]);
+  });
+});
+
+describe("030 — historial que termina en saliente", () => {
+  it("[in, in, out] → cierra con el aviso del sistema como `user`", () => {
+    const { messages, lastInboundText } = toChatHistory([
+      { direction: "in", text: "hola" },
+      { direction: "in", text: "¿y el precio?" },
+      { direction: "out", text: "¡Hola! ¿En qué te ayudo?", aiGenerated: true },
+    ]);
+    const out = ensureEndsWithUser(messages);
+    expect(out).toHaveLength(4);
+    expect(out.slice(0, 3)).toEqual(messages);
+    expect(out.at(-1)).toEqual({ role: "user", content: ENDS_WITH_OUTBOUND_NOTICE });
+    // El regex de handoff sigue viendo lo último que dijo el cliente.
+    expect(lastInboundText).toBe("¿y el precio?");
+  });
+
+  it("el aviso dice que NO es del cliente y nombra la acción none", () => {
+    expect(ENDS_WITH_OUTBOUND_NOTICE).toMatch(/^\[Aviso del sistema — no lo escribió el cliente\]/);
+    expect(ENDS_WITH_OUTBOUND_NOTICE).toContain('{"action":"none"}');
+    // Sin palabras que el ai-mock / el regex lean como "quiero un humano".
+    expect(ENDS_WITH_OUTBOUND_NOTICE).not.toMatch(/asesor|humano/i);
+  });
+
+  it("[in] y [] → sin cambios (misma referencia)", () => {
+    const one = toChatHistory([{ direction: "in", text: "hola" }]).messages;
+    expect(ensureEndsWithUser(one)).toBe(one);
+    const empty: ReturnType<typeof toChatHistory>["messages"] = [];
+    expect(ensureEndsWithUser(empty)).toBe(empty);
   });
 });

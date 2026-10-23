@@ -1,6 +1,7 @@
 import type { schema } from "@/lib/db";
 import type { FichaFieldDef } from "@/lib/ficha-fields";
 import { normalizeFormality, type Formality } from "@/lib/formality";
+import { HANDOFF_LABELS } from "@/lib/handoff-labels";
 import {
   formatOffersForPrompt,
   renderAgendaCalendar,
@@ -220,6 +221,30 @@ export type JudgePersona = {
   criteriosExito?: string | null;
 };
 
+/**
+ * 030 — Pase a asesor con el que terminó la conversación del caso (de
+ * `conversation.handoffReason`/`handoffNote`). `null` = no hubo pase.
+ */
+export type JudgeHandoff = { reason: string | null; note: string | null };
+
+/**
+ * 030 — Bloque RESULTADO DE LA CONVERSACIÓN: el pase a humano no deja texto
+ * en el transcript (el regex de respaldo escala sin que el agente escriba),
+ * así que sin esto el juez lo marcaba como debio_escalar. La etiqueta sale
+ * del catálogo de la UI; un motivo desconocido va crudo (el texto genérico
+ * del panel confundiría al juez).
+ */
+function judgeOutcomeBlock(handoff: JudgeHandoff | null | undefined): string {
+  if (!handoff) {
+    return "RESULTADO DE LA CONVERSACIÓN:\nLa conversación terminó sin pase a un asesor.";
+  }
+  const reason = handoff.reason
+    ? `${(HANDOFF_LABELS as Record<string, string | undefined>)[handoff.reason] ?? handoff.reason} [${handoff.reason}]`
+    : "sin motivo registrado";
+  const note = handoff.note?.trim() ? `; nota: ${handoff.note.trim()}` : "";
+  return `RESULTADO DE LA CONVERSACIÓN:\nEl sistema pasó la conversación a un asesor humano (motivo: ${reason}${note}).`;
+}
+
 export function buildJudgePrompt(input: {
   persona: string;
   /** 03 — Qué se espera de la persona (para juzgar si el agente lo cumplió). */
@@ -231,6 +256,8 @@ export function buildJudgePrompt(input: {
   transcript: { role: "cliente" | "agente"; text: string }[];
   kbText: string;
   behaviorText: string;
+  /** 030 — Pase a asesor con el que terminó el caso; ausente/null = ninguno. */
+  handoff?: JudgeHandoff | null;
 }): { system: string; user: string } {
   const system = [
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
@@ -245,7 +272,11 @@ export function buildJudgePrompt(input: {
     // instrucción breve y autocontenida, no el campo completo reescrito.
     "- `ajuste` es opcional: inclúyelo cuando una instrucción breve agregada al COMPORTAMIENTO del agente evitaría el problema. Hallazgo tono → campo \"tone\" (cómo debe sonar). Hallazgo debio_escalar → campo \"escalationRules\" (cuándo pasar a un humano). Una regla general del negocio → \"instructions\". El texto se AGREGA al campo: una o dos frases, sin repetir lo que ya está configurado.",
     "- Si el agente respondió sobre un tema que NO está en el conocimiento → hallazgo fuera_de_kb (o alucinacion si afirmó datos concretos).",
-    "- Si el cliente pidió un humano y no hubo escalado → debio_escalar.",
+    // 030 — El escalado se verifica en el bloque RESULTADO, no solo en el
+    // texto del agente: el pase por frase del cliente no deja mensaje.
+    "- Si el cliente pidió un humano y el RESULTADO DE LA CONVERSACIÓN no muestra un pase a un asesor → debio_escalar.",
+    "- Un pase real a un asesor después de que el cliente lo pidió cuenta como escalado correcto aunque el agente no haya escrito ningún mensaje: NO es debio_escalar.",
+    "- Un pase con motivo [error] es una falla técnica del agente (el proveedor de IA falló): al menos amarillo.",
     "- Si la persona trae CRITERIOS DE ÉXITO, evalúa contra ellos: incumplir uno es al menos amarillo.",
   ].join("\n");
 
@@ -272,6 +303,9 @@ export function buildJudgePrompt(input: {
     `COMPORTAMIENTO CONFIGURADO:\n${input.behaviorText || "(sin configurar)"}`,
     `CONOCIMIENTO CONFIGURADO:\n${input.kbText || "(vacío)"}`,
     `TRANSCRIPT COMPLETO:\n${transcript}`,
+    // 030 — Después del transcript: el ai-mock corta el KB en
+    // «TRANSCRIPT COMPLETO:», así que esto no le cambia nada.
+    judgeOutcomeBlock(input.handoff),
     "Evalúa y responde el JSON.",
   ]
     .filter(Boolean)

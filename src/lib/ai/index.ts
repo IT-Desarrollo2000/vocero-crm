@@ -47,6 +47,14 @@ export async function chatJson<T>(
       detail: "Sin OPENROUTER_MODEL configurado",
     };
   }
+  // 030 — Cuerpo extra por ROL (no por el modelo resuelto): el juez con
+  // modelo propio usa el suyo (o ninguno); sin modelo propio corre en el del
+  // agente y hereda su extra.
+  const extra = opts?.judge
+    ? env.OPENROUTER_JUDGE_MODEL
+      ? env.OPENROUTER_JUDGE_EXTRA_BODY
+      : env.OPENROUTER_EXTRA_BODY
+    : env.OPENROUTER_EXTRA_BODY;
 
   let lastDetail = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -62,7 +70,12 @@ export async function chatJson<T>(
             },
           ];
     try {
-      const raw = await callProvider(model, attemptMessages, opts?.timeoutMs);
+      const raw = await callProvider(
+        model,
+        attemptMessages,
+        extra,
+        opts?.timeoutMs
+      );
       const extracted = extractJson(raw);
       if (extracted === null) {
         lastDetail = `sin JSON extraíble (raw=${truncate(raw)})`;
@@ -96,6 +109,7 @@ export async function chatJson<T>(
 async function callProvider(
   model: string,
   messages: ChatMessage[],
+  extra: Record<string, unknown> | undefined,
   timeoutMs = 60_000
 ): Promise<string> {
   const env = getEnv();
@@ -109,7 +123,9 @@ async function callProvider(
         Authorization: `Bearer ${env.OPENROUTER_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, messages }),
+      // 030 — `model` y `messages` van al final: el extra nunca los pisa
+      // (env.ts además los rechaza). Sin extra, el cuerpo es el de siempre.
+      body: JSON.stringify({ ...extra, model, messages }),
       signal: controller.signal,
     });
     if (!res.ok) {

@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
 import { LAB_AJUSTE_CAMPOS, LAB_HALLAZGO_TIPOS } from "@/lib/lab";
-import { buildJudgePrompt, type JudgePersona } from "@/server/ai/prompts";
+import {
+  buildJudgePrompt,
+  type JudgeHandoff,
+  type JudgePersona,
+} from "@/server/ai/prompts";
 
 /**
  * Normaliza un token de enum que el modelo escribió "casi bien":
@@ -87,6 +91,8 @@ export async function judgeCase(input: {
   transcript: { role: "cliente" | "agente"; text: string }[];
   kbText: string;
   behaviorText: string;
+  /** 030 — Pase a asesor con el que terminó el caso (null = ninguno). */
+  handoff?: JudgeHandoff | null;
 }): Promise<JudgeOutcome> {
   const { system, user } = buildJudgePrompt({
     persona: input.personaKey,
@@ -96,6 +102,7 @@ export async function judgeCase(input: {
     transcript: input.transcript,
     kbText: input.kbText,
     behaviorText: input.behaviorText,
+    handoff: input.handoff,
   });
   const result = await chatJson(
     Verdict,

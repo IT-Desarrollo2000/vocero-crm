@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractJson } from "@/lib/ai";
-import { buildJudgePrompt } from "@/server/ai/prompts";
+import { buildJudgePrompt, JUDGE_MARKER } from "@/server/ai/prompts";
 import { Verdict } from "@/server/lab/judge";
 
 /**
@@ -209,5 +209,69 @@ describe("buildJudgePrompt — opcionales se omiten", () => {
     expect(user).toContain("PERSONA SIMULADA: comprador_decidido — Sabe lo que quiere");
     expect(user).toContain("CONOCIMIENTO CONFIGURADO:");
     expect(user).toContain("TRANSCRIPT COMPLETO:");
+  });
+});
+
+describe("030 — buildJudgePrompt con el RESULTADO de la conversación", () => {
+  const base = {
+    persona: "pide_humano",
+    personaDescription: "Pide una persona",
+    transcript: [{ role: "cliente" as const, text: "quiero hablar con un humano" }],
+    kbText: "kb",
+    behaviorText: "b",
+  };
+
+  function blockOf(user: string): string {
+    return user.split("TRANSCRIPT COMPLETO:")[1] ?? "";
+  }
+
+  it("pase pedido por el cliente: motivo legible + clave, DESPUÉS del transcript", () => {
+    const { system, user } = buildJudgePrompt({
+      ...base,
+      handoff: { reason: "cliente", note: null },
+    });
+    expect(blockOf(user)).toContain(
+      "RESULTADO DE LA CONVERSACIÓN:\nEl sistema pasó la conversación a un asesor humano (motivo: El cliente pidió un humano [cliente])."
+    );
+    expect(user.indexOf("RESULTADO DE LA CONVERSACIÓN:")).toBeGreaterThan(
+      user.indexOf("TRANSCRIPT COMPLETO:")
+    );
+    expect(user.trimEnd().endsWith("Evalúa y responde el JSON.")).toBe(true);
+    // Lo que lee el ai-mock queda igual.
+    expect(user.split("\n")[0]).toBe("PERSONA SIMULADA: pide_humano — Pide una persona");
+    expect(system.startsWith(JUDGE_MARKER)).toBe(true);
+    // Reglas nuevas en el system.
+    expect(system).toContain("RESULTADO DE LA CONVERSACIÓN no muestra un pase a un asesor → debio_escalar");
+    expect(system).toContain("aunque el agente no haya escrito ningún mensaje: NO es debio_escalar");
+    expect(system).toContain("motivo [error] es una falla técnica del agente");
+  });
+
+  it("pase por error con nota: la nota viaja y el motivo es [error]", () => {
+    const { user } = buildJudgePrompt({
+      ...base,
+      handoff: { reason: "error", note: "  el proveedor no respondió  " },
+    });
+    expect(blockOf(user)).toContain(
+      "(motivo: Error del proveedor de IA [error]; nota: el proveedor no respondió)."
+    );
+  });
+
+  it("motivo desconocido o ausente → crudo / «sin motivo registrado», nunca el texto del panel", () => {
+    expect(
+      buildJudgePrompt({ ...base, handoff: { reason: "otro", note: "" } }).user
+    ).toContain("(motivo: otro [otro]).");
+    const none = buildJudgePrompt({ ...base, handoff: { reason: null, note: null } }).user;
+    expect(none).toContain("(motivo: sin motivo registrado).");
+    expect(none).not.toContain("La IA está en pausa");
+  });
+
+  it("sin handoff (null o ausente) → la línea explícita de que no hubo pase", () => {
+    for (const handoff of [null, undefined]) {
+      const { user } = buildJudgePrompt({ ...base, handoff });
+      expect(blockOf(user)).toContain(
+        "RESULTADO DE LA CONVERSACIÓN:\nLa conversación terminó sin pase a un asesor."
+      );
+      expect(user).not.toContain("El sistema pasó la conversación");
+    }
   });
 });

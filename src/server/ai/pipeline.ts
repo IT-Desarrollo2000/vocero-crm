@@ -25,6 +25,7 @@ import {
 import { upsertFicha } from "@/server/bot/ficha";
 import type { FichaFieldDef } from "@/lib/ficha-fields";
 import {
+  ensureEndsWithUser,
   lastShownSlots,
   loadHistoryRows,
   toChatHistory,
@@ -239,7 +240,8 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     // Los turnos previos van en el MISMO formato JSON que se le exige (con
     // texto plano, MiniMax imita su historial y deja de responder JSON desde
     // el segundo turno); los del equipo, marcados con "autor" (history.ts).
-    ...chatHistory,
+    // 030 — Si termina en saliente, cierra con el aviso del sistema.
+    ...ensureEndsWithUser(chatHistory),
   ];
 
   const result = await chatJson(agentActionSchema(agenda), messages);

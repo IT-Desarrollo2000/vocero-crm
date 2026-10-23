@@ -8,6 +8,49 @@ import { z } from "zod";
  * que en esa fase se aceptan placeholders — los valores reales llegan al boot.
  */
 
+/** 030 — Claves que el cuerpo extra jamás puede pisar (las pone el adaptador). */
+const RESERVED_BODY_KEYS = ["model", "messages"] as const;
+
+/**
+ * 030 — Variable opcional con un objeto JSON plano (no array, no null) para
+ * mezclar en el cuerpo de la llamada al proveedor. JSON inválido, otra forma
+ * o una clave reservada → error de arranque como el resto del entorno.
+ */
+function extraBody(name: string) {
+  return z
+    .string()
+    .optional()
+    .transform((raw, ctx): Record<string, unknown> | undefined => {
+      if (raw === undefined) return undefined;
+      let value: unknown;
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${name} debe ser JSON válido (ej.: {"thinking":{"type":"disabled"}})`,
+        });
+        return z.NEVER;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${name} debe ser un objeto JSON (no array, null ni valor suelto)`,
+        });
+        return z.NEVER;
+      }
+      const reserved = RESERVED_BODY_KEYS.filter((k) => k in value);
+      if (reserved.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${name} no puede incluir ${reserved.join(" ni ")}: los pone el adaptador`,
+        });
+        return z.NEVER;
+      }
+      return value as Record<string, unknown>;
+    });
+}
+
 const envSchema = z.object({
   APP_BASE_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
@@ -32,6 +75,12 @@ const envSchema = z.object({
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api"),
   OPENROUTER_MODEL: z.string().optional(),
   OPENROUTER_JUDGE_MODEL: z.string().optional(),
+  // 030 — Cuerpo extra (objeto JSON) que se mezcla en cada llamada al
+  // proveedor, uno por rol: el agente y el juez pueden ir a modelos que
+  // aceptan parámetros distintos (Haiku 5.5 acepta `thinking` disabled;
+  // Sonnet 5.5 responde 400). Ej.: {"thinking":{"type":"disabled"}}
+  OPENROUTER_EXTRA_BODY: extraBody("OPENROUTER_EXTRA_BODY"),
+  OPENROUTER_JUDGE_EXTRA_BODY: extraBody("OPENROUTER_JUDGE_EXTRA_BODY"),
   // 014: canales encendidos, separados por coma. WhatsApp siempre esta on.
   // Ej.: CHANNELS=whatsapp,instagram. Sin ella, la instancia es solo WhatsApp
   // y las superficies de los demas canales responden 404.

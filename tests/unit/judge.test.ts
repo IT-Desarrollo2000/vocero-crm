@@ -28,6 +28,25 @@ describe("judgeCase (FR-032)", () => {
     expect(chatJson.mock.calls[0]![2]).toMatchObject({ judge: true });
   });
 
+  it("030 — reenvía el pase a humano al prompt del juez", async () => {
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { veredicto: "verde", hallazgos: [] },
+      raw: "{}",
+    });
+    await judgeCase({
+      personaKey: "pide_humano",
+      transcript: [{ role: "cliente", text: "quiero hablar con un humano" }],
+      kbText: "kb",
+      behaviorText: "b",
+      handoff: { reason: "cliente", note: null },
+    });
+    const messages = chatJson.mock.calls[0]![1] as { role: string; content: string }[];
+    expect(messages[1]!.content).toContain(
+      "El sistema pasó la conversación a un asesor humano (motivo: El cliente pidió un humano [cliente])."
+    );
+  });
+
   it("salida inválida tras reintentos internos → judge_failed (no lanza)", async () => {
     chatJson.mockResolvedValue({
       ok: false,
