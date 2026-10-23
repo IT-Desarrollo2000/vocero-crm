@@ -30,4 +30,4 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 - [x] Revisión Fable de la implementación: sin bloqueantes; 3 no bloqueantes corregidos (3014095).
 
 ## T5. Despliegue (requiere OK del dueño)
-- [ ] FF sobre origin/main, push, deploy (migración 0028 al arrancar).
+- [x] FF a main 9de653e, push y deploy swwo5sfewhqsnn0pxaqiuo9g (23-oct, ~4m24s, running:healthy, migración 0028 aplicada, smoke 401 en rutas nuevas). Reversa = redeploy de 10005ae.
