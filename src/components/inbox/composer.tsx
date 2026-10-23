@@ -18,10 +18,12 @@ import { formatBytes, formatRemaining } from "./helpers";
 import { TemplateSender } from "./template-sender";
 import { useQuickReplies } from "./use-quick-replies";
 import {
+  QUICK_REPLY_CREATE_OPTION_ID,
   QUICK_REPLY_LISTBOX_ID,
   QuickReplyPicker,
   quickReplyOptionId,
 } from "./quick-reply-picker";
+import { QuickReplyDialog } from "./quick-reply-dialog";
 import {
   matchQuickReplies,
   renderQuickReply,
@@ -138,21 +140,35 @@ export function Composer({
   // 09 — Respuestas rápidas: `/atajo` al inicio o tras un espacio abre el
   // selector; Esc lo cierra hasta que se escriba otra `/`.
   const viewer = useViewer();
-  const { quickReplies: allQuickReplies, reload: reloadQuickReplies } = useQuickReplies();
+  const {
+    quickReplies: allQuickReplies,
+    canCreate: canCreateQuickReply,
+    reload: reloadQuickReplies,
+  } = useQuickReplies();
   // 019: sin las ligadas a un producto inactivo ni las que no aportan nada.
   const quickReplies = visibleQuickReplies(allQuickReplies);
   const [caret, setCaret] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  // 029: diálogo «Nueva respuesta rápida» (desde `/` o «Guardar como…»).
+  const [quickReplyDraft, setQuickReplyDraft] = useState<{
+    shortcut: string;
+    body: string;
+  } | null>(null);
   const slash = slashQuery(text, caret);
   // El GET ya viene por `position`; el selector muestra las primeras.
   const matches = slash
     ? matchQuickReplies(quickReplies, slash.query).slice(0, QUICK_REPLY_PICKER_MAX)
     : [];
+  // 029: con permiso de crear, al final va «+ Nueva respuesta rápida» (y el
+  // selector se abre aunque nada coincida). Sin coincidencias el teclado no
+  // se secuestra: Enter envía como siempre; la opción se elige con el ratón.
+  const optionCount = matches.length + (canCreateQuickReply ? 1 : 0);
   const pickerOpen =
-    slash !== null && matches.length > 0 && dismissedAt !== slash.start;
-  const active = Math.min(activeIndex, Math.max(matches.length - 1, 0));
+    slash !== null && optionCount > 0 && dismissedAt !== slash.start;
+  const active = Math.min(activeIndex, Math.max(optionCount - 1, 0));
   const activeReply = pickerOpen ? matches[active] : undefined;
+  const createActive = pickerOpen && canCreateQuickReply && active === matches.length;
 
   /** Texto de la respuesta con las variables ya resueltas para ESTE contacto. */
   function renderFor(reply: QuickReplyDto): string {
@@ -223,6 +239,23 @@ export function Composer({
       el.setSelectionRange(next.caret, next.caret);
       autogrow();
     }, 0);
+  }
+
+  /**
+   * 029 — Abre «Nueva respuesta rápida». Desde `/atajo` propone ese atajo y
+   * cierra el selector; desde «Guardar como…» prellena el texto. Lo escrito
+   * en el compositor no se toca.
+   */
+  function openQuickReplyDialog(draft: { shortcut: string; body: string }) {
+    if (slash) setDismissedAt(slash.start);
+    setQuickReplyDraft(draft);
+  }
+
+  function quickReplyCreated(reply: QuickReplyDto) {
+    setQuickReplyDraft(null);
+    setSummary(`Respuesta rápida /${reply.shortcut} creada para todo el equipo`);
+    void reloadQuickReplies();
+    setTimeout(() => taRef.current?.focus(), 0);
   }
 
   /** Sigue el cursor: el selector depende de la palabra donde está. */
@@ -766,6 +799,11 @@ export function Composer({
             activeIndex={active}
             onHover={setActiveIndex}
             onPick={pickQuickReply}
+            onCreate={
+              canCreateQuickReply
+                ? () => openQuickReplyDialog({ shortcut: slash?.query ?? "", body: "" })
+                : undefined
+            }
           />
         )}
         <input
@@ -853,7 +891,11 @@ export function Composer({
           aria-autocomplete="list"
           aria-controls={pickerOpen ? QUICK_REPLY_LISTBOX_ID : undefined}
           aria-activedescendant={
-            activeReply ? quickReplyOptionId(activeReply.id) : undefined
+            activeReply
+              ? quickReplyOptionId(activeReply.id)
+              : createActive
+                ? QUICK_REPLY_CREATE_OPTION_ID
+                : undefined
           }
           onChange={(e) => {
             trackCaret(e.target.value, e.target.selectionStart);
@@ -868,15 +910,20 @@ export function Composer({
             // Con el selector abierto, las flechas, Enter/Tab y Esc son suyos:
             // Enter INSERTA la respuesta, no envía (RF-09-23).
             if (pickerOpen && slash) {
-              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              // 029: sin coincidencias (solo «+ Nueva…») no se secuestran
+              // flechas ni Enter.
+              if (matches.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
                 e.preventDefault();
                 const step = e.key === "ArrowDown" ? 1 : -1;
-                setActiveIndex((active + step + matches.length) % matches.length);
+                setActiveIndex((active + step + optionCount) % optionCount);
                 return;
               }
-              if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+              if (matches.length > 0 && ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab")) {
                 e.preventDefault();
                 if (activeReply) pickQuickReply(activeReply);
+                else if (createActive) {
+                  openQuickReplyDialog({ shortcut: slash.query, body: "" });
+                }
                 return;
               }
               if (e.key === "Escape") {
@@ -917,6 +964,17 @@ export function Composer({
               {summary}
             </p>
           )}
+          {/* 029: lo escrito se vuelve respuesta rápida del equipo. */}
+          {canCreateQuickReply && text.trim().length > 0 && !file && (
+            <button
+              type="button"
+              data-testid="save-as-quick-reply"
+              onClick={() => openQuickReplyDialog({ shortcut: "", body: text.trim() })}
+              className="text-xs font-medium text-brand-text hover:underline"
+            >
+              Guardar como respuesta rápida
+            </button>
+          )}
         </div>
         <p className="text-[11px] text-text-3">
           {conversation.replyMode === "human_agent"
@@ -938,6 +996,17 @@ export function Composer({
           }}
           onInsertDetails={insertDetails}
           onClose={closeCatalog}
+        />
+      )}
+      {quickReplyDraft && (
+        <QuickReplyDialog
+          initialShortcut={quickReplyDraft.shortcut}
+          initialBody={quickReplyDraft.body}
+          onClose={() => {
+            setQuickReplyDraft(null);
+            setTimeout(() => taRef.current?.focus(), 0);
+          }}
+          onCreated={quickReplyCreated}
         />
       )}
     </div>

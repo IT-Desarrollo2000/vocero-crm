@@ -27,6 +27,11 @@ export type InboxSettingsDto = {
    * atender" sale atrasado (rojo). 5–1440, por defecto 60.
    */
   overdueMinutes: number;
+  /**
+   * 029: los Vendedores pueden crear respuestas rápidas (y editar/borrar las
+   * suyas). Encendido por defecto.
+   */
+  sellersCreateQuickReplies: boolean;
 };
 
 /** Sin fila en `inbox_settings` = esto. */
@@ -34,6 +39,7 @@ export const DEFAULT_INBOX_SETTINGS: InboxSettingsDto = {
   autoArchiveEnabled: false,
   autoArchiveDays: AUTO_ARCHIVE_DEFAULT_DAYS,
   overdueMinutes: OVERDUE_DEFAULT_MINUTES,
+  sellersCreateQuickReplies: true,
 };
 
 const daysSchema = z
@@ -42,19 +48,30 @@ const daysSchema = z
   .min(AUTO_ARCHIVE_MIN_DAYS)
   .max(AUTO_ARCHIVE_MAX_DAYS);
 
-/** Body de `PUT /api/settings/inbox`. */
-export const inboxSettingsSchema = z.object({
-  autoArchiveEnabled: z.boolean(),
-  autoArchiveDays: daysSchema,
-  // 026: con default para clientes viejos (una pestaña abierta antes del
-  // despliegue): sin el campo, el umbral vuelve a 60.
-  overdueMinutes: z
-    .number()
-    .int()
-    .min(OVERDUE_MIN_MINUTES)
-    .max(OVERDUE_MAX_MINUTES)
-    .default(OVERDUE_DEFAULT_MINUTES),
-});
+/**
+ * Body de `PUT /api/settings/inbox`. Parcial (029): cada pestaña manda solo
+ * lo suyo (Bandeja: archivo + umbral; Respuestas rápidas: el interruptor) y
+ * lo que no viene se conserva tal cual está guardado. Al menos un campo.
+ */
+export const inboxSettingsSchema = z
+  .object({
+    autoArchiveEnabled: z.boolean().optional(),
+    autoArchiveDays: daysSchema.optional(),
+    // 026: umbral de "atrasada". 029: sin el campo se conserva (antes volvía a 60).
+    overdueMinutes: z
+      .number()
+      .int()
+      .min(OVERDUE_MIN_MINUTES)
+      .max(OVERDUE_MAX_MINUTES)
+      .optional(),
+    sellersCreateQuickReplies: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: "Envía al menos un campo",
+  });
+
+/** Lo que guarda un PUT: solo los campos presentes. */
+export type InboxSettingsPatch = z.infer<typeof inboxSettingsSchema>;
 
 /** Body de `POST /api/conversations/archive-inactive`. */
 export const archiveInactiveSchema = z.object({

@@ -32,10 +32,22 @@
    vacío → 422; inexistente → 404.
 4. Borrarla → 200 `{ ok: true }`; borrarla otra vez → 404.
 
-## b) El Vendedor solo las usa
+## b) 029 — El Vendedor crea y edita las suyas (CA-1, CA-2)
 
-5. ✅ `GET /api/quick-replies` → 200; `POST`/`PATCH`/`DELETE` → 403
-   `forbidden`; `/settings/quick-replies` → 404 (el owner → 200).
+5. ✅ Con el interruptor «Vendedores pueden crear respuestas rápidas»
+   encendido (default): `GET /api/quick-replies` → 200 con `canCreate: true`
+   y el autor de cada una; `POST` → 201 (el owner la ve al instante);
+   `PATCH`/`DELETE` de la suya → 200. 403 `forbidden` a la de otro, a una
+   suya que el owner ligó a un producto, y al mandar `productId`/`attach`
+   no nulos o `position`. `/settings/quick-replies` → 200 para ambos.
+
+## e) 029 — Interruptor apagado (CA-3)
+
+5b. El owner lo apaga en Ajustes → Respuestas rápidas (PUT parcial: el umbral
+    de la Bandeja no cambia). ✅ `canCreate: false`; el Vendedor recibe 403 al
+    crear y al editar la suya; en la Bandeja `/` ya no ofrece «+ Nueva
+    respuesta rápida» ni aparece «Guardar como respuesta rápida»; Ajustes
+    queda en solo lectura. El owner sigue creando. Se vuelve a encender.
 
 ## c) Atajo `/` en el compositor
 
@@ -51,6 +63,13 @@
    (responder = tomar).
 10. Escribe `1/2 kilo`.
     ✅ El selector no se abre.
+10b. 029: escribe `/zz…` (sin coincidencias). ✅ El selector ofrece solo
+    «+ Nueva respuesta rápida»; abre el diálogo con el atajo propuesto; al
+    crear se cierra y la respuesta existe para todo el equipo (nada se envía).
+10c. 029: escribe un texto y pulsa «Guardar como respuesta rápida». ✅ El
+    diálogo trae el texto; con el atajo `horario` (repetido) avisa «Ya
+    existe…» sin perder nada (ni el diálogo ni el compositor); con otro atajo
+    se crea, y `/` ya la ofrece.
 
 ## d) Ventana de 24 h cerrada
 

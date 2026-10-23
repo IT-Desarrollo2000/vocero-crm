@@ -179,23 +179,27 @@ describe("ajustes de la Bandeja", () => {
       autoArchiveEnabled: false,
       autoArchiveDays: 14,
       overdueMinutes: 60,
+      sellersCreateQuickReplies: true,
     });
     expect(calls[0]!.sql).toContain('"inbox_settings"."organization_id" = $');
-    // 026: el umbral se lee de la misma fila.
+    // 026: el umbral se lee de la misma fila (029: y el interruptor).
     expect(calls[0]!.sql).toContain('"overdue_minutes"');
+    expect(calls[0]!.sql).toContain('"sellers_create_quick_replies"');
   });
 
   it("con fila → la fila", async () => {
-    responder = () => [[true, 30, 15]];
+    responder = () => [[true, 30, 15, false]];
     expect(await getInboxSettings("org_1")).toEqual({
       autoArchiveEnabled: true,
       autoArchiveDays: 30,
       overdueMinutes: 15,
+      sellersCreateQuickReplies: false,
     });
   });
 
   it("guardar = upsert por organization_id (con el umbral, 026)", async () => {
-    await saveInboxSettings("org_1", {
+    responder = () => [[true, 21, 45, true]];
+    const saved = await saveInboxSettings("org_1", {
       autoArchiveEnabled: true,
       autoArchiveDays: 21,
       overdueMinutes: 45,
@@ -205,6 +209,32 @@ describe("ajustes de la Bandeja", () => {
     expect(ins.sql).toContain('on conflict ("organization_id") do update set');
     expect(ins.sql).toContain('"overdue_minutes"');
     expect(ins.params).toEqual(expect.arrayContaining(["org_1", true, 21, 45]));
+    expect(saved).toEqual({
+      autoArchiveEnabled: true,
+      autoArchiveDays: 21,
+      overdueMinutes: 45,
+      sellersCreateQuickReplies: true,
+    });
+  });
+
+  it("029: guardar solo el interruptor no toca los demás campos", async () => {
+    responder = () => [[false, 14, 30, false]];
+    const saved = await saveInboxSettings("org_1", { sellersCreateQuickReplies: false });
+    const ins = calls[0]!;
+    const set = ins.sql.slice(ins.sql.indexOf("do update set"), ins.sql.indexOf(" returning"));
+    expect(set).toContain('"sellers_create_quick_replies"');
+    expect(set).not.toContain('"overdue_minutes"');
+    expect(set).not.toContain('"auto_archive_enabled"');
+    expect(set).not.toContain('"auto_archive_days"');
+    expect(saved.overdueMinutes).toBe(30);
+  });
+
+  it("029: guardar la pestaña Bandeja sin el umbral no lo resetea", async () => {
+    await saveInboxSettings("org_1", { autoArchiveEnabled: true, autoArchiveDays: 21 });
+    const ins = calls[0]!;
+    const set = ins.sql.slice(ins.sql.indexOf("do update set"), ins.sql.indexOf(" returning"));
+    expect(set).not.toContain('"overdue_minutes"');
+    expect(ins.params).not.toContain(60);
   });
 });
 
@@ -265,12 +295,21 @@ describe("esquemas Zod de las rutas", () => {
         String(days)
       ).toBe(false);
     }
-    expect(inboxSettingsSchema.safeParse({ autoArchiveDays: 14 }).success).toBe(false);
+    expect(inboxSettingsSchema.safeParse({ autoArchiveEnabled: "si" }).success).toBe(false);
   });
 
-  it("026: overdueMinutes 5–1440 enteros; sin el campo (cliente viejo) → 60", () => {
+  it("029: PUT parcial — cada campo opcional, al menos uno, sin defaults que pisen", () => {
+    expect(inboxSettingsSchema.parse({ autoArchiveDays: 14 })).toEqual({ autoArchiveDays: 14 });
+    expect(inboxSettingsSchema.parse({ sellersCreateQuickReplies: false })).toEqual({
+      sellersCreateQuickReplies: false,
+    });
+    expect(inboxSettingsSchema.safeParse({}).success).toBe(false);
+    expect(inboxSettingsSchema.safeParse({ sellersCreateQuickReplies: "no" }).success).toBe(false);
+  });
+
+  it("026: overdueMinutes 5–1440 enteros; 029: sin el campo no se toca (no vuelve a 60)", () => {
     const base = { autoArchiveEnabled: true, autoArchiveDays: 14 };
-    expect(inboxSettingsSchema.parse(base)).toEqual({ ...base, overdueMinutes: 60 });
+    expect(inboxSettingsSchema.parse(base)).toEqual(base);
     for (const m of [5, 60, 1440]) {
       expect(inboxSettingsSchema.parse({ ...base, overdueMinutes: m }).overdueMinutes).toBe(m);
     }

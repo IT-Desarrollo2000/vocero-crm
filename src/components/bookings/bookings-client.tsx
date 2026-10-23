@@ -27,6 +27,7 @@ import {
   type SellerOption,
 } from "./booking-dialog";
 import { BookingActions, type BookingActionHandlers } from "./booking-actions";
+import { BookingClientCard } from "./booking-client-card";
 import { BookingDetailPanel } from "./booking-detail-panel";
 import { STATUS_LABEL, type Booking } from "./booking-look";
 import {
@@ -791,6 +792,8 @@ export function BookingsClient() {
                   {b.notes && <span>{b.notes}</span>}
                 </div>
 
+                {b.contact && <ListClientToggle bookingId={b.id} />}
+
                 <BookingActions
                   booking={b}
                   owner={owner}
@@ -908,4 +911,26 @@ function withRange(listQuery: string, range: DateRange): string {
   url.searchParams.set("from", range.from);
   url.searchParams.set("to", range.to);
   return `${url.pathname}?${url.searchParams.toString()}`;
+}
+
+/**
+ * 029 — En la Lista, el cliente va plegado: así la fila no crece y no se
+ * disparan N peticiones al cargar (la tarjeta pide sus datos al abrirse).
+ */
+function ListClientToggle({ bookingId }: { bookingId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        data-testid="booking-client-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs font-medium text-brand-text hover:underline"
+      >
+        {open ? "Ocultar cliente" : "Ver cliente"}
+      </button>
+      {open && <BookingClientCard bookingId={bookingId} />}
+    </div>
+  );
 }

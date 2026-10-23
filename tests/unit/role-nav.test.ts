@@ -46,8 +46,14 @@ describe("filterNavForRole", () => {
   });
 });
 
+/** 029: el Vendedor ve Respuestas rápidas además de su cuenta. */
+const MEMBER_TABS = [
+  { href: "/settings/quick-replies", label: "Respuestas rápidas" },
+  { href: "/settings/account", label: "Mi cuenta" },
+];
+
 describe("settingsTabsFor", () => {
-  it("Vendedor: solo Mi cuenta, aunque las banderas estén encendidas", () => {
+  it("Vendedor: Respuestas rápidas (029) y Mi cuenta, aunque las banderas estén encendidas", () => {
     expect(
       settingsTabsFor({
         role: "member",
@@ -56,7 +62,7 @@ describe("settingsTabsFor", () => {
         instagram: true,
         messenger: true,
       })
-    ).toEqual([{ href: "/settings/account", label: "Mi cuenta" }]);
+    ).toEqual(MEMBER_TABS);
   });
 
   it("Propietario sin banderas: negocio + Mi cuenta", () => {
@@ -106,9 +112,7 @@ describe("settingsTabsFor", () => {
       "/settings/account",
     ]);
     expect(tabs.map((t) => t.label).join(" ")).not.toMatch(/azure/i);
-    expect(settingsTabsFor({ role: "member", almacenamiento: true })).toEqual([
-      { href: "/settings/account", label: "Mi cuenta" },
-    ]);
+    expect(settingsTabsFor({ role: "member", almacenamiento: true })).toEqual(MEMBER_TABS);
   });
 
   it("011 — Leads externos solo con LEADS_EXTERNOS, tras Anuncios, y nunca para el Vendedor", () => {
@@ -121,9 +125,7 @@ describe("settingsTabsFor", () => {
       "/settings/leads-externos",
       "/settings/account",
     ]);
-    expect(settingsTabsFor({ role: "member", leadsExternos: true })).toEqual([
-      { href: "/settings/account", label: "Mi cuenta" },
-    ]);
+    expect(settingsTabsFor({ role: "member", leadsExternos: true })).toEqual(MEMBER_TABS);
   });
 });
 

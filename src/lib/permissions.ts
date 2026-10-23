@@ -50,11 +50,13 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/events": "any*",
 
   // ── Respuestas rápidas (09) ────────────────────────────────────────────
-  // Lectura para todos (compositor con `/`); el catálogo es del Propietario.
+  // Lectura para todos (compositor con `/`). 029: escribe cualquier miembro;
+  // la política por rol (interruptor, solo las suyas, producto y orden del
+  // Propietario) vive en el store (`src/lib/quick-reply-policy.ts`).
   "GET /api/quick-replies": "any",
-  "POST /api/quick-replies": "owner",
-  "PATCH /api/quick-replies/[id]": "owner",
-  "DELETE /api/quick-replies/[id]": "owner",
+  "POST /api/quick-replies": "any",
+  "PATCH /api/quick-replies/[id]": "any",
+  "DELETE /api/quick-replies/[id]": "any",
 
   // ── Catálogo de productos (019) ────────────────────────────────────────
   // Lectura (y descarga de fotos/fichas) para todos; escritura del Propietario.
@@ -97,6 +99,9 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/bookings": "any*",
   "POST /api/bookings": "any*",
   "PATCH /api/bookings/[id]": "any*",
+  // 029: el cliente de la cita (404 a la ajena; sin canal/anuncio si la cita
+  // es de otro Vendedor y el chat no es suyo).
+  "GET /api/bookings/[id]/client": "any*",
   // 10: reintentar un recordatorio fallido (los dos roles operan Citas).
   "POST /api/bookings/[id]/reminders/[reminderId]/retry": "any*",
   // 023: `sellerId` solo cuenta para el Propietario (al Vendedor se le

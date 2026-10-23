@@ -47,6 +47,8 @@ export function BookingActions({
 }) {
   const [reassigning, setReassigning] = useState(false);
   const [reassignTo, setReassignTo] = useState("none");
+  // 029 — «Cancelar cita» pide un segundo clic (patrón de Respuestas rápidas).
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const isBusy = busy === b.id;
 
   return (
@@ -73,7 +75,7 @@ export function BookingActions({
                 {r.canRetry && reminderId && (
                   <Button
                     size="sm"
-                    variant="secondary"
+                    variant="outline"
                     aria-label="Reintentar recordatorio"
                     disabled={isBusy}
                     onClick={() => handlers.onRetryReminder(b.id, reminderId)}
@@ -97,7 +99,7 @@ export function BookingActions({
           </span>
           <Button
             size="sm"
-            variant="secondary"
+            variant="outline"
             disabled={isBusy}
             onClick={() => handlers.onAct(b.id, { action: "retry_link" })}
           >
@@ -106,39 +108,18 @@ export function BookingActions({
         </div>
       )}
 
+      {/* 029 (US-4) — Agrupadas y con borde visible: el `secondary` casi no
+          se distinguía del panel. Lo destructivo va aparte, en rojo y con
+          confirmación de dos pasos. */}
       {b.status === "agendada" && (
-        <div className="flex flex-wrap gap-2">
+        <div className="space-y-2" data-testid="booking-actions">
           {/* Un bloqueo no se "realiza" ni tiene quien falte: solo se
               mueve o se quita. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={isBusy}
-            onClick={() => handlers.onReschedule(b)}
-          >
-            Reprogramar
-          </Button>
-          {owner && b.kind === "session" && (
-            <Button
-              size="sm"
-              variant="secondary"
-              data-testid="booking-reassign"
-              aria-expanded={reassigning}
-              disabled={isBusy}
-              onClick={() => {
-                handlers.onClearError();
-                setReassignTo(b.assignedUser?.id ?? "none");
-                setReassigning((r) => !r);
-              }}
-            >
-              Reasignar
-            </Button>
-          )}
           {b.kind === "session" && (
-            <>
+            <ActionGroup label="Resultado">
               <Button
                 size="sm"
-                variant="secondary"
+                variant="default"
                 disabled={isBusy}
                 onClick={() =>
                   handlers.onAct(b.id, { action: "status", status: "realizada" })
@@ -148,7 +129,7 @@ export function BookingActions({
               </Button>
               <Button
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 disabled={isBusy}
                 onClick={() =>
                   handlers.onAct(b.id, { action: "status", status: "no_show" })
@@ -156,16 +137,74 @@ export function BookingActions({
               >
                 No asistió
               </Button>
-            </>
+            </ActionGroup>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={isBusy}
-            onClick={() => handlers.onAct(b.id, { action: "cancel" })}
-          >
-            {b.kind === "block" ? "Quitar bloqueo" : "Cancelar"}
-          </Button>
+          <ActionGroup label="Cambios">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => handlers.onReschedule(b)}
+            >
+              Reprogramar
+            </Button>
+            {owner && b.kind === "session" && (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="booking-reassign"
+                aria-expanded={reassigning}
+                disabled={isBusy}
+                onClick={() => {
+                  handlers.onClearError();
+                  setReassignTo(b.assignedUser?.id ?? "none");
+                  setReassigning((r) => !r);
+                }}
+              >
+                Reasignar
+              </Button>
+            )}
+          </ActionGroup>
+          <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+            {confirmingCancel ? (
+              <>
+                <span className="text-sm text-danger-text">
+                  {b.kind === "block" ? "¿Quitar este bloqueo?" : "¿Cancelar esta cita?"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  data-testid="booking-cancel-confirm"
+                  disabled={isBusy}
+                  onClick={() => {
+                    setConfirmingCancel(false);
+                    handlers.onAct(b.id, { action: "cancel" });
+                  }}
+                >
+                  {b.kind === "block" ? "Sí, quitar" : "Sí, cancelar"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => setConfirmingCancel(false)}
+                >
+                  No
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="booking-cancel"
+                className="border-destructive text-destructive hover:bg-danger-tint hover:text-destructive"
+                disabled={isBusy}
+                onClick={() => setConfirmingCancel(true)}
+              >
+                {b.kind === "block" ? "Quitar bloqueo" : "Cancelar cita"}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -213,5 +252,17 @@ export function BookingActions({
         </div>
       )}
     </>
+  );
+}
+
+/** 029 — Un grupo de acciones con su etiqueta pequeña («Resultado», «Cambios»). */
+function ActionGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div role="group" aria-label={label} className="space-y-1">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-text-3">
+        {label}
+      </p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
   );
 }

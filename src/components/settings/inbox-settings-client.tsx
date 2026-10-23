@@ -53,9 +53,15 @@ const MINUTES_HINT = `Entre ${OVERDUE_MIN_MINUTES} y ${OVERDUE_MAX_MINUTES} minu
  * Archivar nunca borra: el historial, los reportes y la atribución quedan.
  *
  * 026 — Umbral de "atrasada" de la vista Por atender. Va en el MISMO PUT que
- * el auto-archivo (el schema lo pone en 60 si falta): cada tarjeta guarda los
- * tres valores para no pisar la otra.
+ * el auto-archivo: cada tarjeta guarda los tres valores para no pisar la otra.
+ * 029: el PUT es parcial; esta pestaña manda solo sus tres campos (el
+ * interruptor de respuestas rápidas vive en su propia pestaña).
  */
+type BandejaSettings = Pick<
+  InboxSettingsDto,
+  "autoArchiveEnabled" | "autoArchiveDays" | "overdueMinutes"
+>;
+
 export function InboxSettingsClient() {
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -67,7 +73,7 @@ export function InboxSettingsClient() {
   const [overdueError, setOverdueError] = useState<string | null>(null);
   // Lo último guardado/cargado de cada tarjeta: guardar una no manda lo que
   // se está editando (sin guardar) en la otra.
-  const [stored, setStored] = useState<InboxSettingsDto>({
+  const [stored, setStored] = useState<BandejaSettings>({
     autoArchiveEnabled: false,
     autoArchiveDays: AUTO_ARCHIVE_DEFAULT_DAYS,
     overdueMinutes: OVERDUE_DEFAULT_MINUTES,
@@ -98,7 +104,11 @@ export function InboxSettingsClient() {
           // Servidor anterior a 026 (sin el campo): el default.
           const minutes = d.settings.overdueMinutes ?? OVERDUE_DEFAULT_MINUTES;
           setOverdue(String(minutes));
-          setStored({ ...d.settings, overdueMinutes: minutes });
+          setStored({
+            autoArchiveEnabled: d.settings.autoArchiveEnabled,
+            autoArchiveDays: d.settings.autoArchiveDays,
+            overdueMinutes: minutes,
+          });
         } else {
           setLoadFailed(true);
         }
@@ -116,8 +126,8 @@ export function InboxSettingsClient() {
   const parsedOverdue = parseMinutes(overdue);
 
   /** PUT con los tres valores (`patch` = lo de la tarjeta que guarda). */
-  async function put(patch: Partial<InboxSettingsDto>): Promise<string | null> {
-    const body: InboxSettingsDto = { ...stored, ...patch };
+  async function put(patch: Partial<BandejaSettings>): Promise<string | null> {
+    const body: BandejaSettings = { ...stored, ...patch };
     const res = await fetch("/api/settings/inbox", {
       method: "PUT",
       headers: { "content-type": "application/json" },

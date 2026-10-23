@@ -284,6 +284,10 @@ export type QuickReplyDto = {
   attach: QuickReplyAttach | null;
   /** 019: el producto con sus archivos; null si no hay (o se borró). */
   product: QuickReplyProductDto | null;
+  /** 029: autor (null = se borró el usuario; solo el Propietario la edita). */
+  createdByUserId: string | null;
+  /** 029: nombre del autor para la columna Autor de Ajustes. */
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
 };

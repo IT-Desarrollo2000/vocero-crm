@@ -11,14 +11,17 @@ import { useViewer } from "@/components/viewer-context";
 import {
   QUICK_REPLY_LIMITS,
   QUICK_REPLY_VARS,
-  findUnknownVars,
+  normalizeShortcut,
   renderQuickReply,
 } from "@/lib/quick-replies";
+import { canEditQuickReply } from "@/lib/quick-reply-policy";
+import { isOwner } from "@/lib/roles";
 import type {
   QuickReplyCreateBody,
   QuickReplyDto,
   QuickReplyPatchBody,
 } from "@/lib/types";
+import type { InboxSettingsDto } from "@/lib/inbox-settings";
 import { movePositions } from "@/components/inbox/quick-reply-render";
 import {
   filesForAttach,
@@ -26,6 +29,12 @@ import {
   type CatalogProductDto,
   type QuickReplyAttach,
 } from "@/lib/catalog";
+import {
+  QUICK_REPLY_VAR_HELP as VAR_HELP,
+  TEXT_ONLY_VARS,
+  quickReplyErrorMessage as errorMessage,
+  validateQuickReplyForm as validate,
+} from "./quick-reply-form";
 
 /** 019: etiqueta de cada opción de "Enviar". */
 const ATTACH_LABEL: Record<QuickReplyAttach, string> = {
@@ -33,67 +42,6 @@ const ATTACH_LABEL: Record<QuickReplyAttach, string> = {
   documents: "Documentos",
   all: "Todo",
 };
-
-type ApiError = { error?: { code?: string; message?: string } } | null;
-
-/** Ayuda de cada variable, en el orden de `QUICK_REPLY_VARS`. */
-const VAR_HELP: Record<(typeof QUICK_REPLY_VARS)[number], string> = {
-  nombre: "primer nombre del cliente",
-  nombre_completo: "nombre completo del cliente",
-  vendedor: "tu nombre o el de quien envía",
-  negocio: "nombre de tu Marca",
-  producto: "nombre del producto ligado (solo si la respuesta tiene producto)",
-};
-
-/** Mensaje del servidor si lo hay; si no, uno por código. */
-async function errorMessage(res: Response | null, fallback: string) {
-  if (!res) return "Sin conexión con el servidor";
-  if (res.status === 501) {
-    return "Las respuestas rápidas aún no están disponibles en este servidor.";
-  }
-  const data = (await res.json().catch(() => null)) as ApiError;
-  switch (data?.error?.code) {
-    case "duplicate_shortcut":
-      return data.error.message ?? "Ya existe una respuesta con ese atajo.";
-    case "unknown_variable":
-      return data.error.message ?? "El texto usa una variable desconocida.";
-    case "not_found":
-      return "Esa respuesta ya no existe. Recarga la página.";
-    default:
-      return data?.error?.message ?? fallback;
-  }
-}
-
-/** Atajo como lo guarda el servidor: sin `/` inicial, sin espacios, minúsculas. */
-function normalizeShortcutInput(raw: string): string {
-  return raw.trim().replace(/^\/+/, "").toLowerCase();
-}
-
-/** Validación previa al envío (el servidor valida igual). */
-function validate(form: {
-  shortcut: string;
-  title: string;
-  body: string;
-  productId: string;
-}): string | null {
-  const shortcut = normalizeShortcutInput(form.shortcut);
-  if (!QUICK_REPLY_LIMITS.shortcutPattern.test(shortcut)) {
-    return "El atajo lleva de 1 a 32 caracteres: letras minúsculas, números, - o _.";
-  }
-  const title = form.title.trim();
-  if (!title || title.length > QUICK_REPLY_LIMITS.titleMax) {
-    return `El título lleva de 1 a ${QUICK_REPLY_LIMITS.titleMax} caracteres.`;
-  }
-  // 019: el texto puede ir vacío solo si la respuesta adjunta un producto.
-  if ((!form.body.trim() && !form.productId) || form.body.length > QUICK_REPLY_LIMITS.bodyMax) {
-    return `El texto lleva de 1 a ${QUICK_REPLY_LIMITS.bodyMax} caracteres (puede ir vacío si eliges un producto).`;
-  }
-  const unknown = findUnknownVars(form.body, { product: !!form.productId });
-  if (unknown.length > 0) {
-    return `Variable desconocida: ${unknown.map((v) => `{{${v}}}`).join(", ")}`;
-  }
-  return null;
-}
 
 const EMPTY: {
   shortcut: string;
@@ -105,13 +53,27 @@ const EMPTY: {
 } = { shortcut: "", title: "", body: "", productId: "", attach: "images" };
 
 /**
- * 09 — Ajustes → Respuestas rápidas (solo Propietario). Catálogo único de la
- * organización: el equipo lo usa escribiendo `/` en el compositor.
+ * 09 — Ajustes → Respuestas rápidas. Catálogo único de la organización: el
+ * equipo lo usa escribiendo `/` en el compositor.
+ *
+ * 029 — La ven ambos roles. Propietario: todo, más el interruptor
+ * «Vendedores pueden crear respuestas rápidas». Vendedor: crea (si el
+ * interruptor lo permite) y edita/borra solo las suyas de texto; sin
+ * reordenar ni producto. Cada fila muestra su autor. La autorización real
+ * vive en la API.
  */
 export function QuickRepliesClient() {
   const viewer = useViewer();
+  const owner = isOwner(viewer.role);
   const [list, setList] = useState<QuickReplyDto[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 029: del GET de respuestas rápidas (Vendedor = el interruptor).
+  // null = aún sin cargar (ni formulario ni aviso de solo lectura).
+  const [canCreate, setCanCreate] = useState<boolean | null>(owner ? true : null);
+  // 029: interruptor (solo el Propietario lee/escribe /api/settings/inbox).
+  const [sellersEnabled, setSellersEnabled] = useState<boolean | null>(null);
+  const [toggleSaving, setToggleSaving] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +87,8 @@ export function QuickRepliesClient() {
   const [products, setProducts] = useState<CatalogProductDto[]>([]);
 
   useEffect(() => {
+    // 029: ligar a producto es solo del Propietario.
+    if (!owner) return;
     let cancelled = false;
     void (async () => {
       const res = await fetch("/api/catalog").catch(() => null);
@@ -135,7 +99,24 @@ export function QuickRepliesClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [owner]);
+
+  useEffect(() => {
+    if (!owner) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/settings/inbox").catch(() => null);
+      const data = res?.ok
+        ? ((await res.json().catch(() => null)) as { settings?: InboxSettingsDto } | null)
+        : null;
+      if (cancelled) return;
+      // Servidor anterior a 029 (sin el campo): encendido, como el default.
+      setSellersEnabled(data?.settings?.sellersCreateQuickReplies ?? true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [owner]);
 
   const refetch = useCallback(async () => {
     const res = await fetch("/api/quick-replies").catch(() => null);
@@ -143,14 +124,38 @@ export function QuickRepliesClient() {
       setLoadError(await errorMessage(res, "No se pudieron cargar las respuestas rápidas"));
       return;
     }
-    const data = (await res.json()) as { quickReplies: QuickReplyDto[] };
+    const data = (await res.json()) as { quickReplies: QuickReplyDto[]; canCreate?: boolean };
     setLoadError(null);
     setList([...data.quickReplies].sort((a, b) => a.position - b.position));
-  }, []);
+    setCanCreate(data.canCreate ?? owner);
+  }, [owner]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  /** 029: ¿puede este usuario editar/borrar la fila? (Vendedor: interruptor = canCreate). */
+  const rowEditable = (r: QuickReplyDto) =>
+    canEditQuickReply(viewer, r, owner ? true : canCreate === true);
+
+  /** 029: guarda SOLO el interruptor (el PUT es parcial; no pisa la Bandeja). */
+  async function toggleSellers() {
+    if (sellersEnabled === null) return;
+    const next = !sellersEnabled;
+    setToggleSaving(true);
+    setToggleError(null);
+    const res = await fetch("/api/settings/inbox", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sellersCreateQuickReplies: next }),
+    }).catch(() => null);
+    setToggleSaving(false);
+    if (!res?.ok) {
+      setToggleError(await errorMessage(res, "No se pudo guardar el ajuste"));
+      return;
+    }
+    setSellersEnabled(next);
+  }
 
   // Vista previa con datos de ejemplo (y el nombre real de quien escribe).
   const linked = products.find((p) => p.id === form.productId) ?? null;
@@ -204,7 +209,7 @@ export function QuickRepliesClient() {
     setSaving(true);
     setError(null);
     const payload: QuickReplyCreateBody | QuickReplyPatchBody = {
-      shortcut: normalizeShortcutInput(form.shortcut),
+      shortcut: normalizeShortcut(form.shortcut),
       title: form.title.trim(),
       body: form.body,
       // 019: sin producto se manda null (en PATCH, desliga).
@@ -271,157 +276,210 @@ export function QuickRepliesClient() {
   }
 
   const preview = form.body ? renderQuickReply(form.body, sample) : "";
+  // 029: el Vendedor no liga productos: sin `{{producto}}` en su formulario.
+  const formVars = owner ? QUICK_REPLY_VARS : TEXT_ONLY_VARS;
+  const showForm = editingId !== null || canCreate === true;
 
   return (
     <div className="max-w-2xl space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{editingId ? "Editar respuesta rápida" : "Nueva respuesta rápida"}</CardTitle>
-          <CardDescription>
-            Textos oficiales del negocio para que el equipo conteste en
-            segundos: en la Bandeja, escribe <code>/</code> y el atajo. Solo se
-            ofrecen con la ventana de 24 horas abierta; fuera de ella, como
-            siempre, solo plantillas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-[180px_1fr]">
-            <div className="space-y-1.5">
-              <Label htmlFor="qr-shortcut">Atajo</Label>
-              <div className="flex items-center rounded-md border border-input bg-card pl-2.5 focus-within:border-brand">
-                <span className="text-sm text-text-3">/</span>
+      {owner && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1.5">
+                <CardTitle>Vendedores pueden crear respuestas rápidas</CardTitle>
+                <CardDescription>
+                  Encendido: cada vendedor crea respuestas para todo el equipo y
+                  edita o borra solo las suyas. Las ligadas a un producto y el
+                  orden siguen siendo tuyos. Apagado: los vendedores solo las usan.
+                </CardDescription>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={sellersEnabled === true}
+                aria-label="Vendedores pueden crear respuestas rápidas"
+                disabled={sellersEnabled === null || toggleSaving}
+                onClick={() => void toggleSellers()}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full px-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-60 ${
+                  sellersEnabled ? "bg-brand" : "bg-border-strong"
+                }`}
+              >
+                <span
+                  className={`h-5 w-5 rounded-full bg-knob shadow-sm transition-transform ${
+                    sellersEnabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+            {toggleError && (
+              <p className="text-sm text-danger-text" role="alert">
+                {toggleError}
+              </p>
+            )}
+          </CardHeader>
+        </Card>
+      )}
+
+      {!showForm && canCreate === false && (
+        <p className="rounded-lg border bg-card px-4 py-3 text-sm text-text-2" data-testid="qr-readonly">
+          El Propietario desactivó que los vendedores creen respuestas rápidas.
+          Puedes usarlas escribiendo <code>/</code> en la Bandeja.
+        </p>
+      )}
+
+      {showForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{editingId ? "Editar respuesta rápida" : "Nueva respuesta rápida"}</CardTitle>
+            <CardDescription>
+              Textos oficiales del negocio para que el equipo conteste en
+              segundos: en la Bandeja, escribe <code>/</code> y el atajo. Solo se
+              ofrecen con la ventana de 24 horas abierta; fuera de ella, como
+              siempre, solo plantillas.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-[180px_1fr]">
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-shortcut">Atajo</Label>
+                <div className="flex items-center rounded-md border border-input bg-card pl-2.5 focus-within:border-brand">
+                  <span className="text-sm text-text-3">/</span>
+                  <Input
+                    id="qr-shortcut"
+                    value={form.shortcut}
+                    maxLength={33}
+                    placeholder="horario"
+                    onChange={(e) => setForm((f) => ({ ...f, shortcut: e.target.value }))}
+                    className="border-0 pl-1 shadow-none focus-visible:ring-0"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-title">Título</Label>
                 <Input
-                  id="qr-shortcut"
-                  value={form.shortcut}
-                  maxLength={33}
-                  placeholder="horario"
-                  onChange={(e) => setForm((f) => ({ ...f, shortcut: e.target.value }))}
-                  className="border-0 pl-1 shadow-none focus-visible:ring-0"
+                  id="qr-title"
+                  value={form.title}
+                  maxLength={QUICK_REPLY_LIMITS.titleMax}
+                  placeholder="Horario de atención"
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                 />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="qr-title">Título</Label>
-              <Input
-                id="qr-title"
-                value={form.title}
-                maxLength={QUICK_REPLY_LIMITS.titleMax}
-                placeholder="Horario de atención"
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              <Label htmlFor="qr-body">Texto</Label>
+              <Textarea
+                id="qr-body"
+                ref={bodyRef}
+                rows={5}
+                value={form.body}
+                maxLength={QUICK_REPLY_LIMITS.bodyMax}
+                placeholder="Hola {{nombre}}, abrimos de lunes a sábado de 9 a 6."
+                onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
               />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="qr-body">Texto</Label>
-            <Textarea
-              id="qr-body"
-              ref={bodyRef}
-              rows={5}
-              value={form.body}
-              maxLength={QUICK_REPLY_LIMITS.bodyMax}
-              placeholder="Hola {{nombre}}, abrimos de lunes a sábado de 9 a 6."
-              onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-            />
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-text-3">
-              <span>Variables:</span>
-              {QUICK_REPLY_VARS.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  title={VAR_HELP[v]}
-                  aria-label={`Insertar variable ${v}: ${VAR_HELP[v]}`}
-                  onClick={() => insertVar(v)}
-                  className="rounded-full border bg-secondary px-2 py-0.5 font-mono text-[11px] text-text-2 hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
-                >
-                  {`{{${v}}}`}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-text-3">
-              {QUICK_REPLY_VARS.map((v) => `{{${v}}} = ${VAR_HELP[v]}`).join(" · ")}.
-              Si falta el dato, la variable se omite.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="qr-product">Producto del catálogo</Label>
-            <select
-              id="qr-product"
-              value={form.productId}
-              onChange={(e) => setForm((f) => ({ ...f, productId: e.target.value }))}
-              className="w-full rounded-md border border-input bg-card px-2.5 py-2 text-sm outline-none focus:border-brand"
-            >
-              <option value="">Ninguno (solo texto)</option>
-              {/* Uno ya ligado que se desactivó sigue en la lista para no perderlo. */}
-              {products
-                .filter((p) => p.active || p.id === form.productId)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                    {p.code ? ` (${p.code})` : ""}
-                    {p.active ? "" : " — inactivo"}
-                  </option>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-text-3">
+                <span>Variables:</span>
+                {formVars.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    title={VAR_HELP[v]}
+                    aria-label={`Insertar variable ${v}: ${VAR_HELP[v]}`}
+                    onClick={() => insertVar(v)}
+                    className="rounded-full border bg-secondary px-2 py-0.5 font-mono text-[11px] text-text-2 hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
+                  >
+                    {`{{${v}}}`}
+                  </button>
                 ))}
-            </select>
-            {linked && (
-              <fieldset className="space-y-1">
-                <legend className="text-sm font-medium">Enviar</legend>
-                <div className="flex flex-wrap gap-3 text-sm">
-                  {(Object.keys(ATTACH_LABEL) as QuickReplyAttach[]).map((a) => (
-                    <label key={a} className="flex items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="qr-attach"
-                        value={a}
-                        checked={form.attach === a}
-                        onChange={() => setForm((f) => ({ ...f, attach: a }))}
-                      />
-                      {ATTACH_LABEL[a]} ({filesForAttach(linked, a).length})
-                    </label>
-                  ))}
-                </div>
-                <p className="text-[11px] text-text-3">
-                  Al elegir la respuesta en la Bandeja se agregan{" "}
-                  {filesForAttach(linked, form.attach).length} archivo(s) de {linked.name}{" "}
-                  debajo del texto; nada sale hasta que se pulse enviar. Con producto,
-                  el texto es opcional.
-                </p>
-              </fieldset>
-            )}
-          </div>
-          {preview && (
-            <div className="rounded-md border bg-secondary px-3 py-2 text-sm">
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-3">
-                Vista previa (cliente «María López»)
+              </div>
+              <p className="text-[11px] text-text-3">
+                {formVars.map((v) => `{{${v}}} = ${VAR_HELP[v]}`).join(" · ")}.
+                Si falta el dato, la variable se omite.
               </p>
-              <p className="whitespace-pre-wrap break-words">{preview}</p>
             </div>
-          )}
-          {error && (
-            <p className="text-sm text-danger-text" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={
-                saving ||
-                !form.shortcut.trim() ||
-                !form.title.trim() ||
-                (!form.body.trim() && !form.productId)
-              }
-              onClick={() => void save()}
-            >
-              {editingId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-              {saving ? "Guardando…" : editingId ? "Guardar cambios" : "Crear respuesta"}
-            </Button>
-            {editingId && (
-              <Button variant="outline" disabled={saving} onClick={cancelEdit}>
-                Cancelar
-              </Button>
+            {owner && (
+              <div className="space-y-1.5">
+                <Label htmlFor="qr-product">Producto del catálogo</Label>
+                <select
+                  id="qr-product"
+                  value={form.productId}
+                  onChange={(e) => setForm((f) => ({ ...f, productId: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-card px-2.5 py-2 text-sm outline-none focus:border-brand"
+                >
+                  <option value="">Ninguno (solo texto)</option>
+                  {/* Uno ya ligado que se desactivó sigue en la lista para no perderlo. */}
+                  {products
+                    .filter((p) => p.active || p.id === form.productId)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.code ? ` (${p.code})` : ""}
+                        {p.active ? "" : " — inactivo"}
+                      </option>
+                    ))}
+                </select>
+                {linked && (
+                  <fieldset className="space-y-1">
+                    <legend className="text-sm font-medium">Enviar</legend>
+                    <div className="flex flex-wrap gap-3 text-sm">
+                      {(Object.keys(ATTACH_LABEL) as QuickReplyAttach[]).map((a) => (
+                        <label key={a} className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="qr-attach"
+                            value={a}
+                            checked={form.attach === a}
+                            onChange={() => setForm((f) => ({ ...f, attach: a }))}
+                          />
+                          {ATTACH_LABEL[a]} ({filesForAttach(linked, a).length})
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-text-3">
+                      Al elegir la respuesta en la Bandeja se agregan{" "}
+                      {filesForAttach(linked, form.attach).length} archivo(s) de {linked.name}{" "}
+                      debajo del texto; nada sale hasta que se pulse enviar. Con producto,
+                      el texto es opcional.
+                    </p>
+                  </fieldset>
+                )}
+              </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+            {preview && (
+              <div className="rounded-md border bg-secondary px-3 py-2 text-sm">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-3">
+                  Vista previa (cliente «María López»)
+                </p>
+                <p className="whitespace-pre-wrap break-words">{preview}</p>
+              </div>
+            )}
+            {error && (
+              <p className="text-sm text-danger-text" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={
+                  saving ||
+                  !form.shortcut.trim() ||
+                  !form.title.trim() ||
+                  (!form.body.trim() && !form.productId)
+                }
+                onClick={() => void save()}
+              >
+                {editingId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                {saving ? "Guardando…" : editingId ? "Guardar cambios" : "Crear respuesta"}
+              </Button>
+              {editingId && (
+                <Button variant="outline" disabled={saving} onClick={cancelEdit}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -434,7 +492,7 @@ export function QuickRepliesClient() {
         )}
         {!loadError && list.length === 0 && (
           <p className="text-sm text-text-3">
-            Todavía no hay respuestas rápidas. Crea la primera arriba.
+            Todavía no hay respuestas rápidas.{showForm ? " Crea la primera arriba." : ""}
           </p>
         )}
         <ul className="space-y-2" aria-label="Respuestas rápidas del negocio">
@@ -474,47 +532,61 @@ export function QuickRepliesClient() {
                         </p>
                       )
                     )}
+                    {/* 029: autor de cada una (el equipo entero escribe). */}
+                    <p className="mt-1 text-[11px] text-text-3" data-testid="qr-author">
+                      Autor: {r.createdByName ?? "—"}
+                      {r.createdByUserId === viewer.userId ? " (tú)" : ""}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Subir ${r.title}`}
-                      disabled={busyId !== null || i === 0}
-                      onClick={() => void move(i, i - 1)}
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Bajar ${r.title}`}
-                      disabled={busyId !== null || i === list.length - 1}
-                      onClick={() => void move(i, i + 1)}
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Editar ${r.title}`}
-                      disabled={busy}
-                      onClick={() => startEdit(r)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Borrar ${r.title}`}
-                      disabled={busy}
-                      onClick={() => {
-                        setRowError(null);
-                        setConfirmingId(r.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {/* 029: el orden es del Propietario. */}
+                    {owner && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Subir ${r.title}`}
+                          disabled={busyId !== null || i === 0}
+                          onClick={() => void move(i, i - 1)}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Bajar ${r.title}`}
+                          disabled={busyId !== null || i === list.length - 1}
+                          onClick={() => void move(i, i + 1)}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                    {rowEditable(r) && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Editar ${r.title}`}
+                          disabled={busy}
+                          onClick={() => startEdit(r)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Borrar ${r.title}`}
+                          disabled={busy}
+                          onClick={() => {
+                            setRowError(null);
+                            setConfirmingId(r.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
                 {confirming && (

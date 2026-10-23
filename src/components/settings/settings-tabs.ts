@@ -8,11 +8,19 @@ export type SettingsTab = { href: string; label: string };
 
 const WHATSAPP_TAB: SettingsTab = { href: "/settings/whatsapp", label: "WhatsApp" };
 
+/**
+ * 09 — Catálogo del negocio, lo usan todos. 029: también lo ve el Vendedor
+ * (crea y edita las suyas si el Propietario lo permite).
+ */
+const QUICK_REPLIES_TAB: SettingsTab = {
+  href: "/settings/quick-replies",
+  label: "Respuestas rápidas",
+};
+
 const BUSINESS_TABS: SettingsTab[] = [
   { href: "/settings/branding", label: "Marca" },
   { href: "/settings/templates", label: "Plantillas" },
-  // 09 — Catálogo del negocio: lo gestiona el Propietario, lo usan todos.
-  { href: "/settings/quick-replies", label: "Respuestas rápidas" },
+  QUICK_REPLIES_TAB,
   // 022 — Archivo de conversaciones inactivas (auto y limpieza masiva).
   { href: "/settings/inbox", label: "Bandeja" },
   { href: "/settings/team", label: "Equipo" },
@@ -37,7 +45,7 @@ const LEADS_EXTERNOS_TAB: SettingsTab = {
 /** 019 — "Almacenamiento" solo con el conector del catálogo encendido (ADR-003). */
 const STORAGE_TAB: SettingsTab = { href: "/settings/storage", label: "Almacenamiento" };
 
-/** La única pestaña común a ambos roles. */
+/** Pestaña común a ambos roles (029: junto con Respuestas rápidas). */
 export const ACCOUNT_TAB: SettingsTab = { href: "/settings/account", label: "Mi cuenta" };
 
 export function settingsTabsFor({
@@ -57,8 +65,9 @@ export function settingsTabsFor({
   almacenamiento?: boolean;
   leadsExternos?: boolean;
 }): SettingsTab[] {
-  // El Vendedor no ve ningún ajuste del negocio: solo su cuenta.
-  if (!isOwner(role)) return [ACCOUNT_TAB];
+  // El Vendedor no ve los ajustes del negocio: solo las respuestas rápidas
+  // (029) y su cuenta.
+  if (!isOwner(role)) return [QUICK_REPLIES_TAB, ACCOUNT_TAB];
   // Los canales van justo después de WhatsApp: son la misma clase de ajuste.
   return [
     WHATSAPP_TAB,

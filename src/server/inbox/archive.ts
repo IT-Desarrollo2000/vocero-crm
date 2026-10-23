@@ -16,6 +16,7 @@ import { scoped } from "@/lib/db/tenant";
 import {
   DEFAULT_INBOX_SETTINGS,
   type InboxSettingsDto,
+  type InboxSettingsPatch,
 } from "@/lib/inbox-settings";
 import { publish } from "@/server/events/bus";
 import { sortAtSql } from "@/server/inbox/list-query";
@@ -178,6 +179,7 @@ export async function getInboxSettings(
       autoArchiveEnabled: t.autoArchiveEnabled,
       autoArchiveDays: t.autoArchiveDays,
       overdueMinutes: t.overdueMinutes,
+      sellersCreateQuickReplies: t.sellersCreateQuickReplies,
     })
     .from(t)
     .where(scoped(t.organizationId, organizationId))
@@ -185,25 +187,40 @@ export async function getInboxSettings(
   return rows[0] ?? { ...DEFAULT_INBOX_SETTINGS };
 }
 
-/** Upsert por `organization_id` (PK). */
+/**
+ * Upsert por `organization_id` (PK). 029: solo escribe los campos presentes
+ * (cada pestaña manda lo suyo); lo ausente conserva lo guardado o, sin fila,
+ * el default de la columna. Devuelve los ajustes completos ya guardados.
+ */
 export async function saveInboxSettings(
   organizationId: string,
-  settings: InboxSettingsDto
+  settings: InboxSettingsPatch
 ): Promise<InboxSettingsDto> {
   const t = schema.inboxSettings;
-  const values = {
-    autoArchiveEnabled: settings.autoArchiveEnabled,
-    autoArchiveDays: settings.autoArchiveDays,
-    overdueMinutes: settings.overdueMinutes,
-  };
-  await getDb()
+  const values: Partial<typeof t.$inferInsert> = {};
+  if (settings.autoArchiveEnabled !== undefined) {
+    values.autoArchiveEnabled = settings.autoArchiveEnabled;
+  }
+  if (settings.autoArchiveDays !== undefined) values.autoArchiveDays = settings.autoArchiveDays;
+  if (settings.overdueMinutes !== undefined) values.overdueMinutes = settings.overdueMinutes;
+  if (settings.sellersCreateQuickReplies !== undefined) {
+    values.sellersCreateQuickReplies = settings.sellersCreateQuickReplies;
+  }
+  const rows = await getDb()
     .insert(t)
     .values({ organizationId, ...values })
     .onConflictDoUpdate({
       target: [t.organizationId],
       set: { ...values, updatedAt: new Date() },
+    })
+    .returning({
+      autoArchiveEnabled: t.autoArchiveEnabled,
+      autoArchiveDays: t.autoArchiveDays,
+      overdueMinutes: t.overdueMinutes,
+      sellersCreateQuickReplies: t.sellersCreateQuickReplies,
     });
-  return values;
+  // Un upsert con RETURNING siempre trae la fila; por si acaso, se relee.
+  return rows[0] ?? getInboxSettings(organizationId);
 }
 
 export type AutoArchiveResult = {

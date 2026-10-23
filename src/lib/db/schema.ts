@@ -1835,5 +1835,7 @@ export const inboxSettings = pgTable("inbox_settings", {
   autoArchiveDays: integer("auto_archive_days").notNull().default(14),
   /** 026: minutos de espera a partir de los que un chat sale "atrasado". */
   overdueMinutes: integer("overdue_minutes").notNull().default(60),
+  /** 029: los Vendedores pueden crear respuestas rápidas (encendido por defecto). */
+  sellersCreateQuickReplies: boolean("sellers_create_quick_replies").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

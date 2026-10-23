@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import type { OverlapLevel } from "@/server/agenda/overlaps";
 import type { SellerOption } from "./booking-dialog";
 import { BookingActions, type BookingActionHandlers } from "./booking-actions";
+import { BookingClientCard } from "./booking-client-card";
 import { bookingTitle, OVERLAP_TEXT, statusLabel, type Booking } from "./booking-look";
 import { bookingTimeRange, TypeDot } from "./calendar/booking-block";
 
@@ -152,13 +153,18 @@ export function BookingDetailPanel({
             </p>
           )}
 
+          {/* 029 — Sección Cliente: se pide al abrir la cita (`key`: otra
+              cita, otra carga). Los bloqueos no tienen cliente. */}
+          {b.contact && (
+            <section aria-label="Cliente" className="space-y-1.5">
+              <h4 className="text-xs font-medium uppercase tracking-wide text-text-3">
+                Cliente
+              </h4>
+              <BookingClientCard key={b.id} bookingId={b.id} />
+            </section>
+          )}
+
           <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
-            {b.contact && (
-              <>
-                <dt className="text-text-3">Cliente</dt>
-                <dd>{b.contact.name}</dd>
-              </>
-            )}
             {b.kind === "session" && (
               <>
                 <dt className="text-text-3">Vendedor</dt>

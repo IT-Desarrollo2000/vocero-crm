@@ -14,17 +14,25 @@ export function quickReplyOptionId(id: string): string {
   return `quick-reply-option-${id}`;
 }
 
+/** 029: id de la opción «+ Nueva respuesta rápida» (para `aria-activedescendant`). */
+export const QUICK_REPLY_CREATE_OPTION_ID = "quick-reply-option-new";
+
 export function QuickReplyPicker({
   matches,
   activeIndex,
   onHover,
   onPick,
+  onCreate,
 }: {
   matches: QuickReplyDto[];
+  /** `matches.length` = la opción «+ Nueva respuesta rápida» (029). */
   activeIndex: number;
   onHover: (index: number) => void;
   onPick: (reply: QuickReplyDto) => void;
+  /** 029: si viene, al final se ofrece «+ Nueva respuesta rápida». */
+  onCreate?: () => void;
 }) {
+  const createActive = activeIndex === matches.length;
   return (
     <ul
       id={QUICK_REPLY_LISTBOX_ID}
@@ -66,6 +74,26 @@ export function QuickReplyPicker({
           </li>
         );
       })}
+      {onCreate && (
+        <li
+          id={QUICK_REPLY_CREATE_OPTION_ID}
+          role="option"
+          aria-selected={createActive}
+          data-testid="quick-reply-create-option"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onCreate();
+          }}
+          onMouseEnter={() => onHover(matches.length)}
+          className={cn(
+            "cursor-pointer rounded px-2.5 py-1.5 text-[13px] font-medium text-brand-text",
+            matches.length > 0 && "mt-1 border-t pt-2",
+            createActive ? "bg-brand-tint" : "hover:bg-subtle"
+          )}
+        >
+          + Nueva respuesta rápida
+        </li>
+      )}
     </ul>
   );
 }

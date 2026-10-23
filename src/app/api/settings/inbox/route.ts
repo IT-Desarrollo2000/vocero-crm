@@ -8,8 +8,10 @@ export const dynamic = "force-dynamic";
  * 022 — Ajustes de la Bandeja (solo Propietario): auto-archivo de
  * conversaciones inactivas. Sin fila = apagado, 14 días.
  *
- * GET → `{ settings: { autoArchiveEnabled, autoArchiveDays, overdueMinutes } }`
- * (026: `overdueMinutes` = umbral de "atrasada" de Por atender; sin fila, 60).
+ * GET → `{ settings: { autoArchiveEnabled, autoArchiveDays, overdueMinutes,
+ *   sellersCreateQuickReplies } }` (026: `overdueMinutes` = umbral de
+ * "atrasada" de Por atender; sin fila, 60. 029: `sellersCreateQuickReplies` =
+ * los Vendedores crean respuestas rápidas; sin fila, true).
  */
 export const GET = withAuth(async (session) => {
   const settings = await getInboxSettings(session.organizationId);
@@ -17,9 +19,10 @@ export const GET = withAuth(async (session) => {
 }, { role: "owner" });
 
 /**
- * PUT `{ autoArchiveEnabled: boolean, autoArchiveDays: 1–365,
- *       overdueMinutes?: 5–1440 (sin el campo → 60) }`
- *   → 200 `{ settings }` · 422 `invalid_body` fuera de rango
+ * PUT parcial (029) `{ autoArchiveEnabled?: boolean, autoArchiveDays?: 1–365,
+ *       overdueMinutes?: 5–1440, sellersCreateQuickReplies?: boolean }`
+ *   (al menos uno; lo ausente se conserva) → 200 `{ settings }` completos
+ *   · 422 `invalid_body` fuera de rango o vacío
  */
 export const PUT = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, inboxSettingsSchema);
