@@ -34,4 +34,20 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
   variable queda disponible). Calificaciones no comparables con las previas.
 
 ## T5. Despliegue
-- [ ] OK del dueño · variables en Coolify · deploy · smoke · registro aquí.
+- [x] OK del dueño (23-oct: «continúa con la implementación… te autorizo»).
+- [x] Merge a `main` local (18c183e).
+- [ ] Push a GitHub: bloqueado el 23-oct (Git Credential Manager pidió
+  iniciar sesión con el dueño ausente).
+- [ ] Variables runtime en Coolify (app `yjvvp6eudu2s36gsjfps9tkw`):
+  `OPENROUTER_BASE_URL=https://api.anthropic.com`, `OPENROUTER_API_TOKEN`
+  (llave de Anthropic), `OPENROUTER_MODEL=claude-haiku-5-5`, nueva
+  `OPENROUTER_JUDGE_MODEL=claude-sonnet-5-5`; sin `OPENROUTER_EXTRA_BODY`.
+  Solo DESPUÉS del deploy de 030 (el código viejo da 400 con Claude cuando el
+  historial termina en saliente).
+- [ ] Deploy · `/api/health` con el commit · vigilar logs (`fallo del
+  proveedor`, `proveedor respondió 4`, `429`) en los primeros turnos reales.
+- Reversa: restaurar `OPENROUTER_BASE_URL=https://api.minimax.io`,
+  `OPENROUTER_MODEL=MiniMax-M3`, `OPENROUTER_API_TOKEN` = `MINIMAX_API_KEY`
+  de `.env.coolify-api` (termina en `89ug`), borrar `OPENROUTER_JUDGE_MODEL`
+  y reiniciar. El código de 030 funciona igual con MiniMax; redeploy de
+  `9de653e` solo si fallara el código.
