@@ -4229,8 +4229,10 @@ async function porAtenderChecks() {
     ok(`CA-8: umbral ${malo} → 422`, r.res.status === 422, String(r.res.status));
   }
   const viejo = await put({ autoArchiveEnabled: antes?.autoArchiveEnabled ?? false, autoArchiveDays: antes?.autoArchiveDays ?? 14 });
-  ok("CA-8: un cliente viejo (sin el campo) deja el umbral en 60",
-     viejo.res.ok && viejo.json?.settings?.overdueMinutes === 60, JSON.stringify(viejo.json));
+  // 029: el PUT es parcial — sin el campo, el umbral guardado se conserva
+  // (antes volvía a 60).
+  ok("CA-8: un cliente viejo (sin el campo) conserva el umbral guardado (5)",
+     viejo.res.ok && viejo.json?.settings?.overdueMinutes === 5, JSON.stringify(viejo.json));
   await put({ ...antes, overdueMinutes: 5 });
   // Espera de 10 min (entrante con hora vieja) con la IA en pausa: ≥ 5 min.
   await patch(c.id, { aiEnabled: false });

@@ -70,7 +70,7 @@ esperando ∧ espera ≥ umbral (Ajustes → Bandeja, 60 min por defecto).
 
 12. **CA-8** Ajustes → Bandeja (Propietario): «Marcar como atrasada tras N
     minutos» = 5 (`PUT /api/settings/inbox`).
-    ✅ 200; 4, 1441 y 7.5 → 422; un cliente viejo sin el campo deja 60.
+    ✅ 200; 4, 1441 y 7.5 → 422; un cliente viejo sin el campo conserva el umbral guardado (029: PUT parcial).
     ✅ Un chat con 10 min de espera sale en rojo en la Bandeja (la página
     del servidor baja `overdueMinutes: 5` a la lista y al panel; el cambio se
     ve al recargar, sin SSE).

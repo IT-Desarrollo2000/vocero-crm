@@ -1254,11 +1254,20 @@ async function agendaIaRobusta025(ctx) {
     const t2 = keep("barrera → oferta real", o2);
     fragments.e = t2;
     ok(`e) CA-4: el texto inventado NO sale ("${AI_INVENTED_SNIPPET}")`, nuevos.length > 0 && !nuevos.some((t) => t.includes(AI_INVENTED_SNIPPET)), JSON.stringify(nuevos));
-    ok(`e) …sale una oferta REAL del motor para el viernes ${friNum}`, t2.startsWith(`Para el viernes ${friNum} de `) && timesOf(t2).length > 0, t2 || "sin mensaje");
+    // La barrera resuelve el nombre del día HOY INCLUIDO (slot-barrier.ts,
+    // deduceDay): dicho un viernes con huecos aún libres, es hoy; si no, el
+    // próximo viernes.
+    const todayIso = dayIsoOf(new Date());
+    const friE =
+      wdOf(new Date()) === "Fri" && t2.startsWith(`Para el viernes ${Number(todayIso.slice(8, 10))} de `)
+        ? todayIso
+        : FRI;
+    const friENum = Number(friE.slice(8, 10));
+    ok(`e) …sale una oferta REAL del motor para el viernes ${friENum}`, t2.startsWith(`Para el viernes ${friENum} de `) && timesOf(t2).length > 0, t2 || "sin mensaje");
     const ofs = await offersOf(ch.conv.id);
     ok(
       "e) …y offered_slot quedó con las filas de esa oferta (todas del viernes)",
-      ofs.length > 0 && ofs.every((o) => dayIsoOf(new Date(o.ms)) === FRI),
+      ofs.length > 0 && ofs.every((o) => dayIsoOf(new Date(o.ms)) === friE),
       JSON.stringify(ofs.slice(0, 3).map((o) => iso(o.ms)))
     );
     const logFile = process.env.E2E_SERVER_LOG;
