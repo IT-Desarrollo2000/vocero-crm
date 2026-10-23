@@ -168,7 +168,9 @@ export function Composer({
     slash !== null && optionCount > 0 && dismissedAt !== slash.start;
   const active = Math.min(activeIndex, Math.max(optionCount - 1, 0));
   const activeReply = pickerOpen ? matches[active] : undefined;
-  const createActive = pickerOpen && canCreateQuickReply && active === matches.length;
+  // Sin coincidencias «+ Nueva…» no es la opción activa (Enter envía).
+  const createActive =
+    pickerOpen && canCreateQuickReply && matches.length > 0 && active === matches.length;
 
   /** Texto de la respuesta con las variables ya resueltas para ESTE contacto. */
   function renderFor(reply: QuickReplyDto): string {

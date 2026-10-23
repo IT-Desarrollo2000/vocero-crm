@@ -812,6 +812,7 @@ export function BookingsClient() {
 
       {detail && businessTimezone && view !== "lista" && (
         <BookingDetailPanel
+          key={detail.id}
           booking={detail}
           overlap={overlaps[detail.id] ?? null}
           owner={owner}

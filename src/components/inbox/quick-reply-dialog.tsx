@@ -103,7 +103,11 @@ export function QuickReplyDialog({
   return (
     <div
       className="fixed inset-0 z-[60] flex items-stretch justify-center bg-overlay sm:items-center sm:p-4"
-      onClick={onClose}
+      onMouseDown={(e) => {
+        // Solo un clic que EMPIEZA en el fondo cierra: arrastrar al
+        // seleccionar texto y soltar fuera no pierde el borrador.
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         role="dialog"

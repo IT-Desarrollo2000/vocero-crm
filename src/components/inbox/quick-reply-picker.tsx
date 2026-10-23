@@ -32,7 +32,8 @@ export function QuickReplyPicker({
   /** 029: si viene, al final se ofrece «+ Nueva respuesta rápida». */
   onCreate?: () => void;
 }) {
-  const createActive = activeIndex === matches.length;
+  // Sin coincidencias, Enter envía: no se resalta «+ Nueva…» (solo ratón).
+  const createActive = matches.length > 0 && activeIndex === matches.length;
   return (
     <ul
       id={QUICK_REPLY_LISTBOX_ID}
