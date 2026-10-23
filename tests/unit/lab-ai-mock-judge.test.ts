@@ -100,4 +100,26 @@ describe("ai-mock del juez", () => {
     });
     expect(after).toEqual({ veredicto: "verde", hallazgos: [] });
   });
+
+  it("030 — el bloque RESULTADO (con o sin pase) no cambia el despacho del mock", () => {
+    const withHandoff = (key: string, handoff: { reason: string; note: string | null } | null) => {
+      const { system, user } = buildJudgePrompt({
+        persona: key,
+        personaDetail: { name: key, objetivo: "" },
+        transcript: [{ role: "cliente", text: "Hola" }],
+        kbText: "(knowledge base vacío)",
+        behaviorText: "Nombre: Sofi",
+        handoff,
+      });
+      return Verdict.parse(
+        JSON.parse(aiMockCompletion([
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ]))
+      ).veredicto;
+    };
+    expect(withHandoff("fuera_de_kb", { reason: "error", note: "garantía" })).toBe("rojo");
+    expect(withHandoff("pide_humano", { reason: "cliente", note: null })).toBe("verde");
+    expect(withHandoff("pide_humano", null)).toBe("verde");
+  });
 });

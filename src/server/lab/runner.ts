@@ -3,7 +3,7 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
 import { runAgentTurn } from "@/server/ai/pipeline";
-import { renderKb } from "@/server/ai/prompts";
+import { renderKb, type JudgeHandoff } from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import {
   compileExpectFicha,
@@ -346,7 +346,7 @@ async function runAllCases(
       .set({ status: "running" })
       .where(eq(schema.agentTestCase.id, testCase.id));
 
-    const { transcript, conversationId, contactId } = await runConversation(
+    const { transcript, conversationId, contactId, handoff } = await runConversation(
       organizationId,
       testCase.id,
       persona,
@@ -378,6 +378,8 @@ async function runAllCases(
       transcript,
       kbText,
       behaviorText,
+      // 030 — El pase a humano no deja texto: el juez lo ve aparte.
+      handoff,
     });
 
     signal.throwIfAborted();
@@ -426,6 +428,8 @@ async function runConversation(
   transcript: { role: "cliente" | "agente"; text: string }[];
   conversationId: string;
   contactId: string;
+  /** 030 — Pase a asesor con el que terminó el guion; null = ninguno. */
+  handoff: JudgeHandoff | null;
 }> {
   const db = getDb();
 
@@ -454,6 +458,7 @@ async function runConversation(
     .set({ conversationId: convId })
     .where(eq(schema.agentTestCase.id, caseId));
 
+  let handoff: JudgeHandoff | null = null;
   for (const line of persona.guion) {
     signal.throwIfAborted();
     const now = new Date();
@@ -480,11 +485,24 @@ async function runConversation(
     signal.throwIfAborted();
 
     const convRows = await db
-      .select({ handoffAt: schema.conversation.handoffAt })
+      .select({
+        handoffAt: schema.conversation.handoffAt,
+        handoffReason: schema.conversation.handoffReason,
+        handoffNote: schema.conversation.handoffNote,
+      })
       .from(schema.conversation)
       .where(eq(schema.conversation.id, convId))
       .limit(1);
-    if (convRows[0]?.handoffAt) break; // primer handoff → fin del guion
+    const conv = convRows[0];
+    // 030 — Esta lectura tras el ÚLTIMO turno es el estado final del caso:
+    // con handoff se corta el guion aquí mismo.
+    if (conv?.handoffAt) {
+      handoff = {
+        reason: conv.handoffReason ?? null,
+        note: conv.handoffNote ?? null,
+      };
+      break; // primer handoff → fin del guion
+    }
   }
 
   const messages = await db
@@ -496,6 +514,7 @@ async function runConversation(
   return {
     conversationId: convId,
     contactId,
+    handoff,
     transcript: messages
       .filter((m) => m.text)
       .map((m) => ({

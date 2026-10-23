@@ -316,3 +316,24 @@ export function toChatHistory(rows: HistoryRow[]): {
 
   return { messages, lastInboundText };
 }
+
+/**
+ * 030 — Aviso que cierra un historial que termina en saliente. Va etiquetado
+ * como del sistema (patrón de «[Lead del sitio web]»): NO lo escribió el
+ * cliente. Sin «asesor» ni «humano» a propósito: el ai-mock escala con esas
+ * palabras y un modelo real podría leerlas como petición del cliente.
+ */
+export const ENDS_WITH_OUTBOUND_NOTICE =
+  "[Aviso del sistema — no lo escribió el cliente] El último mensaje de arriba ya se le envió al cliente (lo escribiste tú o alguien del equipo). Revisa si quedó algún mensaje del cliente sin responder y, si es así, respóndelo; si no queda nada pendiente, responde {\"action\":\"none\"}.";
+
+/**
+ * 030 — Algunos proveedores (Anthropic, endpoint compatible) responden 400 si
+ * el historial TERMINA en `assistant` (lo toman como prefill). Pasa cuando el
+ * cliente manda dos mensajes seguidos y el turno re-encolado ve la respuesta
+ * al primero al final, o cuando alguien del equipo escribió durante la
+ * espera. No se guarda en BD ni lo ve el regex de handoff (`lastInboundText`).
+ */
+export function ensureEndsWithUser(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.at(-1)?.role !== "assistant") return messages;
+  return [...messages, { role: "user", content: ENDS_WITH_OUTBOUND_NOTICE }];
+}
