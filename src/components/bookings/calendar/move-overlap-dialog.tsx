@@ -42,7 +42,7 @@ export function MoveOverlapDialog({
   }, [saving, onCancel]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-overlay p-4">
+    <div className="fixed inset-0 z-[60] !mt-0 flex items-center justify-center bg-overlay p-4">
       <div
         role="alertdialog"
         aria-modal="true"

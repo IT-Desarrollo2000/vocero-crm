@@ -365,7 +365,7 @@ export function BookingDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-overlay sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 !mt-0 flex items-end justify-center bg-overlay sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !saving && !overlap) onClose();
       }}

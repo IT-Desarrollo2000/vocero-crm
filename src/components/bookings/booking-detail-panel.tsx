@@ -71,9 +71,10 @@ export function BookingDetailPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // `!mt-0`: el padre es un `space-y-6` y su margen bajaba 24px el overlay fijo.
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end justify-end bg-overlay sm:items-stretch"
+      className="fixed inset-0 z-40 !mt-0 flex items-end justify-end bg-overlay sm:items-stretch"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

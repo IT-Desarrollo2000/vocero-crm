@@ -951,7 +951,7 @@ export function Composer({
           <Send className="h-4 w-4" strokeWidth={1.7} />
         </button>
       </div>
-      <div className="mt-1.5 flex items-center justify-between">
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
         <div className="min-w-0">
           {preparing && (
             <p role="status" data-testid="attach-preparing" className="text-xs text-text-2">
@@ -970,13 +970,13 @@ export function Composer({
               type="button"
               data-testid="save-as-quick-reply"
               onClick={() => openQuickReplyDialog({ shortcut: "", body: text.trim() })}
-              className="text-xs font-medium text-brand-text hover:underline"
+              className="whitespace-nowrap text-xs font-medium text-brand-text hover:underline"
             >
               Guardar como respuesta rápida
             </button>
           )}
         </div>
-        <p className="text-[11px] text-text-3">
+        <p className="ml-auto text-right text-[11px] text-text-3">
           {conversation.replyMode === "human_agent"
             ? "Fuera de las 24 h · tu respuesta sale como agente humano (hasta 7 días)"
             : `Ventana abierta · quedan ${formatRemaining(conversation.windowRemainingMs)}`}
