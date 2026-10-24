@@ -319,7 +319,7 @@ async function main() {
     }
   }
 
-  console.log("\n== 7) foto con pie pidiendo un asesor → handoff sin IA ==");
+  console.log("\n== 7) foto con pie pidiendo un asesor → aviso fijo + handoff (030) ==");
   const before7 = await aiOutCount(convId);
   const inb7 = await inbound(from, name, {
     type: "image",
@@ -337,7 +337,19 @@ async function main() {
     c7?.handoffReason === "cliente",
     JSON.stringify({ reason: c7?.handoffReason })
   );
-  ok("y la IA no respondió", (await aiOutCount(convId)) === before7);
+  // 030 — El patrón de respaldo ya no deja al cliente sin respuesta: UN solo
+  // saliente, el aviso fijo según el trato (no una respuesta del modelo).
+  const outs7 = (await messagesOf(convId)).filter(
+    (m) => m.direction === "out" && m.aiGenerated
+  );
+  ok("la IA envió exactamente un saliente: el aviso", outs7.length === before7 + 1);
+  ok(
+    "el aviso es el texto fijo de handoff (tú o usted)",
+    /^Con gusto\. (Le|Te) comunico con un asesor; (le|te) responderá por este mismo chat lo antes posible\.$/.test(
+      outs7.at(-1)?.text ?? ""
+    ),
+    JSON.stringify(outs7.at(-1)?.text ?? null)
+  );
 }
 
 main()

@@ -51,7 +51,9 @@ se mide en el Laboratorio con el modelo real (persona `cliente_que_regresa`).
 ## Handoff por el pie de foto
 
 9. Inbound `type:"image"` con `caption:"quiero hablar con un asesor"` →
-   `handoffReason:"cliente"` por el regex de respaldo, sin respuesta de la IA.
+   `handoffReason:"cliente"` por el regex de respaldo; la IA no consulta al
+   modelo y solo envía el aviso fijo según el trato (030: «Con gusto. Le/Te
+   comunico con un asesor; …»).
 
 ## Fuera del script (verificar en vivo)
 

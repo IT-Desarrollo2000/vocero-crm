@@ -68,9 +68,23 @@ extra; US-1 queda como capacidad configurable.
 - Las calificaciones del Laboratorio dejan de ser comparables con las
   anteriores a este cambio (se anota en el reporte).
 
+### US-4 — El cliente que pide un humano recibe un aviso (decisión del 24-oct)
+- Hoy, cuando el cliente escribe algo como «quiero hablar con un humano», el
+  patrón de respaldo pasa la conversación a un asesor ANTES del LLM y el
+  cliente no recibe nada.
+- Ahora, en ese mismo punto, el agente envía un aviso fijo según el trato del
+  perfil y después escala con motivo `cliente` (mismo orden que la despedida
+  del handoff del modelo):
+  - usted: «Con gusto. Le comunico con un asesor; le responderá por este mismo
+    chat lo antes posible.»
+  - tú: «Con gusto. Te comunico con un asesor; te responderá por este mismo
+    chat lo antes posible.»
+- El envío es de mejor esfuerzo: si falla, se registra y el handoff ocurre
+  igual. En el Laboratorio se persiste como cualquier saliente del sandbox.
+- Solo aplica al patrón de respaldo; el handoff del modelo sigue usando su
+  propia despedida (`farewell`) y los de `ventana`/`error` no avisan.
+
 ## Fuera de alcance
 - Conector nativo `/v1/messages`, caché y salida estructurada.
-- Que el cliente reciba un mensaje cuando el CRM lo pasa a un asesor por
-  frase («quiero hablar con un humano»): hoy no recibe nada. Es decisión de
-  producto, se reporta aparte.
+- Texto del aviso configurable desde el perfil (hoy es fijo por trato).
 - Registro de tokens por llamada en BD.

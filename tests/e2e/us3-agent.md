@@ -18,6 +18,8 @@
 4. **move_stage (FR-021)**: inbound "me interesa, lo compro".
    ✅ Respuesta del agente + el lead aparece en "Interesado" en el kanban.
 5. **Handoff por frase (FR-022/SC-006)**: inbound "quiero hablar con un humano".
+   ✅ El cliente recibe el aviso fijo «Con gusto. Le/Te comunico con un
+   asesor; …» (030) y nada más.
    ✅ Badge de atención humana visible en la conversación; la IA queda
    silenciada (mensajes posteriores NO reciben respuesta).
    ✅ "Reactivar IA" desde el panel vuelve a activar al agente.

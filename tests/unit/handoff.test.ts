@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { matchesHandoffIntent } from "@/server/ai/handoff";
+import {
+  HANDOFF_ACK_TU,
+  HANDOFF_ACK_USTED,
+  handoffAckText,
+  matchesHandoffIntent,
+} from "@/server/ai/handoff";
 
 describe("patrón de respaldo de handoff (FR-022 / SC-006)", () => {
   it.each([
@@ -24,5 +29,18 @@ describe("patrón de respaldo de handoff (FR-022 / SC-006)", () => {
     "el asesor fiscal ya me cobró", // sin verbo de contacto ni "un asesor"
   ])("NO dispara: %s", (text) => {
     expect(matchesHandoffIntent(text)).toBe(false);
+  });
+});
+
+describe("030 — handoffAckText (aviso del patrón de respaldo)", () => {
+  it("devuelve exactamente los textos de la spec según el trato", () => {
+    expect(handoffAckText("usted")).toBe(
+      "Con gusto. Le comunico con un asesor; le responderá por este mismo chat lo antes posible."
+    );
+    expect(handoffAckText("tu")).toBe(
+      "Con gusto. Te comunico con un asesor; te responderá por este mismo chat lo antes posible."
+    );
+    expect(handoffAckText("usted")).toBe(HANDOFF_ACK_USTED);
+    expect(handoffAckText("tu")).toBe(HANDOFF_ACK_TU);
   });
 });

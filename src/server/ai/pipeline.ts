@@ -14,7 +14,7 @@ import {
   resolveStage,
   type AgentActionType,
 } from "@/server/ai/actions";
-import { matchesHandoffIntent } from "@/server/ai/handoff";
+import { handoffAckText, matchesHandoffIntent } from "@/server/ai/handoff";
 import { markHandoff } from "@/server/inbox/handoff";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 import {
@@ -162,6 +162,18 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
   // Patrón de respaldo ANTES del LLM (FR-022) — sobre el texto o, si el
   // último entrante es una foto/video/documento, sobre su pie (RF-03-10).
   if (lastInboundText && matchesHandoffIntent(lastInboundText)) {
+    // 030 — Aviso al cliente ANTES de escalar (mismo orden que la despedida
+    // del modelo). Mejor esfuerzo: si el envío falla, el handoff ocurre igual.
+    try {
+      await deliverReply(
+        conversation,
+        handoffAckText(normalizeFormality(profile.formality))
+      );
+    } catch (err) {
+      console.error(
+        `[agente] aviso de handoff no entregado: ${err instanceof Error ? err.name : typeof err}`
+      );
+    }
     await applyHandoff(conversationId, organizationId, "cliente");
     return;
   }

@@ -1,3 +1,5 @@
+import type { Formality } from "@/lib/formality";
+
 /**
  * Patrón de RESPALDO de intención de escalado (FR-022). Se evalúa sobre el
  * mensaje del cliente ANTES del LLM: si matchea, el handoff ocurre aunque el
@@ -9,6 +11,21 @@ export const HANDOFF_BACKUP_REGEX =
 
 export function matchesHandoffIntent(text: string): boolean {
   return HANDOFF_BACKUP_REGEX.test(text);
+}
+
+/**
+ * 030 — Aviso fijo al cliente cuando el patrón de respaldo escala (US-4): sin
+ * él, quien pidió un humano no recibía nada. Solo para ese camino; el handoff
+ * del modelo usa su propia despedida y los de ventana/error no avisan.
+ */
+export const HANDOFF_ACK_USTED =
+  "Con gusto. Le comunico con un asesor; le responderá por este mismo chat lo antes posible.";
+export const HANDOFF_ACK_TU =
+  "Con gusto. Te comunico con un asesor; te responderá por este mismo chat lo antes posible.";
+
+/** 030 — Texto del aviso según el trato del perfil. */
+export function handoffAckText(formality: Formality): string {
+  return formality === "usted" ? HANDOFF_ACK_USTED : HANDOFF_ACK_TU;
 }
 
 /** Tope de la nota libre de handoff: es contexto para el humano, no un transcript. */

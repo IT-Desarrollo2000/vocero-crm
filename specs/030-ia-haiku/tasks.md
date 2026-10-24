@@ -33,11 +33,21 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
   las 4 corridas. **Decisión: producción SIN `OPENROUTER_EXTRA_BODY`** (la
   variable queda disponible). Calificaciones no comparables con las previas.
 
+## T4b. Aviso al cliente que pide un humano (US-4, 24-oct)
+- [x] `handoffAckText` (tú/usted) en `handoff.ts`; el patrón de respaldo lo
+  envía con `deliverReply` antes de `applyHandoff("cliente")`, de mejor
+  esfuerzo (si falla, log sin datos y handoff igual).
+- [x] Unit (2360 pasan): orden aviso→handoff, tú/usted, envío fallido, y que
+  modelo/error/ventana no avisan.
+- [x] E2E: `e2e-contexto-agente` sección 7 ahora exige UN saliente con el
+  aviso (21/21); selftest 641/641; lab-personas 86/86. Guiones `.md`
+  (`us-contexto-agente`, `us3-agent`) al día. Lint, typecheck y build verdes.
+
 ## T5. Despliegue
 - [x] OK del dueño (23-oct: «continúa con la implementación… te autorizo»).
 - [x] Merge a `main` local (18c183e).
-- [ ] Push a GitHub: bloqueado el 23-oct (Git Credential Manager pidió
-  iniciar sesión con el dueño ausente).
+- [x] Push a GitHub (24-oct; el 23-oct lo bloqueó Git Credential Manager
+  con el dueño ausente).
 - [ ] Variables runtime en Coolify (app `yjvvp6eudu2s36gsjfps9tkw`):
   `OPENROUTER_BASE_URL=https://api.anthropic.com`, `OPENROUTER_API_TOKEN`
   (llave de Anthropic), `OPENROUTER_MODEL=claude-haiku-5-5`, nueva

@@ -39,6 +39,8 @@ vi.mock("@/server/ai/contact-context", async (importOriginal) => {
 const timeline: string[] = [];
 const selectQueue: unknown[][] = [];
 const updates: Record<string, unknown>[] = [];
+// 030 — Si es true, la próxima inserción de saliente truena (envío fallido).
+let failNextOutbound = false;
 
 function thenableChain(rows: unknown[]) {
   const chain: Record<string, unknown> = {};
@@ -55,6 +57,10 @@ vi.mock("@/lib/db", () => {
     select: () => thenableChain(selectQueue.shift() ?? []),
     insert: () => ({
       values: (values: Record<string, unknown>) => {
+        if (values.direction === "out" && failNextOutbound) {
+          failNextOutbound = false;
+          return Promise.reject(new Error("BD caída al enviar"));
+        }
         if (values.direction === "out") timeline.push(`out:${String(values.text)}`);
         return Promise.resolve([values]);
       },
@@ -62,6 +68,10 @@ vi.mock("@/lib/db", () => {
     update: () => ({
       set: (values: Record<string, unknown>) => {
         updates.push(values);
+        // 030 — El handoff también entra a la línea de tiempo (orden aviso → escalado).
+        if (values.handoffAt instanceof Date) {
+          timeline.push(`handoff:${String(values.handoffReason)}`);
+        }
         return {
           where: () => ({
             // La conversación del turno es del Laboratorio (isTest): markHandoff
@@ -248,5 +258,103 @@ describe("030 — turno con historial que termina en saliente", () => {
     expect(updates.some((u) => u.handoffReason === "cliente")).toBe(true);
     // El valor encolado para este turno no se consumió: no contamina al siguiente.
     vi.mocked(chatJson).mockReset();
+  });
+});
+
+describe("030 — aviso al cliente cuando escala el patrón de respaldo", () => {
+  beforeEach(() => {
+    selectQueue.length = 0;
+    updates.length = 0;
+    timeline.length = 0;
+    failNextOutbound = false;
+    upsertFicha.mockReset();
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    vi.stubEnv("OPENROUTER_MODEL", "modelo-test");
+  });
+
+  async function phraseTurn(profile: object) {
+    const { chatJson } = await import("@/lib/ai");
+    vi.mocked(chatJson).mockReset();
+    selectQueue.push([conversation], [profile]);
+    loadHistoryRows.mockResolvedValueOnce([
+      { direction: "in", text: "quiero hablar con un humano" },
+    ]);
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_lab");
+    expect(chatJson).not.toHaveBeenCalled();
+  }
+
+  it("trato usted: entrega el aviso usted y DESPUÉS escala con 'cliente'", async () => {
+    const { HANDOFF_ACK_USTED } = await import("@/server/ai/handoff");
+    await phraseTurn({ ...baseProfile, formality: "usted" });
+    expect(timeline).toEqual([`out:${HANDOFF_ACK_USTED}`, "handoff:cliente"]);
+  });
+
+  it("trato tú (o perfil sin trato): entrega el aviso tú", async () => {
+    const { HANDOFF_ACK_TU } = await import("@/server/ai/handoff");
+    await phraseTurn({ ...baseProfile, formality: "tu" });
+    expect(timeline).toEqual([`out:${HANDOFF_ACK_TU}`, "handoff:cliente"]);
+    timeline.length = 0;
+    await phraseTurn(baseProfile);
+    expect(timeline).toEqual([`out:${HANDOFF_ACK_TU}`, "handoff:cliente"]);
+  });
+
+  it("si el envío truena, el handoff 'cliente' ocurre igual y no se propaga", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    failNextOutbound = true;
+    await expect(
+      phraseTurn({ ...baseProfile, formality: "usted" })
+    ).resolves.toBeUndefined();
+    expect(timeline).toEqual(["handoff:cliente"]);
+    // El log lleva el tipo de error, nunca el texto del cliente.
+    const logged = err.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("aviso de handoff");
+    expect(logged).not.toContain("humano");
+    err.mockRestore();
+  });
+
+  it("el handoff del MODELO no manda el aviso fijo (usa su despedida)", async () => {
+    await turn(baseProfile, {
+      action: "handoff",
+      reason: "pide humano",
+      farewell: "Te paso.",
+    });
+    expect(timeline).toEqual(["out:Te paso.", "handoff:modelo"]);
+  });
+
+  it("el handoff por ERROR del proveedor no manda el aviso", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { chatJson } = await import("@/lib/ai");
+    vi.mocked(chatJson).mockReset();
+    vi.mocked(chatJson).mockResolvedValueOnce({
+      ok: false,
+      error: "provider_error",
+      detail: "x",
+    });
+    selectQueue.push([conversation], [baseProfile], [], []);
+    loadHistoryRows.mockResolvedValueOnce([{ direction: "in", text: "hola" }]);
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_lab");
+    expect(timeline).toEqual(["handoff:error"]);
+    err.mockRestore();
+  });
+
+  it("el handoff por VENTANA cerrada no manda el aviso (aunque pida humano)", async () => {
+    selectQueue.push(
+      [
+        {
+          ...conversation,
+          isTest: false,
+          lastInboundAt: new Date(Date.now() - 48 * 3600_000),
+        },
+      ],
+      [baseProfile]
+    );
+    loadHistoryRows.mockResolvedValueOnce([
+      { direction: "in", text: "quiero hablar con un humano" },
+    ]);
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_lab");
+    expect(timeline).toEqual(["handoff:ventana"]);
   });
 });
