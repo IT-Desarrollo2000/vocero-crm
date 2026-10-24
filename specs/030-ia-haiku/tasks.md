@@ -48,14 +48,17 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 - [x] Merge a `main` local (18c183e).
 - [x] Push a GitHub (24-oct; el 23-oct lo bloqueó Git Credential Manager
   con el dueño ausente).
-- [ ] Variables runtime en Coolify (app `yjvvp6eudu2s36gsjfps9tkw`):
+- [x] Variables runtime en Coolify (app `yjvvp6eudu2s36gsjfps9tkw`, 24-oct):
   `OPENROUTER_BASE_URL=https://api.anthropic.com`, `OPENROUTER_API_TOKEN`
-  (llave de Anthropic), `OPENROUTER_MODEL=claude-haiku-5-5`, nueva
-  `OPENROUTER_JUDGE_MODEL=claude-sonnet-5-5`; sin `OPENROUTER_EXTRA_BODY`.
-  Solo DESPUÉS del deploy de 030 (el código viejo da 400 con Claude cuando el
-  historial termina en saliente).
-- [ ] Deploy · `/api/health` con el commit · vigilar logs (`fallo del
-  proveedor`, `proveedor respondió 4`, `429`) en los primeros turnos reales.
+  (llave de Anthropic, termina en `sgAA`), `OPENROUTER_MODEL=claude-haiku-5-5`,
+  nueva `OPENROUTER_JUDGE_MODEL=claude-sonnet-5-5` (copia preview borrada); sin
+  `OPENROUTER_EXTRA_BODY`.
+- [x] Deploy e9cfd4c (deployment `igvjwcrhswn2yh0lz7tbsp39`, 17:24–17:29Z,
+  ~5 min, finished, running:healthy; `/api/health` commit e9cfd4c; logs
+  limpios: 0 fallo del proveedor/429/401/403/EMAXCONNSESSION).
+- [x] Verificado con tráfico real: entrante 17:29:08Z → respuesta de Haiku
+  17:29:20Z (frase de escalado del negocio + handoff `modelo`), 0 handoff
+  `error`.
 - Reversa: restaurar `OPENROUTER_BASE_URL=https://api.minimax.io`,
   `OPENROUTER_MODEL=MiniMax-M3`, `OPENROUTER_API_TOKEN` = `MINIMAX_API_KEY`
   de `.env.coolify-api` (termina en `89ug`), borrar `OPENROUTER_JUDGE_MODEL`
