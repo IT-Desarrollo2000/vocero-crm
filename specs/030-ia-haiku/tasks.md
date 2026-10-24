@@ -56,9 +56,11 @@ Plan: [plan.md](plan.md). `[x]` hecho y verificado · `[ ]` pendiente.
 - [x] Deploy e9cfd4c (deployment `igvjwcrhswn2yh0lz7tbsp39`, 17:24–17:29Z,
   ~5 min, finished, running:healthy; `/api/health` commit e9cfd4c; logs
   limpios: 0 fallo del proveedor/429/401/403/EMAXCONNSESSION).
-- [x] Verificado con tráfico real: entrante 17:29:08Z → respuesta de Haiku
-  17:29:20Z (frase de escalado del negocio + handoff `modelo`), 0 handoff
-  `error`.
+- [ ] Primer turno real atribuible a Haiku. La única respuesta tras el deploy
+  (entrante 17:29:08Z → respuesta 17:29:20Z, frase de escalado + handoff
+  `modelo`) cayó en el solapamiento de contenedores: pudo servirla el viejo
+  (MiniMax). Desde 17:31Z: 1 entrante, 0 respuestas IA, 0 handoff `error`.
+  Confirmar con la siguiente respuesta real o en la Console de Anthropic (Usage).
 - Reversa: restaurar `OPENROUTER_BASE_URL=https://api.minimax.io`,
   `OPENROUTER_MODEL=MiniMax-M3`, `OPENROUTER_API_TOKEN` = `MINIMAX_API_KEY`
   de `.env.coolify-api` (termina en `89ug`), borrar `OPENROUTER_JUDGE_MODEL`
