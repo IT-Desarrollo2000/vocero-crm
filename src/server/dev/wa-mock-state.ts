@@ -127,6 +127,13 @@ type WaMockState = {
    * con los campos pedidos y si se aceptó. Aparte del outbox, como `uploads`.
    */
   subscriptions: SubscriptionEntry[];
+  /**
+   * Nombres de Messenger: con `down` el `GET {pageId}/conversations` falla
+   * (además del perfil "sinperfil"), para dejar un contacto con el respaldo y
+   * luego probar que se renombra. `POST /api/dev/wa-mock/fb-conversations`;
+   * el reset total lo regresa a `ok`.
+   */
+  fbConversations: "ok" | "down";
 };
 
 /** 020 fase C — Una suscripción `subscribed_apps` que el CRM pidió. */
@@ -150,6 +157,7 @@ function freshState(prev?: WaMockState): WaMockState {
     invalidMediaIds: new Set(),
     issuedUploadIds: prev?.issuedUploadIds ?? [],
     subscriptions: [],
+    fbConversations: "ok",
   };
 }
 
@@ -164,6 +172,7 @@ export function getWaMockState(): WaMockState {
   state.invalidMediaIds ??= new Set();
   state.issuedUploadIds ??= [];
   state.subscriptions ??= [];
+  state.fbConversations ??= "ok";
   return state;
 }
 

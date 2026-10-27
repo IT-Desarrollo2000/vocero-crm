@@ -171,8 +171,26 @@ export async function GET(req: Request, ctx: Params) {
   }
 
   // Perfil de quien escribe por Messenger ({PSID}) o Instagram ({IGSID}).
-  // Un id con "sinperfil" imita el fallo de Meta (función no aprobada).
+  // Un id con "sinperfil" imita el fallo de Meta (función no aprobada). En
+  // Messenger es exactamente el de producción sin Business Asset User Profile
+  // Access: 400, code 100, error_subcode 33.
   if (path.length === 1 && /^(psid|ig)/.test(path[0]!)) {
+    if (path[0]!.startsWith("psid") && path[0]!.includes("sinperfil")) {
+      return Response.json(
+        {
+          error: {
+            message:
+              `Unsupported get request. Object with ID '${path[0]}' does not exist, ` +
+              "cannot be loaded due to missing permissions, or does not support this operation.",
+            type: "GraphMethodException",
+            code: 100,
+            error_subcode: 33,
+            fbtrace_id: "mock",
+          },
+        },
+        { status: 400 }
+      );
+    }
     if (path[0]!.includes("sinperfil")) {
       return Response.json(
         { error: { message: "Missing permission", type: "OAuthException", code: 10 } },
@@ -182,6 +200,30 @@ export async function GET(req: Request, ctx: Params) {
     return path[0]!.startsWith("psid")
       ? Response.json({ id: path[0], first_name: "Cliente", last_name: "Messenger" })
       : Response.json({ id: path[0], name: "Cliente Instagram", username: "cliente_ig" });
+  }
+
+  // Nombre de Messenger por la conversación de la Página (lo que sí permite
+  // pages_messaging). Como Meta, vienen los DOS participantes y la Página
+  // primero: el CRM debe elegir por id. `fb-conversations` en `down` la tumba.
+  if (path.length === 2 && path[1] === "conversations") {
+    if (getWaMockState().fbConversations === "down") {
+      return graphParamError("(#100) conversations no disponible (mock down)");
+    }
+    const userId = new URL(req.url).searchParams.get("user_id") ?? "";
+    if (!userId) return Response.json({ data: [] });
+    return Response.json({
+      data: [
+        {
+          id: `t_${userId}`,
+          participants: {
+            data: [
+              { name: "Página de prueba Vocero", id: path[0] },
+              { name: "Cliente por Conversación", id: userId },
+            ],
+          },
+        },
+      ],
+    });
   }
 
   // Acceso del token a la WABA (checkWabaAccess): dueño de la WABA y usuarios

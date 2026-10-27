@@ -121,6 +121,37 @@ Para ambos canales:
 - El **id de la Página** está en *Página → Información → Transparencia de la
   página*, o lo devuelve `GET /me?fields=id,name` con el token de la Página.
 
+#### Nombre del contacto de Messenger
+
+El webhook no trae el nombre de quien escribe. Vocero lo pide una sola vez
+(contacto nuevo, o que sigue como "Contacto de Messenger"):
+
+1. Primero el perfil, `GET /{psid}?fields=first_name,last_name`. Esa lectura
+   exige la función **Business Asset User Profile Access**; sin ella Meta
+   responde `code 100, error_subcode 33` al instante.
+2. Si falla o viene vacío, la conversación de la Página:
+   `GET /{pageId}/conversations?platform=messenger&user_id={psid}&fields=participants`,
+   que solo necesita los permisos de arriba. Se toma el participante cuyo
+   `id` es el PSID (el otro es la Página y nunca se usa).
+
+Si las dos fallan, el contacto entra igual como "Contacto de Messenger" y se
+renombra solo con su siguiente mensaje. Un nombre que el operador editó
+jamás se pisa. Para renombrar de una vez a los que ya quedaron con el
+respaldo (por ejemplo, tras actualizar desde una versión anterior):
+
+```bash
+# Solo cuenta cuántos cambiaría (no escribe):
+DATABASE_URL=... ENCRYPTION_KEY=... node scripts/backfill-nombres-messenger.mjs
+# Escribe name y profile_name:
+DATABASE_URL=... ENCRYPTION_KEY=... node scripts/backfill-nombres-messenger.mjs --apply
+```
+
+Dentro del contenedor (que ya trae `DATABASE_URL` y `ENCRYPTION_KEY`; en
+Coolify, pestaña *Terminal* del recurso) va empaquetado:
+`node backfill-nombres-messenger.mjs` y luego `--apply`. Usa la misma
+`ENCRYPTION_KEY` de la instancia (descifra el token de la Página), no lee
+`.env`, no imprime tokens ni nombres y es re-ejecutable.
+
 ## 3. Conectar en Vocero
 
 **Ajustes → Instagram**: elige "Meta directo", pega el IG_ID y el token.
@@ -206,6 +237,7 @@ adjuntos (envío, recepción, bloqueos, subida binaria a Instagram y caché de 3
 | Llegan mensajes de Messenger al webhook pero no a la bandeja | La Página no está conectada en Ajustes, o es otra Página. Se ve en el log como `[fb] evento para la Página desconocida`. |
 | No llega nada de Messenger | La Página no está suscrita a la app: reconecta con un token que tenga `pages_manage_metadata`. |
 | "…necesita la función Human Agent…" | Meta aún no aprueba *Human Agent* para la app. Dentro de las 24 h se responde normal. |
+| Todos los contactos de Messenger salen como "Contacto de Messenger" | Fallan las dos vías del [nombre](#nombre-del-contacto-de-messenger): revisa que el token sea de la Página con `pages_messaging`. Luego corre el backfill. |
 | Instagram pide reconectar cada ~60 días | El token de Instagram caduca: genera otro y pégalo de nuevo. |
 | Un archivo por Instagram queda "no entregado" | Meta rechazó la subida o el envío (el motivo queda en el mensaje fallido): revisa que el token tenga `instagram_business_manage_messages` y que el archivo cumpla los límites de arriba. |
 | "Instagram solo acepta imágenes (JPG/PNG), PDF, audio (AAC/M4A/WAV) y video (MP4/MOV/WEBM)" | Es un límite de Instagram: manda el Word/Excel como PDF y el audio en M4A/AAC/WAV. |

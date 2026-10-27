@@ -1,4 +1,3 @@
-import { graphRequest } from "@/lib/meta/client";
 import { resolveChannelProfileName } from "@/server/channels/profile";
 import { FB_PREFIX } from "@/server/inbox/identity";
 import { ingestInboundBatch, registrarOrigenSinMensaje } from "@/server/inbox/ingest";
@@ -12,6 +11,7 @@ import {
   type MetaInboundItem,
 } from "@/server/channels/meta-attachments";
 import { getMessengerCredentialsByPageId } from "@/server/messenger/credentials";
+import { fetchMessengerName } from "@/server/messenger/profile";
 
 /**
  * 017 — Adaptador de entrada del canal de Messenger.
@@ -147,20 +147,16 @@ export async function processMessengerPayload(payload: unknown): Promise<void> {
       continue;
     }
 
-    // El webhook no trae el nombre: se pide al User Profile API (requiere
-    // Business Asset User Profile Access) solo si aún no lo tenemos.
+    // El webhook no trae el nombre: se pide solo si aún no lo tenemos, por el
+    // perfil o, sin Business Asset User Profile Access, por la conversación
+    // de la Página (ver `fetchMessengerName`).
     const nombreDe = (psid: string, identity: string) =>
       resolveChannelProfileName({
         organizationId: creds.organizationId,
         channel: "messenger",
         identity,
-        fetchName: async () => {
-          const p = await graphRequest<{ first_name?: string; last_name?: string }>(
-            `${psid}?fields=first_name,last_name`,
-            { token: creds.token }
-          );
-          return [p.first_name, p.last_name].filter(Boolean).join(" ") || null;
-        },
+        fetchName: () =>
+          fetchMessengerName({ psid, pageId: creds.pageId, token: creds.token }),
       });
 
     // 020 fase C: el origen sin mensaje se registra sobre la conversación del
