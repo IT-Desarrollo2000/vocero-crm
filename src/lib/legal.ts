@@ -14,7 +14,7 @@ export const LEGAL = {
   /** Domicilio del responsable. */
   address: "Calle 4 #70, Fracc. Nances II, Centro, Villahermosa, Tabasco",
   /** Última actualización (ISO, AAAA-MM-DD). */
-  lastUpdated: "2026-10-13",
+  lastUpdated: "2026-10-28",
   /** Plazo máximo para atender una eliminación de datos, en días. */
   deletionDays: 30,
   /** Frase que el usuario puede escribir por el canal para pedir la baja. */
@@ -35,9 +35,9 @@ export const LEGAL = {
       location: null,
     },
     {
-      name: "MiniMax",
+      name: "Anthropic, PBC (Claude API)",
       role: "proveedor de modelos de inteligencia artificial, consumido por API, al que se envía el texto necesario de la conversación y el nombre del cliente para generar las respuestas del asistente (nunca credenciales ni tokens)",
-      location: null,
+      location: "Estados Unidos",
     },
   ],
 } as const;
