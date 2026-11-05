@@ -59,7 +59,8 @@ modo agencia no es el de esta instancia: sin pull, la plantilla se queda
     ✅ Aviso "…sin saltos (falta {{2}})", botón deshabilitado y, si se fuerza
     por API, 422 — la numeración posicional contigua es requisito de Meta.
 13. Con la plantilla aprobada y la ventana cerrada, el envío pide **un campo por
-    variable** (`Valor de {{1}}`…`{{3}}`).
+    variable** (031: «Completa los espacios» → «Espacio 1 · va en “…”»…«Espacio 3»;
+    «Enviar plantilla» deshabilitado con «Llena el espacio N para poder enviarla.»).
     ✅ El outbox del wa-mock trae los 3 `parameters` en orden y el hilo muestra
     el texto ya sustituido.
     ✅ Faltando un valor → 422 diciendo cuál falta; el wa-mock además replica el

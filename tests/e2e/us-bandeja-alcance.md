@@ -96,11 +96,11 @@ pestañas excluyen archivadas y no dependen de la búsqueda ni de los filtros
     Bandeja.
     ✅ La lista de "Mis chats" dice "Aún no tienes chats." con el botón
     "Ir al Buzón (N)" (N = chats en el Buzón); sin conversación abierta, el
-    panel derecho dice "Hay N chats esperando en el Buzón" con "Ver el
-    Buzón". Ambos botones cambian al Buzón. Con el Buzón vacío, la lista dice
-    "El Buzón también está vacío por ahora." sin botón y el panel derecho no
-    muestra el recordatorio. En "Buzón" o "Equipo", el panel derecho no
-    cambia.
+    panel derecho (031: «Esto es lo que te toca ahora:») trae el acceso
+    "N chats en el Buzón sin tomar". Ambos cambian al Buzón. Con el Buzón
+    vacío, la lista dice "El Buzón también está vacío por ahora." sin botón y
+    el panel derecho no muestra ese acceso. En "Buzón" el panel derecho no lo
+    repite.
 
 ## Búsqueda
 

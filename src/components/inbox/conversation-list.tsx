@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
+  Bot,
   Hourglass,
   Inbox,
   Search,
   SlidersHorizontal,
   Sparkles,
+  UserCheck,
   X,
 } from "lucide-react";
 import type {
@@ -46,7 +48,37 @@ import {
 import { EtiquetaDeOrigen } from "@/components/anuncio-origen";
 import { CLOSING_TICK_MS, type InboxListError } from "./use-inbox-list";
 import { AlertsBanner } from "./alerts-banner";
-import { ScopeTabs } from "./scope-tabs";
+import { ScopeTabs, scopeDescription } from "./scope-tabs";
+
+/**
+ * 031 — «Tomar» en la fila del Buzón: botón HERMANO del de la fila (no se
+ * anidan interactivos), así que tomar no abre el chat.
+ */
+function TakeButton({ name, onTake }: { name: string; onTake: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      data-testid="row-take"
+      aria-label={`Tomar el chat de ${name}`}
+      title="Tomar: quedará a tu nombre"
+      disabled={busy}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        try {
+          await onTake();
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="absolute bottom-2 right-3 inline-flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 text-[12.5px] font-semibold text-brand-fg shadow-sm transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-60"
+    >
+      <UserCheck className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+      {busy ? "Tomando…" : "Tomar"}
+    </button>
+  );
+}
 
 /** Pausa de la búsqueda antes de pedirla al servidor. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -354,6 +386,8 @@ export function ConversationList({
   onRetry,
   onArchive,
   overdueMinutes = OVERDUE_DEFAULT_MINUTES,
+  aiReady = false,
+  onTake,
 }: {
   /** 06: lo cargado y dentro del filtro activo; null = primera carga. */
   conversations: ConversationDto[] | null;
@@ -388,6 +422,13 @@ export function ConversationList({
   onArchive?: (id: string, archived: boolean) => void;
   /** 026: minutos de espera a partir de los que la fila sale en rojo. */
   overdueMinutes?: number;
+  /**
+   * 031: ¿el agente de la instancia responde? Sin esto no se rotula
+   * «Responde la IA» (no se promete una IA que no contesta).
+   */
+  aiReady?: boolean;
+  /** 031: «Tomar» por fila en el Buzón (misma API que el del hilo). */
+  onTake?: (id: string) => Promise<void>;
 }) {
   // 020: arranca con la búsqueda de la URL (los filtros viven ahí).
   const [query, setQuery] = useState(filters.q);
@@ -691,9 +732,18 @@ export function ConversationList({
               searching={searching}
               onChange={(s) => onFiltersChange({ scope: s })}
             />
-            {searching && (
+            {searching ? (
               <p role="status" className="mt-1.5 text-[11.5px] text-text-3">
                 {viewerOwner ? "Buscando en todos los chats" : "Buscando en todos tus chats"}
+              </p>
+            ) : (
+              // 031: qué hay en la pestaña activa (fuera del grupo: el E2E
+              // mide su ancho a 390 px).
+              <p data-testid="scope-description" className="mt-1.5 text-[12px] leading-snug text-text-2">
+                {scopeDescription(
+                  !viewerOwner && filters.scope === "team" ? "mine" : (filters.scope ?? "mine"),
+                  viewerOwner
+                )}
               </p>
             )}
           </div>
@@ -925,6 +975,14 @@ export function ConversationList({
               const closesIn = closingRemainingMs(c.channel, c.lastInboundAt, now);
               const active = selectedId === c.id;
               const archived = c.archivedAt != null;
+              // 031: «Tomar» por fila solo en el Buzón y si de veras nadie
+              // la tiene (la copia de la fila puede ir un paso atrás).
+              const takeable =
+                !!onTake && teamMode && scope === "inbox" && c.assignedTo === null;
+              // 031 (E): rótulo «Responde la IA» solo si la fila no lleva ya
+              // otro estado (Esperando/Atendida/escalada, Cierra en, Archivada).
+              const aiAnswers =
+                aiReady && c.aiEnabled && !c.handoffAt && !archived && closesIn === null;
               return (
                 <li
                   key={c.id}
@@ -994,7 +1052,13 @@ export function ConversationList({
                       {/* 026: «Esperando · menos de 1 min» + etapa + «Cierra
                           en…» + asignado no caben en una columna angosta:
                           bajan de línea (flex-wrap) en vez de recortarse. */}
-                      <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "mt-1.5 flex flex-wrap items-center gap-1.5",
+                          // Reserva el renglón y el hueco del «Tomar».
+                          takeable && "min-h-[26px] pr-[78px]"
+                        )}
+                      >
                         {/* 022: en cualquier vista (búsqueda, enlace
                             ?contact=), no solo en Archivadas. */}
                         {archived && (
@@ -1034,10 +1098,23 @@ export function ConversationList({
                             Cierra en {formatRemaining(closesIn)}
                           </span>
                         )}
+                        {aiAnswers && (
+                          <span
+                            data-testid="ai-chip"
+                            title="La IA le está respondiendo a este cliente"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-soft bg-brand-tint px-2 py-0.5 text-[11px] text-brand-text"
+                          >
+                            <Bot className="h-3 w-3" strokeWidth={1.7} aria-hidden />
+                            Responde la IA
+                          </span>
+                        )}
                         {showAssignee && <AssigneeTag c={c} viewerId={viewer.userId} owner={viewerOwner} />}
                       </span>
                     </span>
                   </button>
+                  {takeable && onTake && (
+                    <TakeButton name={c.contact.name} onTake={() => onTake(c.id)} />
+                  )}
                   {/* 022: acción rápida HERMANA del botón de la fila (no se
                       anidan botones). En escritorio aparece al pasar el
                       cursor o al enfocar con teclado; en móvil no se pinta

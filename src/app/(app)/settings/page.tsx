@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { loginRedirectPath } from "@/lib/auth/guards";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { isOwner } from "@/lib/roles";
 
@@ -6,6 +7,6 @@ import { isOwner } from "@/lib/roles";
 // "Mi cuenta" (029: y Respuestas rápidas); mandarlo a WhatsApp sería un 404.
 export default async function SettingsPage() {
   const session = await getSessionOrNull();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginRedirectPath());
   redirect(isOwner(session) ? "/settings/whatsapp" : "/settings/account");
 }

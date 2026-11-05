@@ -194,7 +194,18 @@ try {
   );
   const clip = page.getByRole("button", { name: "Adjuntar archivo" });
   ok("el clip explica qué acepta el canal", /WhatsApp acepta/.test((await clip.getAttribute("title")) ?? ""));
-  ok("hay botones de ubicación y contacto (WhatsApp)", (await page.getByRole("button", { name: "Enviar ubicación" }).count()) === 1);
+  // 031: ubicación y contacto viven en el menú «Adjuntar», junto a los tipos
+  // de archivo con sus formatos y topes (antes eran botones sueltos).
+  await clip.click();
+  const attachMenu = page.getByRole("menu", { name: "¿Qué quieres mandar?" });
+  ok("«Adjuntar» abre el menú «¿Qué quieres mandar?»", await attachMenu.waitFor({ timeout: 5000 }).then(() => true).catch(() => false));
+  const menuText = (await attachMenu.innerText().catch(() => "")) ?? "";
+  ok("el menú dice tipos y topes del canal (Foto 5 MB, Documento 100 MB)", /Foto[\s\S]*JPG o PNG · hasta 5 MB/.test(menuText) && /Documento[\s\S]*hasta 100 MB/.test(menuText), menuText);
+  ok("hay ubicación y contacto en el menú (WhatsApp)",
+     (await attachMenu.getByRole("menuitem", { name: "Enviar ubicación" }).count()) === 1 &&
+       (await attachMenu.getByRole("menuitem", { name: "Compartir contacto" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  ok("Esc cierra el menú", await attachMenu.waitFor({ state: "detached", timeout: 3000 }).then(() => true).catch(() => false));
 
   // Validación ligera en cliente: un .exe se rechaza con la frase del canal.
   await page.locator('input[type="file"]').setInputFiles({

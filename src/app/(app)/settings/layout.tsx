@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { loginRedirectPath } from "@/lib/auth/guards";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { agendaEnabled } from "@/server/agenda/flag";
@@ -18,7 +19,7 @@ export default async function SettingsLayout({
   // Compartido por las pestañas del Propietario y por "Mi cuenta": el rol solo
   // decide qué pestañas se pintan. La guarda real está en `(owner)/layout.tsx`.
   const session = await getSessionOrNull();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginRedirectPath());
   return (
     <div className="flex h-full flex-col">
       <header className="border-b px-4 py-3 sm:px-6 sm:py-4">

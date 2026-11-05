@@ -603,7 +603,7 @@ async function uiChecks(KEY, convId, contactId) {
     const cardText = (await cardEl.textContent().catch(() => "")) ?? "";
     ok("el hilo muestra la tarjeta «Lead del sitio web»", cardText.includes("Lead del sitio web") && cardText.includes("BYD Dolphin"), cardText.slice(0, 120));
     ok("y la de promotor", (await inbox.getByTestId("lead-intake-card").count()) === 2);
-    const closed = await until(async () => (await inbox.getByText("La ventana de 24 horas está cerrada.").count()) > 0, 10000);
+    const closed = await until(async () => (await inbox.getByText("usa un mensaje aprobado").count()) > 0, 10000);
     ok("el compositor ofrece solo plantilla", !!closed);
 
     await inbox.goto(`${BASE}/settings/leads-externos`, { waitUntil: "load" });

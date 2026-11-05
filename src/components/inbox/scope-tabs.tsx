@@ -18,6 +18,24 @@ const SCOPE_TITLE: Record<InboxScope, string> = {
 };
 
 /**
+ * 031 — Qué hay en cada pestaña, visible bajo el selector (la pantalla se
+ * explica sola). El Propietario NO se asigna al contestar (regla 09/027): su
+ * Buzón incluye los que contesta sin tomarlos, y su frase lo dice.
+ */
+export function scopeDescription(scope: InboxScope, owner: boolean): string {
+  switch (scope) {
+    case "mine":
+      return "Chats a tu nombre. Empieza por los que esperan respuesta.";
+    case "inbox":
+      return owner
+        ? "Chats que nadie ha tomado (también los que contestas sin tomarlos). Toma uno para que quede a tu nombre."
+        : "Chats que nadie ha tomado. Toma uno para que quede a tu nombre; si le contestas, también se vuelve tuyo.";
+    case "team":
+      return "Chats que atiende otro miembro del equipo.";
+  }
+}
+
+/**
  * 027 — Orden de las pestañas por rol: el Vendedor empieza por lo suyo (su
  * default); el Propietario, por el Buzón (su default) y luego lo del equipo.
  * El Vendedor no tiene "Equipo": no ve chats ajenos.
