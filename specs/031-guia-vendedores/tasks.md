@@ -30,4 +30,4 @@ Rama `031-guia-vendedores`.
 - [x] T9 Gate `typecheck && lint && build && test`
 - [x] T10 `scripts/ayuda-capturas.mjs` → `public/ayuda/*.png` (BD aislada) — 9 PNG con datos ficticios («Mueblería Demo», vendedora Daniela Ortiz), recortadas a la zona del tema (≤ 120 KB c/u); `--revisar <dir>` deja /ayuda por tramos y 3 pantallas en oscuro para revisarlas a ojo. La página pinta cada captura a su tamaño real (lee el IHDR), sin estirarla.
 - [x] T11 `scripts/e2e-ayuda.mjs` verde (+ `tests/e2e/us-ayuda.md`) — sin el paso «?» del plan (retirado); en su lugar, los estados (a)–(f) de US-3. 82/82 (AGENDA=on) + 8/8 (`--off`, AGENDA=off CHANNELS=whatsapp). Destapó y quedó corregido: la franja «quién responde» compartía `key` con el Composer y se acumulaba al cambiar de chat.
-- [ ] T12 Deploy a prod y link para WhatsApp
+- [x] T12 Deploy a prod y link para WhatsApp — d4a6f83 EN PROD (5-nov-2026, deploy yjov9cx1fqhfjbev0cr8anrd healthy). Verificado: /ayuda sin sesión → 307 /login?next=%2Fayuda; capturas 200 image/png; next=//evil.com no redirige. Reversa: redeploy 03d7e73 (sin migraciones). Link: https://crm.bers-tech.cloud/ayuda
