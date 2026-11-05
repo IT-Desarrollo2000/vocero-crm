@@ -30,7 +30,7 @@ import { reportOpenConversation } from "@/components/alerts-coordinator";
 import { isOwner } from "@/lib/roles";
 import { ConversationList } from "./conversation-list";
 import { MessageThread } from "./message-thread";
-import { Composer } from "./composer";
+import { Composer, type AiPrompt } from "./composer";
 import { ContactPanel } from "./contact-panel";
 import { AssignmentControl, type TeamOption } from "./assignment-control";
 import { useInboxList } from "./use-inbox-list";
@@ -43,6 +43,11 @@ import {
 } from "./list-state";
 import { SCOPE_LABEL } from "./scope-tabs";
 import { BookingDialog } from "@/components/bookings/booking-dialog";
+import { WhoAnswersStrip } from "./who-answers-strip";
+import { InboxSummary } from "./inbox-summary";
+import { summaryItems } from "@/lib/inbox-summary";
+import { takeOverAssigns, whoAnswers } from "@/lib/who-answers";
+import { displayFirstName } from "@/lib/template-fill";
 import { OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
@@ -159,6 +164,24 @@ export function InboxClient({
     const t = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(t);
   }, [notice]);
+
+  // 031 — ¿El agente de la instancia responde (configurado ∧ encendido)? La
+  // franja «quién responde» y el rótulo «Responde la IA» no prometen una IA
+  // que no contesta. Mientras no se sabe, se asume que no.
+  const [agentReady, setAgentReady] = useState(false);
+  const loadAgentStatus = useCallback(() => {
+    fetch("/api/agent/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { profile?: { enabled?: boolean } | null; aiConfigured?: boolean } | null) => {
+        if (d) setAgentReady(Boolean(d.aiConfigured) && Boolean(d.profile?.enabled));
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => loadAgentStatus(), [loadAgentStatus, selectedId]);
+  // 031 (D): chats donde dijeron «No, que siga» (solo esta sesión).
+  const [aiPromptDeclined, setAiPromptDeclined] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
 
   // 023 — "Agendar" desde el hilo. El diálogo pide los tipos activos
   // (`GET /api/calendar/types`) al abrirse, no en cada carga de la Bandeja;
@@ -419,13 +442,12 @@ export function InboxClient({
 
   /**
    * 09 — Tomar / liberar / (re)asignar. `POST .../assign` con `AssignBody`;
-   * el resultado real llega con el refetch (la lista manda).
+   * el resultado real llega con el refetch (la lista manda). 031: por id
+   * (también desde la fila del Buzón) y dice si salió.
    */
-  const assign = useCallback(
-    async (userId: string | null) => {
-      const conversationId = selectedIdRef.current;
-      if (!conversationId) return;
-      const body: AssignBody = { userId };
+  const assignTo = useCallback(
+    async (conversationId: string, body: AssignBody): Promise<boolean> => {
+      let done = false;
       const res = await fetch(`/api/conversations/${conversationId}/assign`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -453,10 +475,21 @@ export function InboxClient({
         } else {
           setNotice(data?.error?.message ?? "No se pudo cambiar el responsable.");
         }
+      } else {
+        done = true;
       }
       refreshOne(conversationId);
+      return done;
     },
     [closeLost, refreshOne]
+  );
+  const assign = useCallback(
+    async (userId: string | null) => {
+      const conversationId = selectedIdRef.current;
+      if (!conversationId) return;
+      await assignTo(conversationId, { userId });
+    },
+    [assignTo]
   );
 
   // SSE caído: al volver a la pestaña se pone al día lo que se vea
@@ -651,6 +684,35 @@ export function InboxClient({
     [refreshOne, closeLost]
   );
 
+  /** 031 — Prende/apaga la IA de UN chat y avisa si no se pudo. */
+  const setAi = useCallback(
+    async (conversationId: string, aiEnabled: boolean): Promise<boolean> => {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ aiEnabled }),
+      }).catch(() => null);
+      refreshOne(conversationId);
+      setDetailRev((v) => v + 1);
+      if (!res) {
+        setNotice("Sin conexión con el servidor.");
+        return false;
+      }
+      if (res.status === 404) {
+        closeLost(conversationId, false);
+        return false;
+      }
+      if (!res.ok) {
+        setNotice(
+          aiEnabled ? "No se pudo devolver el chat a la IA." : "No se pudo pausar la IA."
+        );
+        return false;
+      }
+      return true;
+    },
+    [refreshOne, closeLost]
+  );
+
   /**
    * 022 — Archivar (`true`) / desarchivar (`false`) UNA conversación, desde la
    * fila (puede no ser la abierta) o desde la cabecera del hilo. La abierta
@@ -709,10 +771,9 @@ export function InboxClient({
       ? selectedScope
       : null;
 
-  // 027 — Recordatorio del Buzón (US-6) en el panel vacío: el Vendedor sin
-  // chat abierto en "Mis chats" ve cuántos esperan en el Buzón.
-  const inboxWaiting =
-    teamMode && activeScope === "mine" ? (list.counts?.scopes?.inbox.all ?? 0) : 0;
+  // 031 — Sin chat abierto: «lo que te toca ahora» con los contadores que
+  // ya trae `/counts` (027 US-6: el recordatorio del Buzón es uno de ellos).
+  const summary = summaryItems(list.counts, { scope: activeScope, teamMode });
 
   const assignmentControl = (className?: string) =>
     selected && teamMode ? (
@@ -725,6 +786,56 @@ export function InboxClient({
         className={className}
       />
     ) : null;
+
+  // 031 — Quién responde el chat abierto (franja A/B/C y pregunta D).
+  const who = selected
+    ? whoAnswers(selected, { viewerId: viewer.userId, agentReady, teamMode })
+    : ({ kind: "none" } as const);
+  const clientName = selected
+    ? (displayFirstName(selected.contact.name) ?? "este cliente")
+    : "este cliente";
+
+  /**
+   * 031 — «Atender yo» / «Sí, atiendo yo»: si nadie tiene el chat (y hay
+   * equipo), queda a tu nombre; luego la IA en pausa. Si tomarlo falla (ya
+   * lo tomó otro), la IA no se toca y el aviso lo explica `assignTo`.
+   */
+  const takeOver = useCallback(async (): Promise<boolean> => {
+    const id = selectedIdRef.current;
+    const current = selected;
+    if (!id || !current || current.id !== id) return false;
+    if (takeOverAssigns(current, teamMode)) {
+      const ok = await assignTo(id, { userId: viewer.userId, expect: "unassigned" });
+      if (!ok) return false;
+    }
+    return setAi(id, false);
+  }, [selected, teamMode, assignTo, setAi, viewer.userId]);
+
+  const aiPrompt: AiPrompt | null =
+    selected && who.kind === "ai" && !aiPromptDeclined.has(selected.id)
+      ? {
+          name: clientName,
+          onAccept: takeOver,
+          onDecline: () => {
+            const id = selected.id;
+            setAiPromptDeclined((prev) => new Set(prev).add(id));
+          },
+        }
+      : null;
+
+  /** 031 — «Tomar» desde la fila del Buzón: no abre el chat. */
+  const takeFromRow = useCallback(
+    async (id: string) => {
+      const row = list.items?.find((c) => c.id === id);
+      const ok = await assignTo(id, { userId: viewer.userId, expect: "unassigned" });
+      if (ok && selectedIdRef.current !== id) {
+        setNotice(
+          `${row ? (displayFirstName(row.contact.name) ?? row.contact.name) : "El chat"} ahora está en Mis chats.`
+        );
+      }
+    },
+    [assignTo, list.items, viewer.userId]
+  );
 
   return (
     <div className="flex h-full">
@@ -754,6 +865,8 @@ export function InboxClient({
           onRetry={() => reloadList()}
           onArchive={(id, archived) => void archive(id, archived)}
           overdueMinutes={overdueMinutes}
+          aiReady={agentReady}
+          onTake={takeFromRow}
         />
       </section>
 
@@ -856,6 +969,28 @@ export function InboxClient({
                 </button>
               )}
             </header>
+            <WhoAnswersStrip
+              // Llave propia: el Composer, hermano en este fragmento, ya usa
+              // `selected.id`; dos hermanos con la misma llave hacen que React
+              // deje franjas viejas en el DOM al cambiar de chat.
+              key={`who-${selected.id}`}
+              state={who}
+              name={clientName}
+              onTakeOver={takeOver}
+              onGiveBack={() => setAi(selected.id, true)}
+              onReply={() => {
+                const input = document.getElementById("composer-input");
+                if (input) {
+                  input.focus();
+                  return;
+                }
+                const box = document.getElementById("composer");
+                box?.scrollIntoView({ block: "nearest" });
+                box
+                  ?.querySelector<HTMLElement>("input, textarea, button, a[href]")
+                  ?.focus();
+              }}
+            />
             {movedTo && (
               <div
                 role="note"
@@ -912,6 +1047,7 @@ export function InboxClient({
               conversation={selected}
               onNotVisible={() => closeLost(selected.id, false)}
               onSend={sendText}
+              aiPrompt={aiPrompt}
               onSent={() => {
                 if (selectedIdRef.current)
                   void refetchMessages(selectedIdRef.current);
@@ -920,29 +1056,15 @@ export function InboxClient({
             />
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-chat p-6 text-center text-sm text-text-3">
-            <p>Elige una conversación para ver el hilo</p>
-            {inboxWaiting > 0 && (
-              <div
-                data-testid="inbox-reminder"
-                className="flex flex-col items-center gap-2"
-              >
-                <p className="text-text-2">
-                  {inboxWaiting === 1
-                    ? "Hay 1 chat esperando en el Buzón"
-                    : `Hay ${inboxWaiting} chats esperando en el Buzón`}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setFilters({ scope: "inbox" })}
-                >
-                  <Inbox className="h-4 w-4" strokeWidth={1.7} />
-                  Ver el Buzón
-                </Button>
-              </div>
-            )}
-          </div>
+          <InboxSummary
+            viewerName={viewer.name}
+            items={summary}
+            onGo={(id) => {
+              if (id === "waiting") setFilters({ filter: "human" });
+              else if (id === "closing") setFilters({ closing: true });
+              else setFilters({ scope: "inbox" });
+            }}
+          />
         )}
       </section>
 

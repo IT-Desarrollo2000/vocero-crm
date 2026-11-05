@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { loginRedirectPath } from "@/lib/auth/guards";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { isOwner } from "@/lib/roles";
 import { CatalogClient } from "@/components/catalog/catalog-client";
@@ -12,6 +13,6 @@ export const dynamic = "force-dynamic";
  */
 export default async function CatalogPage() {
   const session = await getSessionOrNull();
-  if (!session) redirect("/login");
+  if (!session) redirect(await loginRedirectPath());
   return <CatalogClient canEdit={isOwner(session)} />;
 }

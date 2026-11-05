@@ -1,0 +1,281 @@
+# 031 — Contenido de la guía (fuente para `src/lib/help/topics.ts`)
+
+Trato **tú**. `{negocio}` = `branding.name`. Las etiquetas entre «» son las
+que aparecen en pantalla: si una cambia en la UI, cámbiala aquí y en
+`topics.ts`. Las capturas (`captura`) viven en `public/ayuda/`.
+
+Rebanada 4 (5-nov): la pantalla de chats ya no tiene botones «?»; se explica
+sola (diseño aprobado). Esta guía cita esa pantalla nueva. Cada tema lleva
+antetítulo, título (la situación), una línea para el índice y una intro;
+luego pasos, captura y «¿Y si…?».
+
+---
+
+## Encabezado
+
+**Guía rápida de {negocio}**
+Todo para atender a tus clientes por WhatsApp sin complicarte. Elige lo que
+te está pasando y sigue los pasos.
+
+---
+
+## 1. `plantillas` — Retomar un chat · «Ya no puedo escribirle al cliente»
+
+Índice: Pasaron 24 horas: retómalo con una plantilla.
+
+**Intro:** WhatsApp solo deja escribir libremente durante las 24 horas
+siguientes al último mensaje del cliente. Después, la única forma de
+escribirle es con una **plantilla**: un mensaje que WhatsApp ya aprobó. No es
+una falla: es una regla de WhatsApp.
+
+1. Abre el chat. Donde estaba la caja de texto verás «Para escribirle a …,
+   usa un mensaje aprobado».
+2. En «Elige el mensaje» marca el que mejor quede (por ejemplo, un
+   seguimiento de cotización).
+3. En «Completa los espacios» llena cada espacio; abajo de cada uno ves en
+   qué parte del mensaje va. Si el mensaje empieza con un saludo, el nombre
+   del cliente ya viene puesto: revisa que esté bien.
+4. Revisa en «Revisa y envía» cómo le va a llegar y haz clic en «Enviar
+   plantilla». Cuando te conteste, ya puedes escribir normal.
+
+**¿Y si…?**
+- **No aparece ningún mensaje para elegir:** verás «Todavía no puedes
+  retomar este chat». Tu equipo aún no tiene plantillas; pídele al
+  propietario que cree una (WhatsApp tarda desde unos minutos hasta un día
+  en aprobarla).
+- **No se activa «Enviar plantilla»:** te falta llenar un espacio; abajo del
+  botón dice cuál («Llena el espacio … para poder enviarla.»).
+- **Los botones de «Pegar texto de plantilla» (con la ventana abierta):**
+  esos solo pegan el texto en tu mensaje para ahorrarte escribir; no son
+  plantillas oficiales.
+
+Captura: `plantilla-enviar.png`
+
+---
+
+## 2. `respuestas-rapidas` — Ahorrar tiempo · «Siempre escribo lo mismo»
+
+Índice: Usa respuestas rápidas con la diagonal /.
+
+**Intro:** las **respuestas rápidas** son mensajes guardados (horario,
+ubicación, formas de pago…) que pegas en un segundo.
+
+1. Arriba de la caja de texto verás «Respuestas rápidas» con las primeras
+   como botones, por ejemplo «/horario · Horario». Un clic y el texto queda
+   en tu mensaje.
+2. Para ver todas, escribe **/** (la diagonal) en la caja y sigue escribiendo
+   para buscar, por ejemplo `/horario`.
+3. Elige con las flechas ↑ ↓ y presiona **Enter** (o haz clic).
+4. El texto queda en tu mensaje: **revísalo o cámbialo** y luego envíalo. No
+   se manda solo.
+
+**Se llenan solas:** si la respuesta dice `{{nombre}}`, se cambia por el
+nombre del cliente; `{{vendedor}}` por tu nombre; `{{negocio}}` por
+{negocio}.
+
+**Crear la tuya** *(si el propietario lo permite)*: escribe tu mensaje y haz
+clic en «Guardar como respuesta rápida» debajo de la caja, o elige
+«+ Nueva respuesta rápida» al final de la lista. Ponle un atajo corto
+(por ejemplo `pagos`). Queda para todo el equipo. Puedes editar o borrar las
+tuyas en «Ajustes» → «Respuestas rápidas».
+
+**¿Y si…?** No ves «Guardar como respuesta rápida»: el propietario tiene
+apagada esa opción; pídele que agregue la respuesta.
+
+Captura: `respuestas-rapidas.png`
+
+---
+
+## 3. `archivos` — Mandar archivos · «Quiero mandar un documento o foto»
+
+Índice: Qué se puede mandar y qué hacer si no se deja.
+
+**Intro:** desde el chat puedes mandar fotos, documentos, video y audio.
+Antes de elegir el archivo, la pantalla te dice qué formatos acepta el canal
+y hasta cuánto pesa cada tipo.
+
+1. Haz clic en «Adjuntar», junto a la caja de texto. Se abre «¿Qué quieres
+   mandar?» con cada tipo («Foto», «Documento», «Video», «Audio»), sus
+   formatos y su tamaño máximo.
+2. Elige el tipo y luego el archivo en tu computadora.
+3. Lo que escribas en la caja se envía como **pie** del archivo (es
+   opcional). Envía.
+
+Nota (WhatsApp): en el mismo menú están «Enviar ubicación» y «Compartir
+contacto».
+
+**Qué puedes mandar por WhatsApp** (los tamaños salen de las reglas del
+canal, `outbound-files.ts`):
+
+| Tipo | Formatos | Tamaño máximo |
+|---|---|---|
+| Fotos | JPG, PNG | 5 MB |
+| Documentos | PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), TXT, CSV | 100 MB |
+| Audio | MP3, OGG, AAC, AMR, M4A | 16 MB |
+| Video | MP4, 3GP | 16 MB |
+
+*(Solo si están encendidos)* Instagram: fotos 8 MB, **solo PDF** como
+documento, video 25 MB. Messenger: hasta 25 MB.
+
+Las fotos WebP, GIF o del iPhone se convierten solas a JPG. Los archivos se
+borran del CRM a los 30 días (el cliente los conserva en su teléfono).
+
+**¿Y si me sale un aviso?**
+- «Formato antiguo de Office (.doc/.xls/.ppt) no permitido»: abre el archivo
+  y usa «Guardar como» → .docx / .xlsx / .pptx (el menú «Adjuntar» te lo
+  recuerda).
+- «Imagen HEIC/AVIF no soportada»: conviértela a JPG o mándale captura.
+- «no se aceptan archivos comprimidos (zip, rar…)»: envía los archivos uno
+  por uno.
+- «El archivo excede el límite…»: es muy pesado; comprímelo o envía un PDF
+  más ligero.
+- «el documento de Office contiene macros» / «el PDF contiene código»: por
+  seguridad no se puede enviar; pide una versión limpia.
+
+Captura: `adjunto.png`
+
+---
+
+## 4. `catalogo` — Productos · «Quiero mandarle un producto»
+
+Índice: Fotos y fichas desde el Catálogo.
+
+**Intro:** el **Catálogo** guarda las fotos y fichas de los productos para
+que las mandes sin buscarlas en tu computadora.
+
+1. En el chat haz clic en el botón «Catálogo», junto a «Adjuntar».
+2. Busca por «Nombre o código» o elige una categoría.
+3. Abre el producto, marca las fotos o fichas que quieras y haz clic en
+   «Agregar». Con «Insertar detalles» pegas además su descripción en el
+   mensaje.
+4. Envía. Primero sale tu texto y después los archivos, en ese orden.
+
+Atajo: algunas respuestas rápidas ya traen los archivos de un producto; al
+elegirlas con **/** se agregan solos.
+
+**¿Y si…?**
+- «El catálogo está vacío.»: pídele al propietario que suba los productos.
+- Un archivo dice «No compatible · no se envía»: ese canal no acepta ese
+  tipo de archivo; quítalo.
+- Máximo 10 archivos por envío.
+- Si ya tenías un archivo de «Adjuntar», quítalo para usar el catálogo (no
+  se mezclan).
+
+Captura: `catalogo.png`
+
+---
+
+## 5. `mis-chats` — Organizarte · «¿Qué chats me tocan?»
+
+Índice: Mis chats, Buzón y quién está esperando.
+
+**Intro:** arriba de la lista hay dos pestañas, y debajo de ellas una frase
+que te dice qué hay en cada una.
+
+- «Mis chats»: «Chats a tu nombre. Empieza por los que esperan respuesta.»
+  **Empieza aquí.**
+- «Buzón»: chats que nadie ha tomado. Cada uno trae su botón «Tomar»: un clic
+  y queda a tu nombre, sin abrirlo. Si le contestas a uno del Buzón, también
+  se vuelve tuyo.
+
+**Lo que te toca ahora:** cuando no tienes ningún chat abierto, a la derecha
+verás «Esto es lo que te toca ahora:» con accesos como «… clientes esperan
+respuesta», «A … chats se les cierra la ventana en menos de 2 h» o «… chats
+en el Buzón sin tomar». Haz clic en uno y te lleva a esos chats.
+
+**Quién está esperando:** en la vista «Por atender» ves a los clientes que
+esperan tu respuesta. El aviso «Esperando · …» se pone **rojo** cuando ya se
+atrasó. Cuando resuelvas, abre «Mostrar detalles» y haz clic en «Marcar como
+atendida»; te preguntará si sigues tú o se lo devuelves a la IA.
+
+**Devolver y archivar:** si ya no puedes atender un chat tuyo, usa «Devolver
+al buzón». Con «Archivar» lo quitas de la lista; si el cliente vuelve a
+escribir, regresa solo.
+
+**¿Y si…?** «Ya la tomó otro vendedor.»: otro compañero lo tomó antes; busca
+otro en el Buzón.
+
+Captura: `mis-chats.png`
+
+---
+
+## 6. `ia` — Trabajar con la IA · «¿Cuándo contesta la IA y cuándo yo?»
+
+Índice: Cómo tomar un chat sin que respondan los dos.
+
+**Intro:** {negocio} tiene un asistente con IA que responde a los clientes.
+Arriba de cada chat, una franja te dice quién está respondiendo.
+
+- «La IA está respondiendo a …»: si vas a contestar tú, haz clic en «Atender
+  yo». El chat queda a tu nombre (si nadie lo tenía) y la IA se pone en
+  pausa, para que no respondan los dos.
+- Si empiezas a escribir con la IA encendida, arriba de la caja te pregunta
+  «¿La pausamos mientras atiendes tú?». «Sí, atiendo yo» la pausa; «No, que
+  siga» la deja contestar y no te vuelve a preguntar en ese chat. Escribir
+  no la pausa sola.
+- «Tú atiendes este chat. La IA está en pausa…»: la IA no le escribirá.
+  Cuando termines, «Devolver a la IA» hace que siga ella.
+- «… pidió hablar con una persona.»: la IA ya le avisó al cliente que le
+  responderán por ese chat. **Esos chats son prioridad:** haz clic en
+  «Responder a …» y contéstale tú. Si la IA se detuvo por otro motivo, la
+  franja te lo dice.
+- Cuando acabes con un chat escalado, en «Mostrar detalles» puedes usar
+  «Reactivar IA» o «Marcar como atendida».
+
+Nota (en la lista): los chats que está contestando la IA llevan la etiqueta
+«Responde la IA». Si respondes desde el teléfono del negocio, la IA se pausa
+sola en ese chat.
+
+Captura: `ia.png`
+
+---
+
+## 7. `citas` — Agenda · «El cliente quiere una cita» *(solo con AGENDA)*
+
+Índice: Agéndala desde el chat en 3 pasos.
+
+**Intro:** desde el mismo chat puedes apartarle un horario al cliente; la
+cita queda en «Citas» del menú.
+
+1. En el chat haz clic en «Agendar».
+2. Elige el «Tipo de cita», el «Día» y el «Horario».
+3. Agrega «Notas» si hace falta y haz clic en «Guardar».
+4. Verás «Cita agendada para …». La encuentras en «Citas» del menú, en
+   vista «Semana», «Día» o «Lista»; con «Mías» ves solo las tuyas.
+
+**¿Y si…?**
+- Un horario dice «Ocupado»: ya hay otra cita a esa hora; elige otro.
+- «No hay horarios disponibles.»: prueba otro día u otro tipo de cita.
+
+Captura: `cita.png`
+
+---
+
+## 8. `ventana-24h` — La regla de las 24 horas · «¿Cuánto tiempo tengo para responder?»
+
+Índice: La regla de las 24 horas de WhatsApp.
+
+**Intro:** WhatsApp solo te deja escribir libremente durante las **24 horas**
+siguientes al último mensaje del cliente. Pasado ese tiempo, la caja de texto
+desaparece. No es una falla del sistema: es una regla de WhatsApp.
+
+**Cómo saber cuánto tiempo te queda:**
+1. Abajo de la caja de texto verás «Puedes escribirle libremente … más», con
+   una barra que se va acortando. Ese es tu tiempo para responder con
+   mensajes normales.
+2. Cuando faltan menos de 2 horas cambia a «Se cierra en … · responde ya».
+3. En la lista de chats, el aviso «Cierra en …» te dice lo mismo. En
+   «Filtros» puedes elegir «Por cerrar» para ver solo esos chats.
+
+*(Solo si Instagram o Messenger están encendidos)* **En Instagram y
+Messenger** la regla es un poco distinta: después de 24 horas aún puedes
+responder hasta **7 días** (abajo dirá «Fuera de las 24 h · tu respuesta sale
+como agente humano» y cuánto queda). Pasados 7 días verás «Todavía no puedes
+escribirle» hasta que el cliente vuelva a escribir. Ahí no hay plantillas.
+
+**¿Y si ya se cerró?** Verás «Para escribirle a …, usa un mensaje aprobado».
+No pasa nada: manda una **plantilla** (ver «Ya no puedo escribirle al
+cliente»). En cuanto el cliente te conteste, la ventana se abre otra vez por
+24 horas.
+
+Captura: `ventana-abierta.png`, `ventana-cerrada.png`

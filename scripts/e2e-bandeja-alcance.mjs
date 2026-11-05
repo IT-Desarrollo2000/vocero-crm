@@ -7,8 +7,9 @@
  * Recorre como usuario (Playwright):
  *   a) Vendedor recién dado de alta (sin chats propios): abre en "Mis chats",
  *      pestañas "Mis chats · Buzón" (sin "Equipo"), vacío "Aún no tienes
- *      chats." con "Ir al Buzón (N)" y, en el panel derecho, "Hay N chats
- *      esperando en el Buzón" + "Ver el Buzón" (US-6); ambos llevan al Buzón.
+ *      chats." con "Ir al Buzón (N)" y, en el panel derecho (031: «lo que te
+ *      toca ahora»), "N chats en el Buzón sin tomar" (US-6); ambos llevan al
+ *      Buzón.
  *      Con el Buzón vacío (el dueño se lo asigna un momento y lo devuelve):
  *      "El Buzón también está vacío por ahora." sin botón ni recordatorio
  *   b) en vivo: el dueño le asigna un chat → el total de "Mis chats" sube y
@@ -217,13 +218,13 @@ try {
   ok("vacío de Mis chats: «Aún no tienes chats.» + «Ir al Buzón (N)»",
      await soft((ms) => goInbox.waitFor({ timeout: ms })) && (await sp.getByText("Aún no tienes chats.").count()) > 0);
   const reminder = sp.getByTestId("inbox-reminder");
-  ok("panel derecho: «Hay N chats esperando en el Buzón»",
+  ok("panel derecho: «N chats en el Buzón sin tomar»",
      await soft((ms) => reminder.waitFor({ timeout: ms })) &&
-       ((await reminder.textContent()) ?? "").includes(`Hay ${N} chats esperando en el Buzón`),
+       ((await reminder.textContent()) ?? "").includes(`${N} chats en el Buzón sin tomar`),
      (await reminder.textContent().catch(() => "")) ?? "");
   await shot(sp, "a-vendedor-mis-chats-vacio");
-  await sp.getByRole("button", { name: "Ver el Buzón" }).click();
-  ok("«Ver el Buzón» cambia al Buzón", await until(async () => await pressed(sp, "inbox")));
+  await reminder.click();
+  ok("el acceso al Buzón cambia al Buzón", await until(async () => await pressed(sp, "inbox")));
   ok("…y lo pinta (trae Buzón Uno)", await soft((ms) => rowByText(sp, names.b1).first().waitFor({ timeout: ms })));
   ok("en el Buzón no hay recordatorio", (await sp.getByTestId("inbox-reminder").count()) === 0);
   ok("en el Buzón la fila no repite «Sin asignar» (el alcance ya lo dice)",

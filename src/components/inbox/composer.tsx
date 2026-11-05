@@ -1,21 +1,17 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  Clock3,
-  FileText,
-  Package,
-  MapPin,
-  Paperclip,
-  Send,
-  UserRound,
-  X,
-} from "lucide-react";
+import { FileText, Package, Send, X } from "lucide-react";
 import type { ConversationDto, QuickReplyDto, TemplateDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useViewer } from "@/components/viewer-context";
-import { formatBytes, formatRemaining } from "./helpers";
-import { TemplateSender } from "./template-sender";
+import { formatBytes } from "./helpers";
+import { ChannelClosedNotice, TemplateSender } from "./template-sender";
+import { AttachMenu } from "./attach-menu";
+import { acceptsOfficeDocs, attachKinds, type AttachKind } from "@/lib/attach-kinds";
+import { replyWindowBar } from "@/lib/reply-window";
+import { formatWait } from "@/lib/awaiting";
+import { CLOSING_TICK_MS } from "./use-inbox-list";
 import { useQuickReplies } from "./use-quick-replies";
 import {
   QUICK_REPLY_CREATE_OPTION_ID,
@@ -54,6 +50,16 @@ import {
   planImageNormalization,
 } from "@/lib/image-normalize";
 import type { OutboundFiles } from "@/lib/outbound-files";
+
+/** 031 — Pregunta en línea (D) al empezar a escribir con la IA encendida. */
+export type AiPrompt = {
+  /** Primer nombre del cliente (o «este cliente»). */
+  name: string;
+  /** «Sí, atiendo yo»: igual que «Atender yo». true si quedó hecho. */
+  onAccept: () => Promise<boolean>;
+  /** «No, que siga»: no se vuelve a preguntar en este chat (sesión). */
+  onDecline: () => void;
+};
 
 /** Máximo de opciones visibles en el selector `/`. */
 const QUICK_REPLY_PICKER_MAX = 8;
@@ -108,12 +114,18 @@ export function Composer({
   onSend,
   onSent,
   onNotVisible,
+  aiPrompt = null,
 }: {
   conversation: ConversationDto;
   onSend: (text: string) => Promise<string | null>;
   onSent: () => void;
   /** 09: un envío respondió 404 — la conversación ya la atiende otro. */
   onNotVisible?: () => void;
+  /**
+   * 031 — Si la IA está respondiendo este chat (franja A), al escribir el
+   * primer carácter se pregunta si se pausa. null = no preguntar.
+   */
+  aiPrompt?: AiPrompt | null;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -136,6 +148,13 @@ export function Composer({
   const catalogState = useCatalog();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 031: reloj de la barra «Puedes escribirle libremente … más».
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), CLOSING_TICK_MS);
+    return () => clearInterval(t);
+  }, []);
+  const [aiPromptBusy, setAiPromptBusy] = useState(false);
 
   // 09 — Respuestas rápidas: `/atajo` al inicio o tras un espacio abre el
   // selector; Esc lo cierra hasta que se escriba otra `/`.
@@ -353,6 +372,18 @@ export function Composer({
     setError(null);
   }
 
+  /**
+   * 031 — Ítem del menú «Adjuntar»: abre el selector filtrado a ese tipo. El
+   * `accept` se cambia en el DOM solo para este clic y vuelve al del canal al
+   * elegir (la validación de `pickFile` sigue siendo la del canal completo).
+   */
+  function pickKind(kind: AttachKind) {
+    const input = fileRef.current;
+    if (!input) return;
+    input.accept = kind.accept;
+    input.click();
+  }
+
   async function apiSend(path: string, init: RequestInit): Promise<string | null> {
     const res = await fetch(path, init).catch(() => null);
     if (!res) return "Sin conexión con el servidor";
@@ -542,36 +573,28 @@ export function Composer({
   // Messenger después de 7 días sin mensajes del cliente.
   if (conversation.replyMode === "closed") {
     return (
-      <div className="border-t bg-background px-[18px] py-3.5">
-        <div className="flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
-          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
-          <div>
-            <p className="font-medium">No se puede retomar esta conversación.</p>
-            <p className="opacity-80">
-              Pasaron más de 7 días desde el último mensaje del cliente. Este
-              canal no permite escribirle hasta que vuelva a escribir.
-            </p>
-          </div>
-        </div>
+      <div id="composer" className="border-t bg-background px-[18px] py-4">
+        <ChannelClosedNotice
+          channel={conversation.channel}
+          contactName={conversation.contact.name}
+        />
       </div>
     );
   }
 
   if (conversation.replyMode === "template") {
     return (
-      <div className="border-t bg-background px-[18px] py-3.5">
-        <div className="mb-3 flex items-start gap-2 rounded-md border border-warning-soft bg-warning-tint p-3 text-sm text-warning-text">
-          <Clock3 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
-          <div>
-            <p className="font-medium">La ventana de 24 horas está cerrada.</p>
-            <p className="opacity-80">
-              WhatsApp solo permite texto libre dentro de las 24 horas
-              siguientes al último mensaje del cliente. Para retomar la
-              conversación, envía una plantilla aprobada.
-            </p>
-          </div>
-        </div>
-        <TemplateSender conversationId={conversation.id} onSent={onSent} />
+      // 031: el paso a paso puede ser alto; en pantallas bajas se desplaza
+      // dentro de sí mismo en vez de empujar el hilo fuera de la vista.
+      <div
+        id="composer"
+        className="max-h-[65dvh] overflow-y-auto border-t bg-background px-[18px] py-4"
+      >
+        <TemplateSender
+          conversationId={conversation.id}
+          contactName={conversation.contact.name}
+          onSent={onSent}
+        />
       </div>
     );
   }
@@ -581,20 +604,39 @@ export function Composer({
   // 019: el botón Catálogo, como las respuestas rápidas, solo con texto libre.
   const canUseCatalog =
     conversation.replyMode === "free" || conversation.replyMode === "human_agent";
+  // 031: tiempo para escribir libre (barra del pie) y menú «Adjuntar».
+  const windowBar = replyWindowBar(conversation, now);
+  const kinds = attachKinds(conversation.outboundFiles, {
+    extraImageAccept: CONVERTIBLE_IMAGE_ACCEPT,
+  });
+  const showAiPrompt = aiPrompt !== null && text.length > 0;
+
+  async function acceptAiPrompt() {
+    if (!aiPrompt || aiPromptBusy) return;
+    setAiPromptBusy(true);
+    await aiPrompt.onAccept();
+    setAiPromptBusy(false);
+    taRef.current?.focus();
+  }
 
   return (
-    <div className="border-t bg-background px-[18px] pb-3.5 pt-3">
+    <div id="composer" className="border-t bg-background px-[18px] pb-3.5 pt-3">
       {/* 09: los chips son las primeras respuestas rápidas del catálogo (en
-          cualquier canal); sin catálogo, como antes, las plantillas. */}
+          cualquier canal); sin catálogo, como antes, las plantillas. 031:
+          rotuladas, con su atajo, y la pista de «/» para ver todas. */}
       {quickReplies.length > 0 && !file && panel === null && (
-        <div className="mb-2.5 flex flex-wrap gap-1.5">
+        <div
+          data-testid="quick-reply-chips"
+          className="mb-2.5 flex flex-wrap items-center gap-1.5"
+        >
+          <span className="mr-0.5 text-xs font-semibold text-text-2">Respuestas rápidas</span>
           {[...quickReplies]
             .sort((a, b) => a.position - b.position)
             .slice(0, 4)
             .map((r) => (
               <button
                 key={r.id}
-                className="rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-text-2 transition-colors hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
+                className="max-w-full truncate rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-text-2 transition-colors hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
                 onClick={() => {
                   const value = renderFor(r);
                   setText(value);
@@ -605,14 +647,27 @@ export function Composer({
                 }}
                 title={r.body || r.title}
               >
-                {r.title}
+                /{r.shortcut}
+                {r.title ? ` · ${r.title}` : ""}
               </button>
             ))}
+          <span className="text-xs text-text-3">
+            o escribe{" "}
+            <kbd className="rounded border bg-secondary px-1 font-sans font-semibold text-text-2">
+              /
+            </kbd>{" "}
+            para ver todas
+          </span>
         </div>
       )}
 
       {quickReplies.length === 0 && conversation.templates && templates.length > 0 && !file && panel === null && (
-        <div className="mb-2.5 flex flex-wrap gap-1.5">
+        <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+          {/* 031: pegan el texto como mensaje libre; NO envían la plantilla
+              oficial de WhatsApp (esa es para la ventana cerrada). */}
+          <span className="mr-0.5 text-xs font-semibold text-text-2">
+            Pegar texto de plantilla
+          </span>
           {templates.slice(0, 4).map((t) => (
             <button
               key={t.id}
@@ -794,6 +849,42 @@ export function Composer({
         </div>
       )}
 
+      {/* 031 (D): la IA sigue encendida y empezaste a escribir. Pregunta,
+          no bloquea: se puede seguir escribiendo y enviar. */}
+      {showAiPrompt && aiPrompt && (
+        <div
+          role="group"
+          aria-label="¿Pausar la IA?"
+          data-testid="ai-prompt"
+          className="mb-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2 rounded-md border border-brand-soft bg-brand-tint px-3 py-2 text-[13px] text-brand-text"
+        >
+          <p className="min-w-0 flex-1 basis-[220px]">
+            La IA sigue respondiendo a {aiPrompt.name}. ¿La pausamos mientras atiendes tú?
+          </p>
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              type="button"
+              disabled={aiPromptBusy}
+              onClick={() => void acceptAiPrompt()}
+              className="rounded-md bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-brand-fg transition-colors hover:bg-brand-hover disabled:opacity-60"
+            >
+              {aiPromptBusy ? "Pausando…" : "Sí, atiendo yo"}
+            </button>
+            <button
+              type="button"
+              disabled={aiPromptBusy}
+              onClick={() => {
+                aiPrompt.onDecline();
+                taRef.current?.focus();
+              }}
+              className="rounded-md border border-brand-soft bg-background px-3 py-1.5 text-[12.5px] font-medium text-brand-text transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              No, que siga
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="relative flex items-end gap-2 rounded-md border bg-background px-3 py-2 transition-shadow focus-within:border-brand focus-within:ring-[3px] focus-within:ring-brand-soft">
         {pickerOpen && (
           <QuickReplyPicker
@@ -816,56 +907,32 @@ export function Composer({
           onChange={(e) => {
             void pickFile(e.target.files?.[0] ?? null);
             // Permite volver a elegir el mismo archivo tras quitarlo o tras
-            // un rechazo.
+            // un rechazo. 031: y el `accept` vuelve al del canal completo
+            // (el menú lo filtra solo para ese clic).
             e.target.value = "";
+            e.target.accept = clipAccept(conversation.outboundFiles) ?? "";
           }}
         />
-        {/* 018: el clip según `outboundFiles`; ubicación y contactos según
-            `outboundStructured` (matriz por canal, FR-804). */}
+        {/* 018: los archivos según `outboundFiles`; ubicación y contactos
+            según `outboundStructured` (matriz por canal, FR-804). 031: todo
+            en el menú «Adjuntar», con tipos y topes a la vista. */}
         {(conversation.outboundFiles || conversation.outboundStructured) && (
-          <div className="flex shrink-0 items-center gap-0.5">
-            {conversation.outboundFiles && (
-              <button
-                onClick={() => fileRef.current?.click()}
-                aria-label="Adjuntar archivo"
-                disabled={staged.length > 0 || preparing}
-                title={
-                  staged.length > 0
-                    ? "Quita los archivos del catálogo para adjuntar otro archivo"
-                    : conversation.outboundFiles.hint
-                }
-                className="rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
-              >
-                <Paperclip className="h-[18px] w-[18px]" strokeWidth={1.7} />
-              </button>
-            )}
-            {conversation.outboundStructured && (
-              <>
-                <button
-                  onClick={() => setPanel(panel === "location" ? null : "location")}
-                  aria-label="Enviar ubicación"
-                  title="Enviar ubicación"
-                  className={cn(
-                    "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-                    panel === "location" && "bg-secondary text-brand"
-                  )}
-                >
-                  <MapPin className="h-[18px] w-[18px]" strokeWidth={1.7} />
-                </button>
-                <button
-                  onClick={() => setPanel(panel === "contact" ? null : "contact")}
-                  aria-label="Compartir contacto"
-                  title="Compartir contacto"
-                  className={cn(
-                    "rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1",
-                    panel === "contact" && "bg-secondary text-brand"
-                  )}
-                >
-                  <UserRound className="h-[18px] w-[18px]" strokeWidth={1.7} />
-                </button>
-              </>
-            )}
-          </div>
+          <AttachMenu
+            kinds={kinds}
+            officeNote={acceptsOfficeDocs(conversation.outboundFiles)}
+            structured={conversation.outboundStructured}
+            hint={conversation.outboundFiles?.hint}
+            filesBlockedReason={
+              staged.length > 0
+                ? "Quita los archivos del catálogo para adjuntar otro archivo"
+                : null
+            }
+            disabled={preparing}
+            activePanel={panel}
+            onPickKind={pickKind}
+            onLocation={() => setPanel("location")}
+            onContact={() => setPanel("contact")}
+          />
         )}
         {canUseCatalog && (
           <button
@@ -880,14 +947,23 @@ export function Composer({
                 ? "Quita el adjunto para agregar archivos del catálogo"
                 : "Catálogo de productos"
             }
-            className="shrink-0 rounded p-1.5 text-text-3 transition-colors hover:bg-secondary hover:text-text-1 disabled:opacity-40"
+            className="flex h-[34px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-[13px] font-medium text-text-2 transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40 sm:px-2.5"
           >
-            <Package className="h-[18px] w-[18px]" strokeWidth={1.7} />
+            <Package className="h-4 w-4 shrink-0" strokeWidth={1.7} />
+            {/* A 360 px queda solo el ícono (el aria-label lo nombra). */}
+            <span aria-hidden className="max-sm:hidden">
+              Catálogo
+            </span>
           </button>
         )}
         <textarea
           ref={taRef}
-          placeholder={file ? "Pie del adjunto (opcional)…" : "Escribe una respuesta…"}
+          id="composer-input"
+          placeholder={
+            file
+              ? "Pie del adjunto (opcional)…"
+              : "Escribe una respuesta… o usa / para respuestas rápidas"
+          }
           value={text}
           rows={1}
           aria-autocomplete="list"
@@ -978,12 +1054,46 @@ export function Composer({
             </button>
           )}
         </div>
-        <p className="ml-auto text-right text-[11px] text-text-3">
-          {conversation.replyMode === "human_agent"
-            ? "Fuera de las 24 h · tu respuesta sale como agente humano (hasta 7 días)"
-            : `Ventana abierta · quedan ${formatRemaining(conversation.windowRemainingMs)}`}
-        </p>
       </div>
+      {/* 031: cuánto tiempo queda para escribir libre. El texto es la
+          información; la barra solo acompaña (aria-hidden). */}
+      {windowBar && (
+        <div
+          data-testid="window-bar"
+          data-low={windowBar.low ? "true" : "false"}
+          className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1"
+        >
+          <p
+            className={cn(
+              "text-[12.5px] font-medium",
+              windowBar.low ? "text-warning-text" : "text-success-text"
+            )}
+          >
+            {windowBar.kind === "human_agent"
+              ? `Fuera de las 24 h · tu respuesta sale como agente humano · quedan ${formatWait(windowBar.remainingMs)} de los 7 días`
+              : windowBar.low
+                ? `Se cierra en ${formatWait(windowBar.remainingMs)} · responde ya`
+                : `Puedes escribirle libremente ${formatWait(windowBar.remainingMs)} más`}
+          </p>
+          <div
+            aria-hidden
+            className="h-1.5 min-w-[80px] max-w-[260px] flex-1 overflow-hidden rounded-full bg-secondary"
+          >
+            <div
+              className={cn(
+                "h-full rounded-full",
+                windowBar.low ? "bg-warning" : "bg-success"
+              )}
+              style={{ width: `${Math.round(windowBar.fraction * 100)}%` }}
+            />
+          </div>
+          {windowBar.kind === "free" && conversation.templates && (
+            <p className="text-xs text-text-3">
+              Después, WhatsApp solo deja retomar con una plantilla.
+            </p>
+          )}
+        </div>
+      )}
       {catalogOpen && (
         <CatalogPanel
           catalog={catalogState.catalog}

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   CalendarDays,
+  CircleHelp,
   FlaskConical,
   Inbox,
   Kanban,
@@ -231,6 +232,30 @@ export function AppNav({
       </nav>
 
       <div className="flex-1" />
+
+      {/* 031 — La guía es para todos los roles: va con Ajustes, al pie, y no
+          como pestaña de Ajustes (esas dependen del rol). */}
+      <Link
+        href="/ayuda"
+        aria-label="Ayuda"
+        title={collapsed ? "Ayuda" : undefined}
+        className={cn(
+          "flex items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium transition-colors",
+          collapsed && "lg:justify-center lg:px-0",
+          pathname.startsWith("/ayuda")
+            ? "bg-brand-tint font-semibold text-brand-text"
+            : "text-text-2 hover:bg-accent"
+        )}
+      >
+        <CircleHelp
+          className={cn(
+            "h-[18px] w-[18px] shrink-0",
+            pathname.startsWith("/ayuda") ? "text-brand" : "text-text-3"
+          )}
+          strokeWidth={1.7}
+        />
+        <span className={cn(collapsed && "lg:hidden")}>Ayuda</span>
+      </Link>
 
       <Link
         href="/settings"
