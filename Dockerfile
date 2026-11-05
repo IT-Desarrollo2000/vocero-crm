@@ -26,6 +26,10 @@ RUN pnpm build
 RUN pnpm exec esbuild scripts/migrate.mjs --bundle --platform=node \
     --format=esm --outfile=migrate.bundle.mjs \
     --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+# Backfill de nombres de Messenger (autocontenido; ver el encabezado del script)
+RUN pnpm exec esbuild scripts/backfill-nombres-messenger.mjs --bundle --platform=node \
+    --format=esm --outfile=backfill-nombres-messenger.bundle.mjs \
+    --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
 RUN pnpm exec esbuild scripts/seed/demo.ts --bundle --platform=node \
     --format=esm --outfile=seed-demo.bundle.mjs --alias:@=./src \
     --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
@@ -45,6 +49,7 @@ COPY --from=builder --chown=vocero:vocero /app/.next/static ./.next/static
 COPY --from=builder --chown=vocero:vocero /app/public ./public
 COPY --from=builder --chown=vocero:vocero /app/migrate.bundle.mjs ./migrate.mjs
 COPY --from=builder --chown=vocero:vocero /app/seed-demo.bundle.mjs ./seed-demo.mjs
+COPY --from=builder --chown=vocero:vocero /app/backfill-nombres-messenger.bundle.mjs ./backfill-nombres-messenger.mjs
 COPY --from=builder --chown=vocero:vocero /app/drizzle ./drizzle
 
 USER vocero

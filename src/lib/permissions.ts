@@ -267,6 +267,7 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/dev/wa-mock/channel-inbound": "dev",
   "POST /api/dev/wa-mock/channel-token": "dev",
   "POST /api/dev/wa-mock/echo": "dev",
+  "POST /api/dev/wa-mock/fb-conversations": "dev",
   "GET /api/dev/wa-mock/graph/[...path]": "dev",
   "POST /api/dev/wa-mock/graph/[...path]": "dev",
   "DELETE /api/dev/wa-mock/graph/[...path]": "dev",

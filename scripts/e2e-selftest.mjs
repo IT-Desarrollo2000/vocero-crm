@@ -12,6 +12,8 @@
  * a declarar "Hecho").
  */
 
+import { spawnSync } from "node:child_process";
+
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
 const BOT_KEY = process.env.BOT_API_KEY;
 
@@ -3183,6 +3185,127 @@ const CANALES = [
   },
 ];
 
+/**
+ * Nombres de Messenger sin Business Asset User Profile Access: el perfil
+ * responde 100/33 y el nombre sale de `/{pageId}/conversations`. Cubre el
+ * DM nuevo (Bandeja y ficha), el respaldo cuando fallan las dos vías, el
+ * renombre en el siguiente mensaje, el nombre editado por el operador que no
+ * se pisa y el backfill (`scripts/backfill-nombres-messenger.mjs`).
+ */
+async function nombresMessenger({ inbound, SUF, pre, cvSin }) {
+  console.log("\n== Messenger: nombre por conversaciones ==");
+  const lista = async () => (await api("/api/conversations")).json?.conversations ?? [];
+  const ficha = async (id) => (await api(`/api/contacts/${id}`)).json?.contact;
+  const fbConv = (mode) =>
+    api("/api/dev/wa-mock/fb-conversations", { method: "POST", body: JSON.stringify({ mode }) });
+
+  const fSin = await ficha(cvSin?.contact.id);
+  ok(
+    `la ficha muestra el nombre de conversaciones (y profile_name), nunca el de la Página`,
+    fSin?.name === "Cliente por Conversación" && fSin?.profileName === "Cliente por Conversación",
+    JSON.stringify({ name: fSin?.name, profileName: fSin?.profileName })
+  );
+
+  // Ambas vías caídas → respaldo; con conversaciones de vuelta, el siguiente
+  // mensaje del mismo PSID lo renombra.
+  const psidResp = `${pre}${SUF}sinperfilresp`;
+  await fbConv("down");
+  await inbound({ senderId: psidResp, text: `ambas fallan ${SUF}`, mid: `mid.e2e.fb.${SUF}.resp1` });
+  await sleep(1500);
+  const cvResp = (await lista()).find((x) => x.channel === "messenger" && x.preview?.includes(`ambas fallan ${SUF}`));
+  ok(
+    `perfil y conversaciones fallan → entra igual con el respaldo`,
+    cvResp?.contact.name === "Contacto de Messenger",
+    cvResp?.contact.name
+  );
+  await fbConv("ok");
+  await inbound({ senderId: psidResp, text: `ya con nombre ${SUF}`, mid: `mid.e2e.fb.${SUF}.resp2` });
+  await sleep(1500);
+  const cvResp2 = (await lista()).find((x) => x.contact.id === cvResp?.contact.id);
+  const fResp = await ficha(cvResp?.contact.id);
+  ok(
+    `contacto con el respaldo → se renombra con su siguiente mensaje`,
+    cvResp2?.contact.name === "Cliente por Conversación" &&
+      fResp?.name === "Cliente por Conversación" &&
+      fResp?.profileName === "Cliente por Conversación",
+    JSON.stringify({ bandeja: cvResp2?.contact.name, ficha: fResp?.name, perfil: fResp?.profileName })
+  );
+
+  // Nombre editado por el operador: ni el siguiente mensaje ni el backfill lo pisan.
+  const psidEd = `${pre}${SUF}sinperfiled`;
+  await fbConv("down");
+  await inbound({ senderId: psidEd, text: `lo edito yo ${SUF}`, mid: `mid.e2e.fb.${SUF}.ed1` });
+  await sleep(1500);
+  const cvEd = (await lista()).find((x) => x.channel === "messenger" && x.preview?.includes(`lo edito yo ${SUF}`));
+  const editado = `Don Ramiro ${SUF}`;
+  const pat = await api(`/api/contacts/${cvEd?.contact.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name: editado }),
+  });
+  await fbConv("ok");
+  await inbound({ senderId: psidEd, text: `otro mensaje ${SUF}`, mid: `mid.e2e.fb.${SUF}.ed2` });
+  await sleep(1500);
+  ok(
+    `un nombre editado por el operador no se pisa con el siguiente mensaje`,
+    cvEd?.contact.name === "Contacto de Messenger" && pat.res.ok && (await ficha(cvEd?.contact.id))?.name === editado,
+    JSON.stringify({ antes: cvEd?.contact.name, patch: pat.res.status })
+  );
+
+  // Backfill: un contacto que se quedó con el respaldo y no vuelve a escribir.
+  const psidBf = `${pre}${SUF}sinperfilbf`;
+  await fbConv("down");
+  await inbound({ senderId: psidBf, text: `backfill ${SUF}`, mid: `mid.e2e.fb.${SUF}.bf1` });
+  await sleep(1500);
+  await fbConv("ok");
+  const cvBf = (await lista()).find((x) => x.channel === "messenger" && x.preview?.includes(`backfill ${SUF}`));
+  ok(`backfill: el contacto parte con el respaldo`, cvBf?.contact.name === "Contacto de Messenger", cvBf?.contact.name);
+
+  const dry = backfillNombres([]);
+  ok(
+    `backfill dry-run → cuenta ≥1 renombrable y no escribe`,
+    dry.status === 0 && dry.result?.apply === false && dry.result?.conNombre >= 1 &&
+      (await ficha(cvBf?.contact.id))?.name === "Contacto de Messenger",
+    dry.out
+  );
+  ok(`backfill no imprime tokens`, !dry.out.includes("tok-e2e"), dry.out);
+  const ap = backfillNombres(["--apply"]);
+  const fBf = await ficha(cvBf?.contact.id);
+  ok(
+    `backfill --apply → renombra (name y profile_name)`,
+    ap.status === 0 && ap.result?.actualizados >= 1 &&
+      fBf?.name === "Cliente por Conversación" && fBf?.profileName === "Cliente por Conversación",
+    `${ap.out} ${JSON.stringify(fBf)}`
+  );
+  ok(`backfill no pisa el nombre editado`, (await ficha(cvEd?.contact.id))?.name === editado);
+  const again = backfillNombres(["--apply"]);
+  ok(
+    `backfill idempotente: la segunda corrida no actualiza nada`,
+    again.status === 0 && again.result?.actualizados === 0 && again.result?.conNombre === 0,
+    again.out
+  );
+}
+
+/** Corre el backfill de nombres de Messenger contra la BD del self-test. */
+function backfillNombres(extra) {
+  const r = spawnSync(process.execPath, ["scripts/backfill-nombres-messenger.mjs", ...extra], {
+    env: {
+      ...process.env,
+      META_GRAPH_BASE_URL: process.env.META_GRAPH_BASE_URL ?? `${BASE}/api/dev/wa-mock/graph`,
+    },
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+  const line = out.split(/\r?\n/).find((l) => l.startsWith("BACKFILL_RESULT "));
+  let result = null;
+  try {
+    result = line ? JSON.parse(line.slice("BACKFILL_RESULT ".length)) : null;
+  } catch {
+    result = null;
+  }
+  return { status: r.status, out, result };
+}
+
 /** Canales opcionales encendidos según la bandera `CHANNELS`. */
 function canalesEncendidos() {
   return new Set(
@@ -3547,11 +3670,22 @@ async function canalesChecks() {
     const cvSin = ((await api("/api/conversations")).json?.conversations ?? []).find(
       (x) => x.channel === c.channel && x.preview?.includes(`sin perfil ${SUF}`)
     );
-    ok(
-      `sin perfil disponible → entra con el nombre de respaldo del canal`,
-      sinPerfil.res.ok && cvSin?.contact.name === `Contacto de ${c.label}`,
-      cvSin?.contact.name
-    );
+    if (c.channel === "messenger") {
+      // Sin Business Asset User Profile Access (100/33, como en producción)
+      // el nombre sale de la conversación de la Página.
+      ok(
+        `perfil 100/33 → toma el nombre de la conversación de la Página`,
+        sinPerfil.res.ok && cvSin?.contact.name === "Cliente por Conversación",
+        cvSin?.contact.name
+      );
+      await nombresMessenger({ inbound, SUF, pre, cvSin });
+    } else {
+      ok(
+        `sin perfil disponible → entra con el nombre de respaldo del canal`,
+        sinPerfil.res.ok && cvSin?.contact.name === `Contacto de ${c.label}`,
+        cvSin?.contact.name
+      );
+    }
     ok(`el contacto no tiene teléfono`, cv?.contact.phone === null);
     const msgs = (await api(`/api/conversations/${cv?.id}/messages`)).json?.messages ?? [];
     const entrantes = msgs.filter((m) => m.direction === "in");

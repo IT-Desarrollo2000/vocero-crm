@@ -37,13 +37,23 @@ Con el canal fuera de `CHANNELS`:
 
 1. Firma falsa → 401. Segmento equivocado → 404. El handshake devuelve el `hub.challenge`.
 2. Un DM firmado crea **una** conversación con el canal correcto y un contacto
-   sin teléfono, con el nombre de respaldo `Contacto de <Canal>`.
+   sin teléfono, con el nombre del perfil del canal (o el respaldo
+   `Contacto de <Canal>` si la plataforma no lo da; en Messenger, ver 6).
 3. La re-entrega del mismo `mid`, un eco (`is_echo`) y un evento de lectura no
    agregan mensajes: hay un solo entrante.
 4. Un segundo mensaje del mismo remitente cae en la misma conversación.
 5. El DTO dice `replyMode: "free"`, `templates: false`,
    `outboundStructured: false` y trae `outboundFiles` (la matriz del canal;
    cambiado por 018 — antes `outboundMedia: false`).
+6. Messenger sin Business Asset User Profile Access: el perfil del PSID
+   responde `code 100, error_subcode 33` y el nombre sale de
+   `GET /{pageId}/conversations?platform=messenger&user_id=` (el participante
+   con el id del PSID, nunca la Página), en la Bandeja y en la ficha. Si esa
+   vía también falla (`POST /api/dev/wa-mock/fb-conversations {mode:"down"}`)
+   entra con el respaldo y se renombra con su siguiente mensaje; un nombre
+   editado por el operador no se pisa. `scripts/backfill-nombres-messenger.mjs`
+   en dry-run cuenta sin escribir, con `--apply` renombra y re-ejecutado no
+   toca nada.
 
 ## US4 — Responder
 
