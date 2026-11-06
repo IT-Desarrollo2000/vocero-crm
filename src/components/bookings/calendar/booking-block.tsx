@@ -9,7 +9,9 @@ import {
   bookingAriaLabel,
   bookingTitle,
   bookingTone,
+  isPastPending,
   OVERLAP_TEXT,
+  PAST_PENDING_LABEL,
   type Booking,
 } from "../booking-look";
 import { initials, typeColorIndex } from "./calendar-model";
@@ -20,6 +22,11 @@ import { initials, typeColorIndex } from "./calendar-model";
  * El traslape es un ATRIBUTO sobre el color del estado (A4): soft ⇒ ⧉
  * discreto; hard ⇒ borde de alerta + ⚠ "Conflicto". Nada se dice solo con
  * color: el `aria-label` lleva todo.
+ *
+ * 032 — Sin tooltips: el choque se DICE en el bloque («Choca con otra cita o
+ * un bloqueo» / «Otra cita a la misma hora (otro vendedor)»), igual que «Ya
+ * pasó · falta resultado» y «Sin vendedor». En un bloque bajo (`compact`)
+ * no cabe una segunda línea: queda el glifo y el `aria-label` completo.
  */
 
 /** "10:00–10:30" en la zona del negocio (aunque el tramo esté partido). */
@@ -55,20 +62,56 @@ function StatusIcon({ b }: { b: Booking }) {
 const BLOCK_BASE =
   "overflow-hidden rounded-sm border px-1.5 text-left text-[11px] leading-tight shadow-sm";
 
+/** 032 — La segunda línea del bloque: lo que hay que saber de él. */
+function blockNote(
+  b: Booking,
+  overlap: OverlapLevel | null | undefined,
+  pastPending: boolean
+): string | null {
+  if (b.status === "cancelada") return b.type?.name ?? null;
+  if (overlap) return OVERLAP_TEXT[overlap];
+  if (pastPending) return PAST_PENDING_LABEL;
+  if (b.kind === "session" && !b.assignedUser && b.status === "agendada") {
+    return b.type ? `${b.type.name} · sin vendedor` : "Sin vendedor";
+  }
+  return b.type?.name ?? null;
+}
+
+/**
+ * 032 — En un bloque bajo (una cita de 30 min mide ~24 px) no cabe la
+ * segunda línea: lo mismo, corto, junto al nombre («Sofía · ¿llegó?»).
+ */
+function compactNote(
+  b: Booking,
+  overlap: OverlapLevel | null | undefined,
+  pastPending: boolean
+): string | null {
+  if (b.status === "cancelada") return null;
+  if (overlap === "hard") return "choca";
+  if (overlap === "soft") return "otro vendedor";
+  if (pastPending) return "¿llegó?";
+  if (b.kind === "session" && !b.assignedUser && b.status === "agendada") return "sin vendedor";
+  return null;
+}
+
 /** Lo de adentro del bloque: igual en la rejilla y mientras se arrastra. */
 function BlockContent({
   b,
   tz,
   overlap,
   compact,
+  pastPending,
 }: {
   b: Booking;
   tz: string;
   overlap?: OverlapLevel | null;
   compact: boolean;
+  pastPending: boolean;
 }) {
   const range = bookingTimeRange(b, tz);
   const seller = b.kind === "session" ? initials(b.assignedUser?.name) : "";
+  const note = blockNote(b, overlap, pastPending);
+  const short = compact ? compactNote(b, overlap, pastPending) : null;
   return (
     <>
       <span className="flex min-w-0 items-center gap-1">
@@ -76,18 +119,26 @@ function BlockContent({
         <span className="shrink-0 font-semibold tabular-nums">{range.split("–")[0]}</span>
         <TypeDot typeId={b.type?.id} />
         <span className="min-w-0 flex-1 truncate">{bookingTitle(b)}</span>
+        {short && (
+          <span
+            aria-hidden
+            data-testid="cal-booking-note"
+            className="max-w-[55%] shrink truncate font-semibold"
+          >
+            · {short}
+          </span>
+        )}
         {overlap === "soft" && (
-          <span title={OVERLAP_TEXT.soft} aria-hidden className="shrink-0 text-[11px]">
+          <span aria-hidden className="shrink-0 text-[11px]">
             ⧉
           </span>
         )}
         {overlap === "hard" && (
           <span
-            title={OVERLAP_TEXT.hard}
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-sm bg-destructive px-0.5 text-[10px] font-semibold text-destructive-foreground"
+            aria-hidden
+            className="inline-flex shrink-0 items-center rounded-sm bg-destructive px-0.5 text-destructive-foreground"
           >
-            <AlertTriangle className="h-2.5 w-2.5" strokeWidth={2.4} aria-hidden />
-            {!compact && <span aria-hidden>Conflicto</span>}
+            <AlertTriangle className="h-2.5 w-2.5" strokeWidth={2.4} />
           </span>
         )}
         {seller && (
@@ -96,7 +147,18 @@ function BlockContent({
           </span>
         )}
       </span>
-      {!compact && b.type && <span className="block truncate opacity-80">{b.type.name}</span>}
+      {!compact && note && (
+        <span
+          aria-hidden
+          data-testid="cal-booking-note"
+          className={cn(
+            "block truncate",
+            overlap === "hard" && b.status !== "cancelada" ? "font-semibold" : "opacity-80"
+          )}
+        >
+          {note}
+        </span>
+      )}
     </>
   );
 }
@@ -115,13 +177,14 @@ export function BookingBlockOverlay({
   height: number;
   overlap?: OverlapLevel | null;
 }) {
+  // Solo se arrastran citas futuras: nunca «ya pasó».
   return (
     <div
       aria-hidden
       className={cn(BLOCK_BASE, "cursor-grabbing py-0.5 opacity-90 shadow-pop", bookingTone(b, overlap))}
       style={{ width, height }}
     >
-      <BlockContent b={b} tz={tz} overlap={overlap} compact={height < 34} />
+      <BlockContent b={b} tz={tz} overlap={overlap} compact={height < 34} pastPending={false} />
     </div>
   );
 }
@@ -148,6 +211,7 @@ export function BookingBlock({
   draggable = false,
   dragKey,
   hidden = false,
+  now,
   onOpen,
 }: {
   booking: Booking;
@@ -167,10 +231,15 @@ export function BookingBlock({
   dragKey: string;
   /** El original se atenúa mientras su copia flota. */
   hidden?: boolean;
+  /** 032 — Para decir «Ya pasó · falta resultado». */
+  now: Date;
   onOpen: (b: Booking) => void;
 }) {
   const range = bookingTimeRange(b, tz);
-  const label = bookingAriaLabel(b, range, overlap);
+  const pastPending = isPastPending(b, now);
+  const label = pastPending
+    ? `${bookingAriaLabel(b, range, overlap)}, ${PAST_PENDING_LABEL}`
+    : bookingAriaLabel(b, range, overlap);
   const compact = height < 34;
   const width = 100 / Math.max(1, cols);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -193,7 +262,7 @@ export function BookingBlock({
       {...(overlap ? { "data-overlap": overlap } : {})}
       aria-label={draggable ? `${label}. Arrastra o pulsa Espacio para mover.` : label}
       aria-roledescription={draggable ? "cita arrastrable" : undefined}
-      title={label}
+      {...(pastPending ? { "data-past-pending": "true" } : {})}
       onClick={(e) => {
         e.stopPropagation();
         onOpen(b);
@@ -207,7 +276,7 @@ export function BookingBlock({
         continuesAfter && "rounded-b-none",
         draggable && "cursor-grab touch-manipulation",
         (isDragging || hidden) && "opacity-40",
-        bookingTone(b, overlap)
+        bookingTone(b, overlap, pastPending)
       )}
       style={{
         top,
@@ -216,7 +285,7 @@ export function BookingBlock({
         width: band ? "100%" : `calc(${width}% - 2px)`,
       }}
     >
-      <BlockContent b={b} tz={tz} overlap={overlap} compact={compact} />
+      <BlockContent b={b} tz={tz} overlap={overlap} compact={compact} pastPending={pastPending} />
     </button>
   );
 }

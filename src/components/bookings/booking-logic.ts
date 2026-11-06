@@ -81,7 +81,7 @@ export function conflictDetail(
   fallbackTime?: string
 ): string {
   const type = c.typeName?.trim() || "Cita";
-  const seller = c.sellerName?.trim() || "Sin asignar";
+  const seller = c.sellerName?.trim() || "Sin vendedor";
   const time = timeZone ? timeOf(c.startUtc, timeZone) : null;
   return [type, seller, time ?? fallbackTime].filter(Boolean).join(" · ");
 }
@@ -103,7 +103,7 @@ export function overlapMessage(conflicts: readonly SlotConflict[]): string {
   const n = conflicts.length;
   const parts = conflicts.map((c) => {
     const type = c.typeName?.trim() || "Cita";
-    return c.sellerName?.trim() ? `${type}, con ${c.sellerName.trim()}` : `${type}, sin asignar`;
+    return c.sellerName?.trim() ? `${type}, con ${c.sellerName.trim()}` : `${type}, sin vendedor`;
   });
   const detail = parts.length > 0 ? ` (${parts.join("; ")})` : "";
   return `A esa hora ya hay ${n} ${n === 1 ? "cita" : "citas"}${detail}. ¿Agendar de todos modos?`;
@@ -199,4 +199,35 @@ export function parseBookingError(
     return { kind: "slot_taken", message: message ?? FALLBACK_SLOT_TAKEN };
   }
   return { kind: "error", message: message ?? fallback };
+}
+
+/**
+ * 032 — Por qué «Guardar» está deshabilitado, dicho en pantalla: «Falta
+ * elegir: tipo de cita, horario». null ⇒ se puede guardar (o se está
+ * guardando: el botón ya dice «Guardando…»).
+ */
+export function saveBlockedReason(input: {
+  rescheduling: boolean;
+  hasContact: boolean;
+  hasType: boolean;
+  hasSlot: boolean;
+  saving?: boolean;
+}): string | null {
+  if (input.saving) return null;
+  const missing: string[] = [];
+  if (!input.rescheduling && !input.hasContact) missing.push("contacto");
+  if (!input.rescheduling && !input.hasType) missing.push("tipo de cita");
+  if (!input.hasSlot) missing.push(input.rescheduling ? "el nuevo horario" : "horario");
+  return missing.length > 0 ? `Falta elegir: ${missing.join(", ")}` : null;
+}
+
+/**
+ * 032 — Detalle corto de «Ocupado» que se LEE en el botón del horario:
+ * el vendedor de la otra cita («Juan»), o «2 citas» si hay varias.
+ */
+export function busyShortDetail(conflicts: readonly SlotConflict[]): string | null {
+  if (conflicts.length === 0) return null;
+  if (conflicts.length > 1) return `${conflicts.length} citas`;
+  const c = conflicts[0]!;
+  return c.sellerName?.trim() || c.typeName?.trim() || "Otra cita";
 }

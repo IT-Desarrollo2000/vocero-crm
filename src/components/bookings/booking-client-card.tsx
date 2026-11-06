@@ -120,9 +120,8 @@ function PhoneLine({ phone }: { phone: string | null }) {
       <button
         type="button"
         aria-label="Copiar teléfono"
-        title="Copiar teléfono"
         data-testid="booking-client-copy"
-        className="rounded p-1 text-text-3 hover:bg-accent hover:text-foreground"
+        className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs text-text-3 hover:bg-accent hover:text-foreground"
         onClick={() => {
           void navigator.clipboard
             ?.writeText(phone)
@@ -133,7 +132,8 @@ function PhoneLine({ phone }: { phone: string | null }) {
             .catch(() => {});
         }}
       >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+        <span aria-hidden>{copied ? "Copiado" : "Copiar"}</span>
       </button>
     </span>
   );
@@ -155,7 +155,6 @@ function OpenChat({ card }: { card: ClientCard }) {
         size="sm"
         variant="outline"
         disabled
-        title={label}
         data-testid="booking-open-chat"
         data-can-open="false"
       >

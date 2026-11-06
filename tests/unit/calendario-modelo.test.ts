@@ -19,6 +19,9 @@ import {
 import {
   bookingAriaLabel,
   bookingTone,
+  isPastPending,
+  sourceLabel,
+  visibleStatus,
 } from "@/components/bookings/booking-look";
 import type { BusyItem } from "@/server/agenda/conflicts";
 import { computeOverlaps, pickOverlaps, type OverlapItem } from "@/server/agenda/overlaps";
@@ -333,7 +336,7 @@ describe("vista, vendedores y color", () => {
     expect(cols.map((c) => [c.id, c.name])).toEqual([
       ["u_ana", "Yo"],
       ["u_juan", "Juan"],
-      ["none", "Sin asignar"],
+      ["none", "Sin vendedor"],
     ]);
   });
 
@@ -391,10 +394,24 @@ describe("aspecto del bloque (A7)", () => {
 
   it("aria-label completo, sin depender del color", () => {
     expect(bookingAriaLabel(b(), "10:00–10:30", "soft")).toBe(
-      "10:00–10:30, María, Servicio, con Ana, Agendada, Traslape con otro vendedor"
+      "10:00–10:30, María, Servicio, con Ana, Agendada, Otra cita a la misma hora (otro vendedor)"
     );
     expect(bookingAriaLabel(b({ assignedUser: null }), "10:00–10:30", "hard")).toContain(
-      "sin asignar, Agendada, Conflicto"
+      "sin vendedor, Agendada, Choca con otra cita o un bloqueo"
     );
+  });
+
+  // 032 — La cita que ya pasó sin resultado y la que no tiene vendedor.
+  it("ya pasó sin resultado: ámbar y «Ya pasó · falta resultado»; sin vendedor: punteado", () => {
+    const t = (iso: string) => ({ ...b(), scheduledAtUtc: iso, durationMinutes: 30 });
+    const now = Date.parse("2026-11-06T18:00:00.000Z");
+    expect(isPastPending(t("2026-11-06T17:00:00.000Z"), now)).toBe(true);
+    expect(isPastPending(t("2026-11-06T17:45:00.000Z"), now)).toBe(false); // en curso
+    expect(isPastPending({ ...t("2026-11-05T17:00:00.000Z"), status: "realizada" }, now)).toBe(false);
+    expect(visibleStatus(t("2026-11-06T17:00:00.000Z"), now)).toBe("Ya pasó · falta resultado");
+    expect(visibleStatus(t("2026-11-07T17:00:00.000Z"), now)).toBe("Agendada");
+    expect(bookingTone(b(), null, true)).toContain("bg-warning-tint");
+    expect(bookingTone(b({ assignedUser: null }))).toContain("border-dashed");
+    expect(sourceLabel({ source: "manual" })).toBe("La agendó una persona");
   });
 });

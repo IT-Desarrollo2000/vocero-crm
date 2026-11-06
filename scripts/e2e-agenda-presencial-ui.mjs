@@ -411,7 +411,8 @@ try {
   ok("Ana NO ve la cita de Juan (Carla)", anaRows.length > 0 && !anaRows.some((t) => t.includes(names.c)), JSON.stringify(anaRows.length));
   ok("Ana ve las suyas (Beto reasignada, Prueba de manejo de Diego)", anaRows.some((t) => t.includes(names.b)) && anaRows.some((t) => t.includes(names.d)));
   ok("Ana no tiene el botón Reasignar", (await ap.getByTestId("booking-reassign").count()) === 0);
-  await ap.getByTestId("bookings-seller-filter").selectOption("mine");
+  // 032 — Para el Vendedor el filtro es un segmentado «Mías · Sin vendedor · Todas».
+  await ap.getByTestId("bookings-seller-filter").getByRole("button", { name: "Mías", exact: true }).click();
   await sleep(500);
   const mine = await rowsOf(ap).getByTestId("booking-seller-name").allTextContents();
   ok("\"Mías\": solo citas de Ana", mine.length >= 2 && mine.every((t) => t.trim() === V2_NAME), JSON.stringify(mine));

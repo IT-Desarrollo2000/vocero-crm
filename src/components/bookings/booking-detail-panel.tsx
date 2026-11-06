@@ -7,7 +7,13 @@ import type { OverlapLevel } from "@/server/agenda/overlaps";
 import type { SellerOption } from "./booking-dialog";
 import { BookingActions, type BookingActionHandlers } from "./booking-actions";
 import { BookingClientCard } from "./booking-client-card";
-import { bookingTitle, OVERLAP_TEXT, statusLabel, type Booking } from "./booking-look";
+import {
+  bookingTitle,
+  OVERLAP_TEXT,
+  sourceLabel,
+  visibleStatus,
+  type Booking,
+} from "./booking-look";
 import { bookingTimeRange, TypeDot } from "./calendar/booking-block";
 
 /**
@@ -36,6 +42,7 @@ export function BookingDetailPanel({
   businessTimezone,
   handlers,
   covered = false,
+  now,
   onClose,
 }: {
   booking: Booking;
@@ -48,6 +55,8 @@ export function BookingDetailPanel({
   handlers: BookingActionHandlers;
   /** Hay un diálogo abierto encima: su Escape no cierra el panel. */
   covered?: boolean;
+  /** 032 — Para decir «Ya pasó · falta resultado». */
+  now: Date;
   onClose: () => void;
 }) {
   const titleId = useId();
@@ -112,7 +121,7 @@ export function BookingDetailPanel({
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={b.status === "cancelada" ? "secondary" : "default"}>
-              {statusLabel(b)}
+              {visibleStatus(b, now)}
             </Badge>
             {b.type && (
               <Badge variant="outline" className="gap-1.5">
@@ -121,11 +130,9 @@ export function BookingDetailPanel({
               </Badge>
             )}
             {b.kind === "session" && (
-              <Badge variant="secondary">
-                {b.source === "ai" ? "Agendó la IA" : "Manual"}
-              </Badge>
+              <Badge variant="secondary">{sourceLabel(b)}</Badge>
             )}
-            {b.isTest && <Badge variant="secondary">Prueba</Badge>}
+            {b.isTest && <Badge variant="secondary">Del Laboratorio</Badge>}
             {b.linkPending && b.status !== "cancelada" && (
               <Badge variant="secondary">Sin enlace</Badge>
             )}
@@ -148,8 +155,8 @@ export function BookingDetailPanel({
               <span>
                 {OVERLAP_TEXT[overlap]}
                 {overlap === "hard"
-                  ? ": choca con un bloqueo, otra cita del mismo vendedor o el mismo tipo exclusivo."
-                  : ": a esa hora hay otra cita de otro vendedor."}
+                  ? ": a esa hora hay un bloqueo, otra cita del mismo vendedor o una del mismo tipo que va sola."
+                  : ". Se permite: cada vendedor atiende la suya."}
               </span>
             </p>
           )}
@@ -169,7 +176,7 @@ export function BookingDetailPanel({
             {b.kind === "session" && (
               <>
                 <dt className="text-text-3">Vendedor</dt>
-                <dd>{b.assignedUser?.name || "Sin asignar"}</dd>
+                <dd>{b.assignedUser?.name || "Sin vendedor"}</dd>
               </>
             )}
             {b.meetingLink && (

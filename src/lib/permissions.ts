@@ -95,7 +95,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   // ── Agenda ─────────────────────────────────────────────────────────────
   // 023: el Vendedor ve sus citas, las que creó y las sin asignar (404 a las
   // ajenas); `assignedUserId` al crear y la acción `assign` son del
-  // Propietario (403).
+  // Propietario (403). 032: la acción `take` («Tomarla») es de cualquier
+  // rol, solo para sí mismo y solo si la cita sigue sin vendedor (409).
   "GET /api/bookings": "any*",
   "POST /api/bookings": "any*",
   "PATCH /api/bookings/[id]": "any*",

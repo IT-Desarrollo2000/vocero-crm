@@ -314,7 +314,7 @@ export function sellerColumns(input: {
       extras.push({ id, name: b.assignedUser.name || "Vendedor" });
     }
   }
-  const all = [...base, ...extras, { id: NO_SELLER, name: "Sin asignar" }];
+  const all = [...base, ...extras, { id: NO_SELLER, name: "Sin vendedor" }];
   if (filter === "all") return all;
   const wanted =
     filter === "mine" ? viewerId : filter === NO_SELLER ? NO_SELLER : filter;

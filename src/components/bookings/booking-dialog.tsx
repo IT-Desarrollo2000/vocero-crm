@@ -9,10 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { isOwner, type Role } from "@/lib/roles";
 import {
+  busyShortDetail,
   conflictDetail,
   conflictsTitle,
   groupSlotsByDay,
   parseBookingError,
+  saveBlockedReason,
   timeOf,
   type SlotConflict,
   type StaffSlot,
@@ -272,6 +274,14 @@ export function BookingDialog({
     !saving &&
     Boolean(selectedSlot) &&
     (rescheduling || (Boolean(contact) && Boolean(typeId)));
+  // 032 — El motivo de «Guardar» deshabilitado se ve, no se adivina.
+  const blockedReason = saveBlockedReason({
+    rescheduling,
+    hasContact: Boolean(contact),
+    hasType: Boolean(typeId),
+    hasSlot: Boolean(selectedSlot),
+    saving,
+  });
 
   async function save(confirmOverlap: boolean) {
     if (!selectedSlot) return;
@@ -463,7 +473,8 @@ export function BookingDialog({
               )}
               {selectedType?.exclusive && (
                 <p className="text-xs text-text-3">
-                  Exclusivo: solo una a la vez en todo el negocio.
+                  Va sola: solo puede haber una de este tipo a la vez en todo el
+                  negocio.
                 </p>
               )}
             </div>
@@ -485,7 +496,7 @@ export function BookingDialog({
                     {s.name}
                   </option>
                 ))}
-                <option value={NONE}>Sin asignar</option>
+                <option value={NONE}>Sin vendedor</option>
               </select>
             </div>
           )}
@@ -610,7 +621,6 @@ export function BookingDialog({
                           aria-label={
                             busy ? `${s.time}, ocupado: ${detail}` : s.time
                           }
-                          title={detail}
                           onClick={() => {
                             pickManually();
                             setSlotStart(s.startUtc);
@@ -626,8 +636,16 @@ export function BookingDialog({
                         >
                           <span className="block">{s.time}</span>
                           {busy && (
-                            <span className="block text-[10.5px] font-medium">
+                            <span aria-hidden className="block text-[10.5px] font-medium">
                               Ocupado
+                            </span>
+                          )}
+                          {busy && (
+                            <span
+                              aria-hidden
+                              className="block truncate text-[10.5px]"
+                            >
+                              {busyShortDetail(s.conflicts)}
                             </span>
                           )}
                         </button>
@@ -688,7 +706,15 @@ export function BookingDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t px-4 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3">
+          {blockedReason && (
+            <p
+              data-testid="booking-save-reason"
+              className="mr-auto text-xs text-text-3"
+            >
+              {blockedReason}
+            </p>
+          )}
           <Button variant="ghost" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>

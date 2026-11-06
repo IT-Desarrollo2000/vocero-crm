@@ -2,6 +2,11 @@
  * 10 — Cómo se lee el recordatorio de una cita en «Citas». Lógica pura (sin
  * React) para probarla en unit: etiquetas de estado, motivo, entrega y los
  * errores del reintento manual.
+ *
+ * 032 — En palabras llanas: el error crudo del proveedor (inglés, códigos
+ * «(#131026)») se cambia por una frase, y al Vendedor lo que solo arregla el
+ * Propietario (plantilla, número conectado) se le dice como «pídele al
+ * propietario que …».
  */
 
 import {
@@ -30,6 +35,23 @@ export const DELIVERY_LABEL: Record<ReminderDeliveryStatus, string> = {
   read: "leído",
   failed: "no entregado",
 };
+
+/**
+ * 032 — Lo mismo para el Vendedor, que no entra a Ajustes: lo arregla el
+ * Propietario. Solo los motivos que dependen de Ajustes; los del contacto se
+ * dicen igual.
+ */
+export const SKIP_REASON_LABEL_MEMBER: Partial<Record<BookingReminderSkipReason, string>> = {
+  template_not_approved:
+    "la plantilla ya no está aprobada; pídele al propietario que elija otra",
+  template_missing: "no hay plantilla elegida; pídele al propietario que elija una",
+  not_connected:
+    "no hay número de WhatsApp conectado; pídele al propietario que lo conecte",
+  reconnect_required: "pídele al propietario que vuelva a conectar el número de WhatsApp",
+};
+
+/** Para quién se escribe el texto (por defecto, el Propietario). */
+export type ReminderAudience = { owner: boolean };
 
 /** 1440 → «24 h»; 90 → «1 h 30 min»; 45 → «45 min». */
 export function offsetLabel(minutes: number): string {
@@ -62,17 +84,48 @@ export function formatDue(iso: string, timeZone?: string): string {
   }
 }
 
+/**
+ * 032 — ¿Es un error técnico del proveedor (código, inglés, JSON)? Entonces
+ * no se muestra tal cual. Lo ya escrito en español se respeta.
+ */
+export function isTechnicalError(text: string): boolean {
+  const t = text.trim();
+  if (/\(#\d+\)|oauth|exception|graph|https?:\/\/|^[{[]|\b[A-Z][A-Z_]{7,}\b/i.test(t)) {
+    return true;
+  }
+  if (/[áéíóúñ¿¡]/i.test(t)) return false;
+  return /\b(the|failed|failure|error|invalid|message|request|recipient|parameter|undeliverable|unknown|not)\b/i.test(
+    t
+  );
+}
+
 /** Error de envío legible: el `interrumpido` del rescate se explica. */
 export function reminderErrorLabel(error: string | null): string {
   if (!error || !error.trim()) return "error desconocido";
   if (error === REMINDER_INTERRUPTED_ERROR) {
-    return "el envío se interrumpió (reinicio del servidor)";
+    return "el envío se interrumpió; puedes reintentarlo";
   }
+  if (isTechnicalError(error)) return "WhatsApp no aceptó el mensaje";
   return error;
 }
 
-export function skipReasonLabel(reason: BookingReminderSkipReason | null): string {
-  return reason ? (SKIP_REASON_LABEL[reason] ?? reason) : "motivo desconocido";
+/** 032 — Por qué no llegó un mensaje enviado, en palabras llanas. */
+export function deliveryErrorLabel(error: string | null | undefined): string | null {
+  const t = error?.trim();
+  if (!t) return null;
+  return isTechnicalError(t) ? "WhatsApp no pudo entregarlo al cliente" : t;
+}
+
+export function skipReasonLabel(
+  reason: BookingReminderSkipReason | null,
+  audience: ReminderAudience = { owner: true }
+): string {
+  if (!reason) return "motivo desconocido";
+  if (!audience.owner) {
+    const member = SKIP_REASON_LABEL_MEMBER[reason];
+    if (member) return member;
+  }
+  return SKIP_REASON_LABEL[reason] ?? reason;
 }
 
 /**
@@ -82,7 +135,8 @@ export function skipReasonLabel(reason: BookingReminderSkipReason | null): strin
  */
 export function describeReminder(
   r: BookingReminderDto,
-  format: (iso: string) => string = formatDue
+  format: (iso: string) => string = formatDue,
+  audience: ReminderAudience = { owner: true }
 ): { text: string; tone: ReminderTone } {
   const prefix = `Recordatorio ${offsetLabel(r.offsetMinutes)}`;
   switch (r.status) {
@@ -92,7 +146,8 @@ export function describeReminder(
       return { text: `${prefix}: enviando…`, tone: "secondary" };
     case "sent": {
       if (r.delivery === "failed") {
-        const why = r.deliveryError?.trim() ? `: ${r.deliveryError.trim()}` : "";
+        const plain = deliveryErrorLabel(r.deliveryError);
+        const why = plain ? `: ${plain}` : "";
         return { text: `${prefix}: enviado · no entregado${why}`, tone: "destructive" };
       }
       const delivery =
@@ -104,7 +159,7 @@ export function describeReminder(
     case "failed":
       return { text: `${prefix}: falló: ${reminderErrorLabel(r.error)}`, tone: "destructive" };
     case "skipped":
-      return { text: `${prefix}: omitido: ${skipReasonLabel(r.reason)}`, tone: "warning" };
+      return { text: `${prefix}: omitido: ${skipReasonLabel(r.reason, audience)}`, tone: "warning" };
     default:
       return { text: prefix, tone: "secondary" };
   }

@@ -50,6 +50,8 @@ export function bookingErrorStatus(code: BookingError["code"]): number {
     case "overlap_warning":
     // 028 — `move` con `expectedStartUtc` vencido: otra persona ya la movió.
     case "stale":
+    // 032 — «Tomarla»: otro vendedor la tomó antes.
+    case "already_taken":
       return 409;
   }
 }

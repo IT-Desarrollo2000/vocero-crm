@@ -120,6 +120,9 @@ let busyRows: Record<string, unknown>[] = [];
 /** Si tiene algo, el INSERT lo lanza en vez de insertar. */
 let insertThrows: unknown = null;
 const inserted: Record<string, unknown>[] = [];
+/** 032 — Condiciones de cada UPDATE y, si no es null, lo que devuelve. */
+const updateWheres: unknown[] = [];
+let updateReturns: unknown[] | null = null;
 
 function chain(rows: unknown[]) {
   const c: Record<string, unknown> = {};
@@ -170,15 +173,20 @@ vi.mock("@/lib/db", async () => {
     }),
     update: () => ({
       set: (v: unknown) => ({
-        where: () => ({
-          returning: () =>
-            Promise.resolve([
-              {
-                ...(inserted[inserted.length - 1] ?? {}),
-                ...(v as object),
-              },
-            ]),
-        }),
+        where: (cond: unknown) => {
+          updateWheres.push(cond);
+          return {
+            returning: () =>
+              Promise.resolve(
+                updateReturns ?? [
+                  {
+                    ...(inserted[inserted.length - 1] ?? {}),
+                    ...(v as object),
+                  },
+                ]
+              ),
+          };
+        },
       }),
     }),
   };
@@ -219,6 +227,8 @@ const aiBooking = {
 beforeEach(() => {
   selectRows.length = 0;
   inserted.length = 0;
+  updateWheres.length = 0;
+  updateReturns = null;
   log.length = 0;
   busyRows = [];
   insertThrows = null;
@@ -701,5 +711,76 @@ describe("023 — reprogramar, reasignar y reactivar con las mismas reglas", () 
         status: "realizada",
       })
     ).rejects.toMatchObject({ code: "slot_taken" });
+  });
+});
+
+describe("032 — «Tomarla»: un Vendedor se asigna una cita sin vendedor", () => {
+  const LIBRE = {
+    id: "bk_libre",
+    organizationId: "org_1",
+    kind: "session",
+    status: "agendada",
+    scheduledAt: new Date("2026-08-05T18:00:00.000Z"),
+    durationMinutes: 30,
+    appointmentTypeId: SERVICIO.id,
+    exclusive: false,
+    assignedUserId: null as string | null,
+    createdByUserId: null,
+    isTest: false,
+    connector: "enlace-fijo",
+    externalRef: null,
+    meetingLink: null,
+    linkPending: false,
+    notes: null,
+    contactId: "ct_1",
+  };
+  const take = async (over: Partial<typeof LIBRE> = {}) => {
+    const { takeBooking } = await import("@/server/agenda/service");
+    selectRows.push([{ ...LIBRE, ...over }]);
+    return takeBooking({ organizationId: "org_1", bookingId: LIBRE.id, userId: "u_ana" });
+  };
+
+  it("la escritura es UN UPDATE condicionado a «sin vendedor» y con el tenant", async () => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    updateReturns = [{ ...LIBRE, assignedUserId: "u_ana" }];
+    const out = await take();
+    expect(out).toMatchObject({ changed: true, booking: { assignedUserId: "u_ana" } });
+    expect(updateWheres).toHaveLength(1);
+    const where = new PgDialect().sqlToQuery(updateWheres[0] as never).sql;
+    expect(where).toContain('"organization_id" = $1');
+    expect(where).toMatch(/"assigned_user_id" is null/);
+    expect(where).toMatch(/"status" = \$/);
+  });
+
+  it("si otro la tomó entre la lectura y la escritura (0 filas) ⇒ already_taken", async () => {
+    updateReturns = [];
+    await expect(take()).rejects.toMatchObject({
+      code: "already_taken",
+      message: "Otro vendedor ya la tomó",
+    });
+  });
+
+  it("ya tiene otro vendedor ⇒ already_taken sin escribir; la propia es idempotente", async () => {
+    await expect(take({ assignedUserId: "u_juan" })).rejects.toMatchObject({
+      code: "already_taken",
+    });
+    expect(updateWheres).toHaveLength(0);
+    const own = await take({ assignedUserId: "u_ana" });
+    expect(own.changed).toBe(false);
+    expect(updateWheres).toHaveLength(0);
+  });
+
+  it("bloqueos y citas que ya no están agendadas no se toman", async () => {
+    await expect(take({ kind: "block" })).rejects.toMatchObject({ code: "invalid" });
+    await expect(take({ status: "cancelada" })).rejects.toMatchObject({ code: "invalid" });
+    expect(updateWheres).toHaveLength(0);
+  });
+
+  it("quien toma no puede quedar con dos citas suyas a la misma hora", async () => {
+    busyRows = [
+      busy({ scheduledAt: LIBRE.scheduledAt, assignedUserId: "u_ana", sellerName: "Ana" }),
+    ];
+    await expect(take()).rejects.toMatchObject({ code: "slot_taken" });
+    expect(updateWheres).toHaveLength(0);
   });
 });
