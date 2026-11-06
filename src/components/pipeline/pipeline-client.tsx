@@ -18,6 +18,7 @@ import { ArrowRight, Settings2, Trophy, X, XCircle } from "lucide-react";
 import type { LossReason, PriorityValue, StageDto } from "@/lib/types";
 import type { Channel, ReplyMode } from "@/lib/channels";
 import { cn } from "@/lib/utils";
+import { takeChat } from "@/lib/take-chat";
 import { Button } from "@/components/ui/button";
 import { useViewer } from "@/components/viewer-context";
 import { useEvents } from "@/components/use-events";
@@ -281,30 +282,13 @@ export function PipelineClient() {
    */
   async function tomar(lead: BoardLead, conversationId: string) {
     setTaking(lead.id);
-    const res = await fetch(`/api/conversations/${conversationId}/assign`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: me.userId, expect: "unassigned" }),
-    }).catch(() => null);
+    const result = await takeChat(conversationId, me.userId, lead.contact.name);
     setTaking(null);
-    if (res?.ok) {
+    if (result.ok) {
       router.push(`/inbox?contact=${lead.contact.id}`);
       return;
     }
-    const data = res
-      ? ((await res.json().catch(() => null)) as {
-          error?: { code?: string; message?: string; assignedTo?: { name?: string } };
-        } | null)
-      : null;
-    if (!res) setNotice("No se pudo tomar el chat: sin conexión con el servidor.");
-    else if (data?.error?.code === "already_assigned") {
-      const who = data.error.assignedTo?.name;
-      setNotice(
-        who
-          ? `${who} ya tomó el chat de ${lead.contact.name}.`
-          : `Otro vendedor ya tomó el chat de ${lead.contact.name}.`
-      );
-    } else setNotice(data?.error?.message ?? "No se pudo tomar el chat.");
+    setNotice(result.message);
     void refetch();
   }
 

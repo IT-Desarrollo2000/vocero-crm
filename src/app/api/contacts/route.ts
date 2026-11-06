@@ -1,4 +1,4 @@
-import { count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
@@ -6,18 +6,86 @@ import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { normalizeMx } from "@/lib/meta/client";
 import { nextOffset, parsePage } from "@/lib/pagination";
+import type { ContactConversationDto, ContactsPageDto } from "@/lib/types";
 import { serializeContact } from "@/server/contacts";
 import { origenDeContactos } from "@/server/attribution/store";
+import { replyModeFor } from "@/server/channels/capabilities";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
+import { teamModeFor } from "@/server/inbox/queries";
+import { isWindowOpen, windowRemainingMs } from "@/server/inbox/window";
+import { reportTimezone } from "@/server/reports/timezone";
 import { contactSearchSql } from "@/server/search";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * 032 — `archived`: `exclude` (por defecto) solo activos; `only` solo
+ * archivados (la pestaña «Archivados»). `true` es el parámetro viejo de
+ * «Ver archivados» y se conserva con su sentido de entonces: activos Y
+ * archivados (lo usa `e2e-contactos-paginacion`).
+ */
+type ArchivedFilter = "exclude" | "only" | "all";
+function parseArchived(raw: string | null): ArchivedFilter {
+  if (raw === "only") return "only";
+  if (raw === "true") return "all";
+  return "exclude";
+}
+
+/** 032 — La conversación real de cada contacto de la página, en UN lote. */
+async function conversacionesDe(
+  organizationId: string,
+  contactIds: string[],
+  now: Date
+): Promise<Map<string, ContactConversationDto>> {
+  const out = new Map<string, ContactConversationDto>();
+  // `inArray` con lista vacía no es SQL válido en todas las versiones.
+  if (contactIds.length === 0) return out;
+  const rows = await getDb()
+    .select({
+      id: schema.conversation.id,
+      contactId: schema.conversation.contactId,
+      channel: schema.conversation.channel,
+      assignedUserId: schema.conversation.assignedUserId,
+      assigneeName: schema.user.name,
+      lastInboundAt: schema.conversation.lastInboundAt,
+    })
+    .from(schema.conversation)
+    .leftJoin(schema.user, eq(schema.user.id, schema.conversation.assignedUserId))
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        inArray(schema.conversation.contactId, contactIds),
+        // A lo sumo una real por contacto (`conversation_org_contact_real_uq`);
+        // las del Laboratorio no cuentan.
+        eq(schema.conversation.isTest, false)
+      )
+    );
+  for (const r of rows) {
+    out.set(r.contactId, {
+      id: r.id,
+      channel: r.channel,
+      assignedTo: r.assignedUserId
+        ? { id: r.assignedUserId, name: r.assigneeName ?? "" }
+        : null,
+      lastInboundAt: r.lastInboundAt?.toISOString() ?? null,
+      window: {
+        open: isWindowOpen(r.lastInboundAt, now),
+        remainingMs: windowRemainingMs(r.lastInboundAt, now),
+        replyMode: replyModeFor(r.channel, r.lastInboundAt, now),
+      },
+    });
+  }
+  return out;
+}
 
 export const GET = withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   const stage = url.searchParams.get("stage")?.trim();
-  const includeArchived = url.searchParams.get("archived") === "true";
+  const archived = parseArchived(url.searchParams.get("archived"));
+  const now = new Date();
+  const viewer = { userId: session.userId, role: session.role };
   // Paginado: antes era un `.limit(200)` mudo y el contacto 201 desaparecía
   // del directorio (y de la búsqueda) sin aviso.
   const page = parsePage(url.searchParams);
@@ -55,19 +123,41 @@ export const GET = withAuth(async (session, req: Request) => {
   const stageContactIds = stage
     ? leadStages.filter((r) => r.stageName === stage).map((r) => r.contactId)
     : null;
+  const [teamMode, businessTimezone] = await Promise.all([
+    teamModeFor(session.organizationId, viewer),
+    reportTimezone(session.organizationId),
+  ]);
   if (stageContactIds?.length === 0) {
-    return Response.json({ contacts: [], total: 0, nextOffset: null });
+    const empty: ContactsPageDto = {
+      contacts: [],
+      total: 0,
+      nextOffset: null,
+      counts: { active: 0, archived: 0 },
+      viewer,
+      teamMode,
+      businessTimezone,
+    };
+    return Response.json(empty);
   }
 
+  // Búsqueda y etapa, sin el corte por archivado: de aquí salen los números
+  // de «Activos · N / Archivados · M».
+  const base = [
+    search,
+    stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
+  ];
   const where = scoped(
     schema.contact.organizationId,
     session.organizationId,
-    search,
-    stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
-    includeArchived ? undefined : isNull(schema.contact.archivedAt)
+    ...base,
+    archived === "only"
+      ? isNotNull(schema.contact.archivedAt)
+      : archived === "exclude"
+        ? isNull(schema.contact.archivedAt)
+        : undefined
   );
 
-  const [rows, totals] = await Promise.all([
+  const [rows, totals, actives, archives] = await Promise.all([
     db
       .select()
       .from(schema.contact)
@@ -78,28 +168,51 @@ export const GET = withAuth(async (session, req: Request) => {
       .limit(page.limit)
       .offset(page.offset),
     db.select({ n: count() }).from(schema.contact).where(where),
+    db
+      .select({ n: count() })
+      .from(schema.contact)
+      .where(
+        scoped(schema.contact.organizationId, session.organizationId, ...base, isNull(schema.contact.archivedAt))
+      ),
+    db
+      .select({ n: count() })
+      .from(schema.contact)
+      .where(
+        scoped(schema.contact.organizationId, session.organizationId, ...base, isNotNull(schema.contact.archivedAt))
+      ),
   ]);
   const total = Number(totals[0]?.n ?? 0);
 
   // 020 — Fuente deducida por el origen (anuncio o publicación), en UN lote sobre la
-  // página: la lista dice lo mismo que el detalle del contacto.
-  const origenes = await origenDeContactos(
-    session.organizationId,
-    rows.map((c) => c.id)
-  );
-  const contacts = rows.map((c) =>
-    serializeContact(
+  // página: la lista dice lo mismo que el detalle del contacto. 032 — y su
+  // conversación, también en un lote (sin N+1).
+  const ids = rows.map((c) => c.id);
+  const [origenes, conversaciones] = await Promise.all([
+    origenDeContactos(session.organizationId, ids),
+    conversacionesDe(session.organizationId, ids, now),
+  ]);
+  const contacts = rows.map((c) => ({
+    ...serializeContact(
       c,
       stageByContact.get(c.id) ?? null,
       priorityByContact.get(c.id) ?? null,
       origenes.get(c.id) ?? "none"
-    )
-  );
-  return Response.json({
+    ),
+    conversation: conversaciones.get(c.id) ?? null,
+  }));
+  const body: ContactsPageDto = {
     contacts,
     total,
     nextOffset: nextOffset(page, rows.length, total),
-  });
+    counts: {
+      active: Number(actives[0]?.n ?? 0),
+      archived: Number(archives[0]?.n ?? 0),
+    },
+    viewer,
+    teamMode,
+    businessTimezone,
+  };
+  return Response.json(body);
 });
 
 const createSchema = z.object({

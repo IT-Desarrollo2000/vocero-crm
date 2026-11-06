@@ -385,6 +385,35 @@ export type ContactDto = {
    * lo pisa. Candado = `fichaMeta[key].by === "humano"`.
    */
   fichaMeta?: FichaMeta;
+  /**
+   * 032 — Su conversación real (no la del Laboratorio), solo en
+   * `GET /api/contacts`. null = nunca ha escrito ni se le escribió.
+   */
+  conversation?: ContactConversationDto | null;
+};
+
+/** 032 — Lo que la fila de Contactos necesita saber de su chat. */
+export type ContactConversationDto = {
+  id: string;
+  channel: Channel;
+  assignedTo: { id: string; name: string } | null;
+  lastInboundAt: string | null;
+  /** Calculada en el servidor con `replyModeFor`; la fila la recalcula con el reloj. */
+  window: { open: boolean; remainingMs: number; replyMode: ReplyMode };
+};
+
+/** 032 — Respuesta de `GET /api/contacts`. */
+export type ContactsPageDto = {
+  contacts: ContactDto[];
+  total: number;
+  nextOffset: number | null;
+  /** Con la misma búsqueda y etapa: cuántos activos y cuántos archivados. */
+  counts: { active: number; archived: number };
+  viewer: { userId: string; role: "owner" | "member" };
+  /** Hay equipo: un chat sin responsable es «sin tomar», no «tuyo». */
+  teamMode: boolean;
+  /** Zona IANA del negocio. */
+  businessTimezone: string;
 };
 
 /* ============================================================

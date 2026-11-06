@@ -16,11 +16,12 @@
   tarjeta abierta (en `next dev` la primera carga tarda ~5 s y el reintento de
   clic la cerraba y reabría). `e2e-agenda-calendario` re-corrido con el código
   final: 125/0.
-- [ ] A8 Merge, deploy y verificación en vivo
+- [x] A8 Merge, deploy y verificación en vivo — EN PROD 581362a (6-nov,
+  deploy xwhgsnluwu3ay9t68kgwdvgv, healthy, sin migración; reversa d4a6f83)
 
 ## Fase B — Contactos
-- [ ] B1 `/api/contacts` (archivados real + conversación) + `contact-row.ts` + tests
-- [ ] B2 UI Contactos + «Escribir primero» con los 3 pasos
+- [x] B1 `/api/contacts` (archivados real + conversación) + `contact-row.ts` + tests
+- [x] B2 UI Contactos + «Escribir primero» con los 3 pasos
 - [ ] B3 Ayuda (tema Contactos) + capturas
 - [ ] B4 E2E + regresión (contactos-paginacion, search-filters, responsive) + deploy
 

@@ -173,6 +173,15 @@ export function ownershipOf(
   return "other";
 }
 
+/**
+ * ¿Quien mira puede abrir este chat en la Bandeja? El suyo o uno sin tomar,
+ * siempre; el de otro vendedor, solo el Propietario. Misma regla en
+ * Seguimiento y Contactos (`contact-row.ts`).
+ */
+export function canOpenChatFor(own: Ownership, viewer: Pick<CardViewer, "role">): boolean {
+  return own === "mine" || own === "unassigned" || (own === "other" && isOwner(viewer));
+}
+
 /** Días completos sin entrante (null si nunca escribió). */
 function daysSilent(lead: Pick<CardLead, "lastInboundAt">, now: number): number | null {
   if (!lead.lastInboundAt) return null;
@@ -203,8 +212,7 @@ export function cardView(lead: CardLead, ctx: CardContext): CardView {
   const own = ownershipOf(lead, viewer);
   const owner = isOwner(viewer);
   const href = `/inbox?contact=${lead.contact.id}`;
-  const canOpenChat =
-    own === "mine" || own === "unassigned" || (own === "other" && owner);
+  const canOpenChat = canOpenChatFor(own, viewer);
   const money = (cents: number) =>
     formatMoneyCents(cents, lead.currency ?? ctx.currency) ?? "";
 
