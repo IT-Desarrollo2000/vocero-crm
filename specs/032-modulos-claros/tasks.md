@@ -16,13 +16,29 @@
   tarjeta abierta (en `next dev` la primera carga tarda ~5 s y el reintento de
   clic la cerraba y reabría). `e2e-agenda-calendario` re-corrido con el código
   final: 125/0.
-- [ ] A8 Merge, deploy y verificación en vivo
+- [x] A8 Merge, deploy y verificación en vivo — EN PROD 581362a (6-nov,
+  deploy xwhgsnluwu3ay9t68kgwdvgv, healthy, sin migración; reversa d4a6f83)
 
 ## Fase B — Contactos
-- [ ] B1 `/api/contacts` (archivados real + conversación) + `contact-row.ts` + tests
-- [ ] B2 UI Contactos + «Escribir primero» con los 3 pasos
-- [ ] B3 Ayuda (tema Contactos) + capturas
-- [ ] B4 E2E + regresión (contactos-paginacion, search-filters, responsive) + deploy
+- [x] B1 `/api/contacts` (archivados real + conversación) + `contact-row.ts` + tests
+- [x] B2 UI Contactos + «Escribir primero» con los 3 pasos
+- [x] B3 Ayuda (tema Contactos) + capturas — tema `contactos` tras
+  `seguimiento` (rótulos de la pantalla; «¿Y en Instagram y Messenger?» solo
+  con esos canales), `contactos.png` (abierto, cerrado, nunca escribió,
+  Instagram, de Marco, «Tomar y responder», aviso con «Deshacer»); test
+  `help-topics`, `e2e-ayuda` (normal y `--off`), `us-ayuda.md`,
+  `contenido.md`. Revisión claro/oscuro 1366/390 vendedora y propietario
+- [x] B4 E2E + regresión — `e2e-modulos-b` 100/100 (6-nov; `us-modulos-b.md`;
+  los dos estados sin chat, WhatsApp sin teléfono e Instagram, sembrados por
+  SQL). Regresión verde con el código final: contactos-paginacion 26,
+  search-filters 59, responsive 54, alertas 53, modulos-a 81/81, ayuda
+  114/114 + `--off` 12/12, bandeja-alcance 66/0, roles 116/116, asignacion
+  86/86, archivo-ui 46/46, templates-multivar 21/21, alta-manual 14/14,
+  selftest 651/651. Gate verde (183 archivos, 2512 tests). Guiones existentes
+  solo con cambios aditivos de B3: `e2e-ayuda` (tema nuevo) y
+  `ayuda-capturas` (siembra y captura de Contactos, `/contacts` en la
+  revisión).
+- [ ] B5 Merge, deploy y verificación en vivo
 
 ## Fase C — Catálogo + Reportes
 - [ ] C1 `catalog-readiness.ts` + UI Catálogo (vendedor y propietario)

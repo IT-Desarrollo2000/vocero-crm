@@ -123,23 +123,45 @@ export function ChannelClosedNotice({
   );
 }
 
+/** Resultado de mandar la plantilla: el motivo, si no salió. */
+export type TemplateSendResult =
+  | { ok: true; conversationId?: string }
+  | { ok: false; message: string };
+
 /**
- * Ventana de 24 h cerrada en WhatsApp (FR-005/FR-051). 031: en tres pasos —
- * elige el mensaje, completa los espacios (con su contexto y el nombre ya
- * puesto si el cuerpo saluda), revisa la vista previa y envía. Sin plantillas
- * aprobadas, qué sigue según el rol.
+ * 031/032 — Los tres pasos de la plantilla: elige el mensaje, completa los
+ * espacios (con su contexto y el nombre ya puesto si el cuerpo saluda),
+ * revisa la vista previa y envía. Lo comparten la Bandeja (retomar un chat
+ * cerrado) y Contactos (escribir primero); cada uno pone su encabezado, su
+ * estado sin plantillas, su botón y a dónde se manda.
  */
-export function TemplateSender({
-  conversationId,
+export function TemplateSteps({
+  groupName,
+  idPrefix = "template",
   contactName,
+  headingId,
+  header,
+  emptyState,
+  submitLabel,
+  testId,
+  send: sendTemplate,
   onSent,
 }: {
-  conversationId: string;
+  /** `name` de los radios: único por pantalla. */
+  groupName: string;
+  /** Prefijo de los ids de los campos (`template-variable-1`, lo citan los E2E). */
+  idPrefix?: string;
   contactName: string;
-  onSent: () => void;
+  /** id del título que da nombre a la sección (`aria-labelledby`). */
+  headingId: string;
+  header: React.ReactNode;
+  /** Sin plantillas aprobadas: qué sigue (ocupa todo el espacio). */
+  emptyState: React.ReactNode;
+  submitLabel: string;
+  testId?: string;
+  send: (templateId: string, variables: string[] | undefined) => Promise<TemplateSendResult>;
+  onSent: (conversationId: string | undefined) => void;
 }) {
-  // Crear plantillas es un ajuste del Propietario (dev-tasks/00, RF-00-08).
-  const owner = isOwner(useViewer());
   const name = displayFirstName(contactName);
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -193,18 +215,9 @@ export function TemplateSender({
 
   useEffect(() => load(), [load]);
 
-  const headerTitle = `Para escribirle a ${name ?? "este cliente"}, usa un mensaje aprobado`;
-  const header = (
-    <ClosedHeader id="retomar-titulo" title={headerTitle}>
-      Pasaron más de 24 horas desde su último mensaje, y WhatsApp solo deja
-      retomar con una plantilla. Cuando {name ?? "el cliente"} te conteste, podrás
-      escribir normal otra vez.
-    </ClosedHeader>
-  );
-
   if (loadFailed) {
     return (
-      <section aria-labelledby="retomar-titulo" className="space-y-3">
+      <section aria-labelledby={headingId} className="space-y-3">
         {header}
         <div
           role="alert"
@@ -222,7 +235,7 @@ export function TemplateSender({
 
   if (templates === null) {
     return (
-      <section aria-labelledby="retomar-titulo" className="space-y-3" aria-busy="true">
+      <section aria-labelledby={headingId} className="space-y-3" aria-busy="true">
         {header}
         <p role="status" className="text-[13px] text-text-3">
           Cargando plantillas…
@@ -231,55 +244,7 @@ export function TemplateSender({
     );
   }
 
-  if (templates.length === 0) {
-    return (
-      <section
-        aria-labelledby="sin-plantillas-titulo"
-        data-testid="no-templates"
-        className="flex flex-wrap items-start gap-4"
-      >
-        <span
-          aria-hidden
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-text-2"
-        >
-          <MessageSquareText className="h-5 w-5" strokeWidth={1.7} />
-        </span>
-        <div className="min-w-0 flex-1 basis-[300px] space-y-3">
-          <div className="space-y-1">
-            <h2 id="sin-plantillas-titulo" className="text-[15px] font-semibold">
-              Todavía no puedes retomar este chat
-            </h2>
-            <p className="max-w-[620px] text-[13.5px] text-text-2">
-              Pasaron más de 24 horas y para escribirle a {name ?? "este cliente"} hace
-              falta un mensaje aprobado por WhatsApp (plantilla).{" "}
-              {owner ? "Aún no tienes ninguno aprobado." : "Tu equipo aún no tiene ninguno."}
-            </p>
-          </div>
-          <NextSteps
-            items={[
-              owner ? (
-                <Link
-                  key="crear"
-                  href="/settings/templates"
-                  className="font-medium text-brand-text underline underline-offset-2 hover:text-brand"
-                >
-                  Crear una plantilla en Ajustes → Plantillas
-                </Link>
-              ) : (
-                "Avísale al propietario que necesitas una plantilla para retomar chats. Las crea él en Ajustes."
-              ),
-              "WhatsApp la revisa; suele tardar desde unos minutos hasta un día.",
-              "Cuando esté aprobada, aparecerá aquí mismo para que la mandes.",
-            ]}
-          />
-          <ReopenNote>
-            Si {name ?? "el cliente"} te vuelve a escribir, este espacio se convierte en
-            la caja de texto y podrás responderle normal.
-          </ReopenNote>
-        </div>
-      </section>
-    );
-  }
+  if (templates.length === 0) return <>{emptyState}</>;
 
   const labels = templateLabels(templates);
   const selected = templates.find((t) => t.id === selectedId) ?? null;
@@ -294,37 +259,24 @@ export function TemplateSender({
       ? `Llena el espacio ${missing} para poder enviarla.`
       : null;
   const showPrefillNote = prefilled !== null && values[0] === prefilled;
+  const blockedId = `${idPrefix}-blocked-reason`;
 
   async function send() {
     if (!selected || sending || blockedReason) return;
     setSending(true);
     setError(null);
-    const res = await fetch(`/api/conversations/${conversationId}/messages/template`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        templateId: selected.id,
-        variables: variableCount > 0 ? values : undefined,
-      }),
-    }).catch(() => null);
+    const result = await sendTemplate(selected.id, variableCount > 0 ? values : undefined);
     setSending(false);
-    if (!res) {
-      setError("Sin conexión con el servidor. Intenta de nuevo.");
-      return;
-    }
-    if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-      setError(data?.error?.message ?? "No se pudo enviar la plantilla");
+    if (!result.ok) {
+      setError(result.message);
       return;
     }
     choose(templates && templates.length === 1 ? (templates[0] ?? null) : null);
-    onSent();
+    onSent(result.conversationId);
   }
 
   return (
-    <section aria-labelledby="retomar-titulo" data-testid="template-sender" className="space-y-4">
+    <section aria-labelledby={headingId} data-testid={testId} className="space-y-4">
       {header}
 
       <div className="flex flex-wrap gap-4">
@@ -347,7 +299,7 @@ export function TemplateSender({
                 >
                   <input
                     type="radio"
-                    name={`template-${conversationId}`}
+                    name={groupName}
                     value={t.id}
                     checked={on}
                     onChange={() => choose(t)}
@@ -378,7 +330,7 @@ export function TemplateSender({
                   return (
                     <label
                       key={`${selected.id}-${n}`}
-                      htmlFor={`template-variable-${n}`}
+                      htmlFor={`${idPrefix}-variable-${n}`}
                       className="flex min-w-0 flex-col gap-1 text-[13px] text-text-2"
                     >
                       <span>
@@ -386,7 +338,7 @@ export function TemplateSender({
                         {ctx ? ` · va en “${ctx}”` : ""}
                       </span>
                       <Input
-                        id={`template-variable-${n}`}
+                        id={`${idPrefix}-variable-${n}`}
                         value={value}
                         aria-invalid={empty && missing === n ? true : undefined}
                         onChange={(e) =>
@@ -459,17 +411,155 @@ export function TemplateSender({
             className="w-full"
             onClick={() => void send()}
             disabled={sending || blockedReason !== null}
-            aria-describedby={blockedReason ? "template-blocked-reason" : undefined}
+            aria-describedby={blockedReason ? blockedId : undefined}
           >
-            {sending ? "Enviando…" : "Enviar plantilla"}
+            {sending ? "Enviando…" : submitLabel}
           </Button>
           {blockedReason && (
-            <p id="template-blocked-reason" className="text-[12.5px] text-warning-text">
+            <p id={blockedId} className="text-[12.5px] text-warning-text">
               {blockedReason}
             </p>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+/** Sin plantillas aprobadas: qué sigue, según el rol. */
+export function NoTemplatesNotice({
+  title,
+  intro,
+  contactName,
+  firstContact = false,
+}: {
+  title: string;
+  /** Por qué hace falta una plantilla (va antes de «Aún no tienes…»). */
+  intro: string;
+  contactName: string;
+  /** Contactos (escribir primero) en vez de la Bandeja (retomar un chat). */
+  firstContact?: boolean;
+}) {
+  // Crear plantillas es un ajuste del Propietario (dev-tasks/00, RF-00-08).
+  const owner = isOwner(useViewer());
+  const name = displayFirstName(contactName);
+  return (
+    <section
+      aria-labelledby="sin-plantillas-titulo"
+      data-testid="no-templates"
+      className="flex flex-wrap items-start gap-4"
+    >
+      <span
+        aria-hidden
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-text-2"
+      >
+        <MessageSquareText className="h-5 w-5" strokeWidth={1.7} />
+      </span>
+      <div className="min-w-0 flex-1 basis-[300px] space-y-3">
+        <div className="space-y-1">
+          <h2 id="sin-plantillas-titulo" className="text-[15px] font-semibold">
+            {title}
+          </h2>
+          <p className="max-w-[620px] text-[13.5px] text-text-2">
+            {intro}{" "}
+            {owner ? "Aún no tienes ninguno aprobado." : "Tu equipo aún no tiene ninguno."}
+          </p>
+        </div>
+        <NextSteps
+          items={[
+            owner ? (
+              <Link
+                key="crear"
+                href="/settings/templates"
+                className="font-medium text-brand-text underline underline-offset-2 hover:text-brand"
+              >
+                Crear una plantilla en Ajustes → Plantillas
+              </Link>
+            ) : (
+              firstContact
+                ? "Avísale al propietario que necesitas una plantilla para escribirle primero a un cliente. Las crea él en Ajustes."
+                : "Avísale al propietario que necesitas una plantilla para retomar chats. Las crea él en Ajustes."
+            ),
+            "WhatsApp la revisa; suele tardar desde unos minutos hasta un día.",
+            "Cuando esté aprobada, aparecerá aquí mismo para que la mandes.",
+          ]}
+        />
+        <ReopenNote>
+          {firstContact ? (
+            <>
+              Si {name ?? "el cliente"} te escribe primero, ya no hace falta plantilla:
+              podrás responderle normal desde la Bandeja.
+            </>
+          ) : (
+            <>
+              Si {name ?? "el cliente"} te vuelve a escribir, este espacio se convierte en
+              la caja de texto y podrás responderle normal.
+            </>
+          )}
+        </ReopenNote>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Ventana de 24 h cerrada en WhatsApp (FR-005/FR-051). 031: en tres pasos
+ * (`TemplateSteps`); sin plantillas aprobadas, qué sigue según el rol.
+ */
+export function TemplateSender({
+  conversationId,
+  contactName,
+  onSent,
+}: {
+  conversationId: string;
+  contactName: string;
+  onSent: () => void;
+}) {
+  const name = displayFirstName(contactName);
+  const headerTitle = `Para escribirle a ${name ?? "este cliente"}, usa un mensaje aprobado`;
+
+  async function send(
+    templateId: string,
+    variables: string[] | undefined
+  ): Promise<TemplateSendResult> {
+    const res = await fetch(`/api/conversations/${conversationId}/messages/template`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ templateId, variables }),
+    }).catch(() => null);
+    if (!res) return { ok: false, message: "Sin conexión con el servidor. Intenta de nuevo." };
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      return { ok: false, message: data?.error?.message ?? "No se pudo enviar la plantilla" };
+    }
+    return { ok: true };
+  }
+
+  return (
+    <TemplateSteps
+      groupName={`template-${conversationId}`}
+      contactName={contactName}
+      headingId="retomar-titulo"
+      testId="template-sender"
+      submitLabel="Enviar plantilla"
+      header={
+        <ClosedHeader id="retomar-titulo" title={headerTitle}>
+          Pasaron más de 24 horas desde su último mensaje, y WhatsApp solo deja
+          retomar con una plantilla. Cuando {name ?? "el cliente"} te conteste, podrás
+          escribir normal otra vez.
+        </ClosedHeader>
+      }
+      emptyState={
+        <NoTemplatesNotice
+          title="Todavía no puedes retomar este chat"
+          intro={`Pasaron más de 24 horas y para escribirle a ${name ?? "este cliente"} hace falta un mensaje aprobado por WhatsApp (plantilla).`}
+          contactName={contactName}
+        />
+      }
+      send={send}
+      onSent={() => onSent()}
+    />
   );
 }

@@ -14,7 +14,9 @@
  *      `CHANNELS`, su párrafo). Segunda pasada con `--off` (server con
  *      `AGENDA=off CHANNELS=whatsapp`): ni citas ni Instagram/Messenger.
  *      032: `#seguimiento` en las dos pasadas (sin hablar de citas en la
- *      `--off`) y los rótulos nuevos de Seguimiento y Citas
+ *      `--off`) y los rótulos nuevos de Seguimiento y Citas. Fase B:
+ *      `#contactos` en las dos pasadas, tras `#seguimiento`, con sus rótulos
+ *      y su «¿Y en Instagram y Messenger?» solo con esos canales
  *   f) pantallas (como vendedora): ventana abierta (barra de tiempo, menú
  *      «Adjuntar», `accept` de «Documento»), ventana cerrada sin plantillas y
  *      con una plantilla de 2 espacios (prellenado, motivo, envío con los dos
@@ -246,6 +248,11 @@ async function offPass() {
   const seg = page.locator("#seguimiento");
   ok("#seguimiento sigue con la agenda apagada", (await seg.count()) === 1);
   ok("…y no habla de citas", !/[Cc]ita/.test((await seg.innerText().catch(() => "")) ?? ""));
+  // 032 fase B — Contactos tampoco depende de un módulo; sin IG/Messenger
+  // encendidos no trae su «¿Y en …?» (el chequeo de todo el body ya lo cubre).
+  const cont = page.locator("#contactos");
+  ok("#contactos sigue con la agenda apagada", (await cont.count()) === 1);
+  ok("…sin «¿Y en …?» de canales", !((await cont.innerText().catch(() => "")) ?? "").includes("¿Y en "));
   await ctx.close();
 }
 
@@ -346,6 +353,30 @@ async function helpPageChecks() {
     ok(`#citas cita «${label}»`, citasText.includes(label));
   }
   ok("#citas ya no dice «Sin asignar» ni «Mostrar pruebas»", !/Sin asignar|Mostrar pruebas/.test(citasText));
+
+  // 032 fase B — Tema Contactos, justo después de Seguimiento.
+  ok("hay tema Contactos (#contactos en el índice y en la página)", hrefs.includes("#contactos") && (await page.locator("#contactos").count()) === 1);
+  ok("…justo después de Seguimiento", hrefs.indexOf("#contactos") === hrefs.indexOf("#seguimiento") + 1, JSON.stringify(hrefs));
+  const contText = (await page.locator("#contactos").innerText().catch(() => "")) ?? "";
+  for (const label of [
+    "Activos",
+    "Archivados",
+    "Abrir chat",
+    "Tomar y responder",
+    "Retomar con plantilla",
+    "Escribir primero",
+    "Enviar y abrir el chat",
+    "Archivar",
+    "Deshacer",
+    "Desarchivar",
+    "Nuevo contacto",
+    "Sin teléfono",
+    "Lo atiende",
+    "¿Y en Instagram y Messenger?",
+  ]) {
+    ok(`#contactos cita «${label}»`, contText.includes(label));
+  }
+  ok("#contactos ya no dice «Ver archivados»", !contText.includes("Ver archivados"));
   await ctx.close();
 }
 

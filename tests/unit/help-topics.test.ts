@@ -46,6 +46,18 @@ describe("visibleTopics", () => {
     expect(JSON.stringify(seguimiento)).not.toMatch(/[Cc]ita/);
   });
 
+  it("Contactos está con o sin agenda; sus párrafos de canal, solo con el canal", () => {
+    for (const agenda of [false, true]) {
+      const ids = visibleTopics({ agenda, channels: ["whatsapp"] }).map((t) => t.id);
+      expect(ids).toContain("contactos");
+    }
+    const soloWa = visibleTopics({ agenda: false, channels: ["whatsapp"] }).find((t) => t.id === "contactos");
+    expect(JSON.stringify(soloWa)).not.toMatch(/Instagram|Messenger|canalesMeta/);
+    expect(JSON.stringify(soloWa)).not.toMatch(/[Cc]ita/);
+    const conIg = visibleTopics({ agenda: false, channels: ["whatsapp", "instagram"] }).find((t) => t.id === "contactos");
+    expect(conIg?.bloques.some((b) => b.titulo === "¿Y en Instagram?")).toBe(true);
+  });
+
   it("solo WhatsApp: sin párrafos de Instagram ni Messenger", () => {
     const text = allText(visibleTopics({ agenda: true, channels: new Set(["whatsapp"]) }));
     expect(text).not.toMatch(/Instagram|Messenger|canalesMeta/);
@@ -117,6 +129,9 @@ describe("temas", () => {
     expect(text).not.toContain("Sin asignar");
     expect(text).not.toContain("Mostrar pruebas");
     expect(text).not.toContain("«Manual»");
+    // 032 fase B — Contactos ya no suma archivados ni inicia con un selector.
+    expect(text).not.toContain("Ver archivados");
+    expect(text).not.toContain("Iniciar conversación");
   });
 
   it("Seguimiento va junto a «¿Qué chats me tocan?» y cada tema trae su captura", () => {
@@ -124,11 +139,14 @@ describe("temas", () => {
     expect(order.indexOf("seguimiento")).toBe(order.indexOf("mis-chats") + 1);
     expect(HELP_TOPICS.find((t) => t.id === "seguimiento")?.captura).toEqual(["seguimiento.png"]);
     expect(HELP_TOPICS.find((t) => t.id === "citas")?.captura).toEqual(["cita.png", "citas.png"]);
+    // 032 fase B — Contactos, justo después de Seguimiento.
+    expect(order.indexOf("contactos")).toBe(order.indexOf("seguimiento") + 1);
+    expect(HELP_TOPICS.find((t) => t.id === "contactos")?.captura).toEqual(["contactos.png"]);
   });
 
   it("no le presenta al vendedor lo que solo hace el Propietario", () => {
     const text = JSON.stringify(
-      HELP_TOPICS.filter((t) => t.id === "seguimiento" || t.id === "citas")
+      HELP_TOPICS.filter((t) => t.id === "seguimiento" || t.id === "citas" || t.id === "contactos")
     );
     expect(text).not.toContain("Gestionar etapas");
     expect(text).not.toContain("Mostrar citas del Laboratorio");
@@ -174,6 +192,19 @@ describe("temas", () => {
       "«Todas»",
       "«Bloquear un horario»",
       "«La agendó una persona»",
+      // 032 — Contactos
+      "«Activos»",
+      "«Archivados»",
+      "«Abrir chat»",
+      "«Escribir primero»",
+      "«Enviar y abrir el chat»",
+      "«Archivar»",
+      "«Deshacer»",
+      "«Desarchivar»",
+      "«Nuevo contacto»",
+      "«Nunca te ha escrito · el primer mensaje tiene que ser uno aprobado»",
+      "«Sin teléfono: no hay a dónde mandarle el primer mensaje»",
+      "«No se pudieron cargar los contactos.»",
     ]) {
       expect(text, label).toContain(label);
     }

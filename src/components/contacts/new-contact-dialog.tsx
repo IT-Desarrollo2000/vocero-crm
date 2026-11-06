@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { SourceValue, StageDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,10 @@ export function NewContactDialog({
   const [phone, setPhone] = useState("");
   const [source, setSource] = useState<SourceValue>("referido");
   const [notes, setNotes] = useState("");
-  const [stages, setStages] = useState<StageDto[]>([]);
+  // null = cargando: con `[]` de inicio, «No hay etapas abiertas» parpadeaba
+  // en cada apertura aunque sí las hubiera.
+  const [stages, setStages] = useState<StageDto[] | null>(null);
+  const [stagesFailed, setStagesFailed] = useState(false);
   const [stageId, setStageId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,16 +46,24 @@ export function NewContactDialog({
     null
   );
 
-  useEffect(() => {
-    void (async () => {
-      const res = await fetch("/api/pipeline/stages").catch(() => null);
-      if (!res?.ok) return;
-      const data = (await res.json()) as { stages: StageDto[] };
-      const abiertas = data.stages.filter((s) => s.kind === "open");
-      setStages(abiertas);
-      setStageId(abiertas[0]?.id ?? "");
-    })();
+  const loadStages = useCallback(async () => {
+    setStagesFailed(false);
+    const res = await fetch("/api/pipeline/stages").catch(() => null);
+    const data = res?.ok
+      ? ((await res.json().catch(() => null)) as { stages?: StageDto[] } | null)
+      : null;
+    if (!data?.stages) {
+      setStagesFailed(true);
+      return;
+    }
+    const abiertas = data.stages.filter((s) => s.kind === "open");
+    setStages(abiertas);
+    setStageId(abiertas[0]?.id ?? "");
   }, []);
+
+  useEffect(() => {
+    void loadStages();
+  }, [loadStages]);
 
   async function guardar() {
     setSaving(true);
@@ -93,7 +104,21 @@ export function NewContactDialog({
 
   // 11 dígitos = código de país + número. Ver la nota del endpoint sobre por
   // qué el código de país no puede faltar ni asumirse.
-  const listo = name.trim().length > 0 && phone.replace(/\D/g, "").length >= 11;
+  const digits = phone.replace(/\D/g, "").length;
+  // 032: por qué no se puede crear todavía, en texto visible bajo el botón.
+  const blockedReason = stagesFailed
+    ? null // lo explica el aviso con «Reintentar»
+    : stages === null
+      ? "Cargando las etapas del embudo…"
+      : stages.length === 0
+        ? null // lo explica el aviso de «No hay etapas abiertas»
+        : !name.trim()
+          ? "Escribe su nombre para poder crearlo."
+          : digits < 11
+            ? "Escribe el teléfono completo, con código de país (52 para México), para poder crearlo."
+            : null;
+  const listo =
+    !stagesFailed && stages !== null && stages.length > 0 && name.trim().length > 0 && digits >= 11;
 
   return (
     <div
@@ -171,7 +196,7 @@ export function NewContactDialog({
                 onChange={(e) => setStageId(e.target.value)}
                 className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
               >
-                {stages.map((s) => (
+                {(stages ?? []).map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -210,25 +235,48 @@ export function NewContactDialog({
             </Button>
           </div>
         )}
-        {error && <p className="mt-3 text-xs text-danger-text">{error}</p>}
-        {stages.length === 0 && (
+        {error && (
+          <p role="alert" className="mt-3 text-xs text-danger-text">
+            {error}
+          </p>
+        )}
+        {stagesFailed && (
+          <div
+            role="alert"
+            className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-danger-soft bg-danger-tint px-3 py-2 text-xs text-danger-text"
+          >
+            <p className="min-w-0 flex-1">
+              No se pudieron cargar las etapas del embudo; sin ellas no se puede crear el contacto.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => void loadStages()}>
+              Reintentar
+            </Button>
+          </div>
+        )}
+        {stages !== null && stages.length === 0 && (
           <p className="mt-3 text-xs text-warning-text">
             No hay etapas abiertas. Crea una en Seguimiento antes de
             capturar contactos.
           </p>
         )}
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
           <Button
-            disabled={!listo || saving || stages.length === 0}
+            disabled={!listo || saving}
+            aria-describedby={blockedReason ? "nc-blocked-reason" : undefined}
             onClick={() => void guardar()}
           >
             {saving ? "Guardando…" : "Crear contacto"}
           </Button>
         </div>
+        {blockedReason && (
+          <p id="nc-blocked-reason" className="mt-2 text-right text-[12.5px] text-text-2">
+            {blockedReason}
+          </p>
+        )}
       </div>
     </div>
   );

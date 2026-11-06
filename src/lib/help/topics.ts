@@ -362,6 +362,65 @@ export const HELP_TOPICS: HelpTopic[] = [
     captura: ["seguimiento.png"],
   },
   {
+    id: "contactos",
+    antetitulo: "Contactos",
+    titulo: "Quiero escribirle a un contacto",
+    resumen: "Cada contacto te dice cómo va su chat y qué puedes hacer hoy.",
+    intro:
+      "En «Contactos» del menú están todas las personas que te han escrito y las que se dieron de alta a mano. Cada fila dice quién lo atiende, cómo va su chat y trae el botón de lo que puedes hacer hoy.",
+    bloques: [
+      {
+        tipo: "pasos",
+        items: [
+          "Arriba elige «Activos» (con quienes trabajas) o «Archivados» (los que guardaste aparte); cada uno dice cuántos hay. Puedes buscar por nombre o teléfono, o filtrar por «Etapa».",
+          "Debajo del nombre, la fila te dice cómo va su chat, por ejemplo «Te escribió … · puedes escribirle libremente … más» o «No te escribe desde hace … · para retomarlo usa un mensaje aprobado».",
+          "Haz clic en su botón: «Abrir chat» (se abre en la Bandeja), «Tomar y responder» (nadie lo atiende todavía: queda a tu nombre y se abre su chat), «Retomar con plantilla» (su chat se cerró) o «Escribir primero» (nunca te ha escrito).",
+        ],
+      },
+      {
+        tipo: "pasos",
+        titulo: "Escribir primero",
+        items: [
+          "Haz clic en «Escribir primero». Se abre «Escribirle a … por primera vez».",
+          "En «Elige el mensaje» marca uno y en «Completa los espacios» llena lo que falte. Si el mensaje saluda, el nombre ya viene puesto: revisa que esté bien.",
+          "En «Revisa y envía» ves cómo le va a llegar. Haz clic en «Enviar y abrir el chat»: te lleva a su chat, y cuando te conteste podrás escribir normal.",
+        ],
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Alguien que no te ha escrito",
+        texto:
+          "Con «Nuevo contacto» lo das de alta con su nombre y su teléfono completo, con código de país (52 para México). Su fila dirá «Nunca te ha escrito · el primer mensaje tiene que ser uno aprobado»; usa «Escribir primero».",
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Archivar",
+        texto:
+          "«Archivar» lo quita de «Activos» sin borrar nada. Verás «Archivaste a … Ya no aparece en Activos.» con «Deshacer», por si te equivocaste. Para regresarlo después, búscalo en «Archivados» y haz clic en «Desarchivar».",
+      },
+      {
+        tipo: "lista",
+        tono: "siNo",
+        titulo: "¿Y si…?",
+        items: [
+          "**Dice «Sin teléfono: no hay a dónde mandarle el primer mensaje»:** llegó sin número (WhatsApp ya no siempre lo manda). Cuando te escriba, aparecerá su chat y podrás contestarle.",
+          "**Dice «Lo atiende …»:** es cliente de otro compañero y solo él abre su chat; por eso no trae botón. Si necesitas algo, pídeselo.",
+          "**«… ya tomó el chat de …»:** otro compañero lo tomó antes que tú; se queda con él.",
+          "**«No se pudieron cargar los contactos.»:** revisa tu conexión y haz clic en «Reintentar».",
+        ],
+      },
+      {
+        tipo: "parrafo",
+        tono: "siNo",
+        soloCanal: ["instagram", "messenger"],
+        titulo: "¿Y en {canalesMeta}?",
+        texto:
+          "Ahí no hay plantillas ni «Escribir primero»: solo puedes contestarle cuando te escribe. Si te escribió hace más de 24 horas, aún puedes contestarle hasta 7 días (la fila dice cuánto queda); después, espera a que te vuelva a escribir.",
+      },
+    ],
+    captura: ["contactos.png"],
+  },
+  {
     id: "ia",
     antetitulo: "Trabajar con la IA",
     titulo: "¿Cuándo contesta la IA y cuándo yo?",
