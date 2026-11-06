@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { usePathname } from "next/navigation";
 import { useViewer } from "@/components/viewer-context";
+import { tzLabel } from "@/lib/tz-label";
 import { formatDayRange } from "./format";
 
 /**
@@ -115,7 +116,9 @@ export function ReportPrintHeader() {
       <p className="text-xs font-medium text-muted-foreground">{businessName}</p>
       <h1 className="text-lg font-semibold">Reporte · {reportTabLabel(pathname)}</h1>
       <p className="text-sm text-text-2">
-        {meta ? `${formatDayRange(meta.from, meta.to)} · ${meta.tz}` : "Rango del reporte"}
+        {meta
+          ? `${formatDayRange(meta.from, meta.to)} · ${tzLabel(meta.tz) ?? meta.tz}`
+          : "Rango del reporte"}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         {printedAt ? `${formatGeneratedAt(printedAt, meta?.tz)} · ` : ""}

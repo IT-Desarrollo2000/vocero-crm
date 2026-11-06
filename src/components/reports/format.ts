@@ -121,3 +121,57 @@ export function formatDateTime(iso: string, timeZone?: string): string {
     return date.toLocaleString("es-MX", opts);
   }
 }
+
+/**
+ * 032 — Segundos → «4 segundos», «17 minutos», «1 hora 5 minutos», «2 días
+ * 3 horas»: la misma unidad y redondeo que `formatDuration`, pero en palabras
+ * para las frases de los reportes.
+ */
+export function formatDurationWords(seconds: number | null | undefined): string {
+  if (!isNum(seconds) || seconds < 0) return EMPTY_VALUE;
+  const unit = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (seconds < 59.5) return unit(Math.round(seconds), "segundo", "segundos");
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return unit(minutes, "minuto", "minutos");
+  if (minutes < 24 * 60) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m ? `${unit(h, "hora", "horas")} ${unit(m, "minuto", "minutos")}` : unit(h, "hora", "horas");
+  }
+  const hours = Math.round(minutes / 60);
+  const d = Math.floor(hours / 24);
+  const h = hours % 24;
+  return h ? `${unit(d, "día", "días")} ${unit(h, "hora", "horas")}` : unit(d, "día", "días");
+}
+
+/**
+ * 032 — Un tiempo de espera en palabras, sin «mediana» ni «p90»: «la mitad en
+ * menos de 4 segundos; casi siempre (9 de cada 10) en menos de 10 segundos».
+ * Si las dos cifras dicen lo mismo, basta la primera. null sin mediana.
+ */
+export function waitInWords(
+  p50Seconds: number | null | undefined,
+  p90Seconds: number | null | undefined
+): string | null {
+  if (!isNum(p50Seconds) || p50Seconds < 0) return null;
+  const half = formatDurationWords(p50Seconds);
+  const most = isNum(p90Seconds) && p90Seconds >= 0 ? formatDurationWords(p90Seconds) : null;
+  if (!most || most === half) return `la mitad en menos de ${half}`;
+  return `la mitad en menos de ${half}; casi siempre (9 de cada 10) en menos de ${most}`;
+}
+
+/** 032 — «en estos 30 días», «hoy», «en este rango»: para los vacíos. */
+export function rangePhrase(range: { preset: string; from: string; to: string }): string {
+  switch (range.preset) {
+    case "today":
+      return "hoy";
+    case "7d":
+      return "en estos 7 días";
+    case "30d":
+      return "en estos 30 días";
+    case "90d":
+      return "en estos 90 días";
+    default:
+      return range.from === range.to ? "ese día" : "en este rango";
+  }
+}

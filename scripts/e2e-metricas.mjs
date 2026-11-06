@@ -37,7 +37,7 @@
  *   - `svg[data-testid="volume-chart"]` con `data-days`
  *   - `[data-testid="manual-reply-pauses"]` («Pausas por respuesta manual: N»)
  *   - `[data-testid="approximate-notice"]`
- *   - tabla `aria-label="Escalamientos por motivo"`
+ *   - tabla `aria-label="Pasadas a una persona, por motivo"`
  *
  * Uso:
  *   1) BD de E2E migrada (0017 incluida) y app corriendo con
@@ -466,9 +466,9 @@ async function main() {
     for (const title of [
       "Reparto de atención",
       "Volumen por día y canal",
-      "Escalamientos por motivo",
+      "Pasadas a una persona, por motivo",
       "Tiempo a primera respuesta",
-      "Salientes fallidas",
+      "Mensajes que no salieron",
       "Entrega y lectura",
     ]) {
       ok(`bloque «${title}» visible`, (await page.getByText(title).count()) > 0);
@@ -482,7 +482,7 @@ async function main() {
     const pausesTxt = (await pauses.count()) ? await pauses.first().innerText() : "";
     ok("línea «Pausas por respuesta manual» con el conteo", pausesTxt.includes("Pausas por respuesta manual") && pausesTxt.includes(String(esc?.manualReplyPauses)), pausesTxt);
     ok("aviso de datos aproximados visible", (await page.locator('[data-testid="approximate-notice"]').count()) > 0);
-    ok("tabla de escalamientos con la nota de B", (await page.locator('[aria-label="Escalamientos por motivo"]').count()) > 0 && (await page.getByText(NOTE_B).count()) > 0);
+    ok("tabla de escalamientos con la nota de B", (await page.locator('[aria-label="Pasadas a una persona, por motivo"]').count()) > 0 && (await page.getByText(NOTE_B).count()) > 0);
 
     const group = page.locator('[role="group"][aria-label="Rango del reporte"]');
     ok("selector de rango presente", (await group.count()) > 0);

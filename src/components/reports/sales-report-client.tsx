@@ -2,10 +2,12 @@
 
 import { useId } from "react";
 import Link from "next/link";
-import { AlertTriangle, Inbox } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { formatMoneyCents } from "@/lib/money";
+import { tzLabel } from "@/lib/tz-label";
 import type {
   ReportBlock,
+  ReportRangeDto,
   SalesAdvisorRowDto,
   SalesByDayDto,
   SalesFunnelDto,
@@ -23,6 +25,7 @@ import {
   formatDayLong,
   formatDayShort,
   formatPercent,
+  rangePhrase,
   ratio,
 } from "./format";
 import { KpiTile } from "./kpi-tile";
@@ -33,6 +36,7 @@ import {
   formatDays,
   formatTicket,
   isSalesReportEmpty,
+  noSalesView,
   salesCaveats,
   salesDayGeometry,
   salesSourceRows,
@@ -59,15 +63,9 @@ export function SalesReportClient() {
       {picker}
       {failureNotice}
 
-      {!loading && empty && (
-        <p
-          role="status"
-          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
-        >
-          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
-          No se ganó ni se perdió ningún lead en este rango.
-        </p>
-      )}
+      {/* 032 — Sin ventas ni perdidas: en vez de bloques en 0, cómo se
+          registra una venta, cómo va el Seguimiento y a dónde ir. */}
+      {!loading && empty && report && range && <NoSales report={report} range={range} />}
 
       {!loading && sinMonto > 0 && (
         <p
@@ -87,7 +85,7 @@ export function SalesReportClient() {
         </p>
       )}
 
-      {showBlocks && (
+      {showBlocks && !(empty && !loading) && (
         <>
           <Kpis block={report?.summary} loading={loading} />
 
@@ -154,6 +152,106 @@ export function SalesReportClient() {
   );
 }
 
+/**
+ * 032 — Ventas sin ventas (diseño «Reportes-ventas»): cómo se registra una
+ * venta con los nombres reales de las etapas, el embudo de hoy y el paso
+ * siguiente. Lo que se verá cuando haya ventas, en una lista.
+ */
+function NoSales({ report, range }: { report: SalesReportDto; range: ReportRangeDto }) {
+  const view = noSalesView(report.funnel.ok ? report.funnel.data : null);
+  const max = view.stages?.reduce((m, s) => Math.max(m, s.leads), 0) ?? 0;
+  // Leads en la etapa ganada sin fecha de venta: justo aquí hace falta decirlo.
+  const caveats = report.summary.ok ? salesCaveats(report.summary.data) : [];
+  return (
+    <>
+      <section
+        aria-label="Aún no hay ventas"
+        data-testid="sales-empty"
+        className="space-y-4 rounded-lg border bg-card p-4 shadow-sm sm:p-5 print:break-inside-avoid print:shadow-none"
+      >
+        <div className="space-y-1.5">
+          <h3 className="text-base font-semibold">
+            Todavía no hay ventas registradas {rangePhrase(range)}
+          </h3>
+          <p className="text-sm text-text-2">
+            Una venta se cuenta cuando alguien del equipo pasa al cliente a{" "}
+            <strong className="font-semibold text-foreground">«{view.wonName}»</strong> en
+            Seguimiento y pone cuánto compró. Si decide no comprar, se pasa a{" "}
+            <strong className="font-semibold text-foreground">«{view.lostName}»</strong>.
+          </p>
+          {caveats.map((c) => (
+            <p key={c} className="text-xs text-warning-text">
+              {c}
+            </p>
+          ))}
+        </div>
+
+        {view.stages && view.stages.length > 0 && (
+          <div className="space-y-2" data-testid="sales-empty-funnel">
+            <p className="text-sm font-semibold">
+              Así va tu Seguimiento hoy:{" "}
+              {view.inProcess === 1
+                ? "1 cliente en proceso"
+                : `${formatCount(view.inProcess)} clientes en proceso`}
+            </p>
+            <ul className="space-y-1.5" aria-label="Seguimiento hoy">
+              {view.stages.map((s) => (
+                <li
+                  key={s.stageId}
+                  data-stage={s.kind}
+                  className="grid grid-cols-[minmax(0,9rem)_1fr_2.5rem] items-center gap-2 text-sm"
+                >
+                  <span className="truncate text-text-2">{s.name}</span>
+                  <span
+                    className="block h-2 overflow-hidden rounded-full bg-secondary"
+                    aria-hidden="true"
+                  >
+                    <span
+                      className="block h-full rounded-full"
+                      style={{
+                        width: `${barPercent(s.leads, max)}%`,
+                        background: s.kind === "won" ? "var(--success)" : "var(--accent)",
+                      }}
+                    />
+                  </span>
+                  <span className="text-right font-semibold tabular-nums">
+                    {formatCount(s.leads)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          <p className="min-w-0 flex-1 text-sm text-text-2">
+            {view.nudge ??
+              `Cuando un cliente compre, muévelo a «${view.wonName}» y captura el monto.`}
+          </p>
+          <Link
+            href="/pipeline"
+            className="inline-flex h-9 shrink-0 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring print:hidden"
+          >
+            Ir a Seguimiento
+          </Link>
+        </div>
+      </section>
+
+      <section
+        aria-label="Qué verás aquí"
+        className="rounded-lg border bg-subtle p-4 text-sm text-text-2 sm:p-5 print:hidden"
+      >
+        <p className="font-semibold text-foreground">Cuando haya ventas, aquí verás:</p>
+        <ul className="mt-1.5 list-disc space-y-1 pl-5">
+          <li>Cuánto se vendió y la venta promedio.</li>
+          <li>De cada 10 clientes que deciden, cuántos compran.</li>
+          <li>Quién del equipo cerró cada venta y por qué se perdieron las otras.</li>
+        </ul>
+      </section>
+    </>
+  );
+}
+
 function Kpis({
   block,
   loading,
@@ -176,7 +274,7 @@ function Kpis({
         testId="kpi-sales-won"
         value={d ? formatCount(d.won) : "—"}
         detail={d ? compareDetail(d.won, prev?.won, prev) : undefined}
-        help="Leads que hoy están en Ganado y se ganaron en el rango."
+        help="Clientes que pasaron a la etapa ganada en Seguimiento en estas fechas."
         loading={loading}
         unavailable={unavailable}
       />
@@ -190,28 +288,28 @@ function Kpis({
               compareDetail(d.wonAmount.amountCents, prev?.wonAmount.amountCents, prev))
             : undefined
         }
-        help="Suma de los montos de las ventas en la moneda del negocio. Otras monedas van aparte, nunca sumadas; una venta sin monto cuenta como venta pero no suma."
+        help="Lo que compraron, sumado. Una venta sin monto cuenta como venta pero no suma; otras monedas van aparte."
         loading={loading}
         unavailable={unavailable}
       />
       <KpiTile
-        label="Ticket promedio"
+        label="Venta promedio"
         testId="kpi-sales-ticket"
         value={d ? formatTicket(d.averageTicketCents, d.wonAmount.currency) : "—"}
-        help="Monto ganado entre las ventas que tienen monto en la moneda del negocio."
+        help="Cuánto compró, en promedio, cada cliente con monto capturado."
         loading={loading}
         unavailable={unavailable}
       />
       <KpiTile
-        label="Tasa de cierre"
+        label="Compraron"
         testId="kpi-sales-close-rate"
         value={d ? formatPercent(d.closeRate) : "—"}
         detail={
           d && d.won + d.lost > 0
-            ? `${formatCount(d.won)} de ${formatCount(d.won + d.lost)} cierres`
+            ? `${formatCount(d.won)} de ${formatCount(d.won + d.lost)} que decidieron`
             : undefined
         }
-        help="Ganadas entre ganadas más perdidas del rango."
+        help="De los clientes que decidieron (compraron o no), cuántos compraron."
         loading={loading}
         unavailable={unavailable}
       />
@@ -220,7 +318,7 @@ function Kpis({
         testId="kpi-sales-lost"
         value={d ? formatCount(d.lost) : "—"}
         detail={d ? compareDetail(d.lost, prev?.lost, prev) : undefined}
-        help="Leads que hoy están en Perdido y se perdieron en el rango."
+        help="Clientes que decidieron no comprar y se pasaron a la etapa perdida."
         loading={loading}
         unavailable={unavailable}
       />
@@ -384,7 +482,7 @@ function AdvisorTable({ rows }: { rows: SalesAdvisorRowDto[] }) {
             <dl className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
               <MobileStat label="Ganadas" value={formatCount(r.won)} />
               <MobileStat label="Perdidas" value={formatCount(r.lost)} />
-              <MobileStat label="Cierre" value={formatPercent(r.closeRate)} />
+              <MobileStat label="Compraron" value={formatPercent(r.closeRate)} />
               <MobileStat
                 label="Monto"
                 value={r.won === 0 ? EMPTY_VALUE : formatWonAmount(r.wonAmount)}
@@ -404,7 +502,7 @@ function AdvisorTable({ rows }: { rows: SalesAdvisorRowDto[] }) {
             <th scope="col" className="pb-2 pr-3 font-medium">Asesor</th>
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Ganadas</th>
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Perdidas</th>
-            <th scope="col" className="pb-2 pr-3 text-right font-medium">Cierre</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Compraron</th>
             <th scope="col" className="pb-2 text-right font-medium">Monto ganado</th>
           </tr>
         </thead>
@@ -451,7 +549,7 @@ function SourceTable({ rows: all }: { rows: SalesSourceRowDto[] }) {
             <dl className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
               <MobileStat label="Ganadas" value={formatCount(r.won)} />
               <MobileStat label="Perdidas" value={formatCount(r.lost)} />
-              <MobileStat label="Cierre" value={formatPercent(r.closeRate)} />
+              <MobileStat label="Compraron" value={formatPercent(r.closeRate)} />
               <MobileStat label="Monto" value={amount(r)} />
             </dl>
             {wonAmountNote(r.wonAmount) && (
@@ -471,7 +569,7 @@ function SourceTable({ rows: all }: { rows: SalesSourceRowDto[] }) {
             <th scope="col" className="pb-2 pr-3 font-medium">Origen</th>
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Ganadas</th>
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Perdidas</th>
-            <th scope="col" className="pb-2 pr-3 text-right font-medium">Cierre</th>
+            <th scope="col" className="pb-2 pr-3 text-right font-medium">Compraron</th>
             <th scope="col" className="pb-2 text-right font-medium">Monto ganado</th>
           </tr>
         </thead>
@@ -550,13 +648,13 @@ function TimeToClose({ data }: { data: SalesTimeToCloseDto }) {
     <div className="space-y-3">
       <dl className="grid grid-cols-2 gap-3">
         <div className="rounded-md border bg-subtle p-3">
-          <dt className="text-xs text-muted-foreground">Mediana</dt>
+          <dt className="text-xs text-muted-foreground">La mitad compró en menos de</dt>
           <dd className="mt-0.5 text-xl font-semibold tabular-nums" data-testid="close-p50">
             {formatDays(data.p50Days)}
           </dd>
         </div>
         <div className="rounded-md border bg-subtle p-3">
-          <dt className="text-xs text-muted-foreground">3 de cada 4 cierran en</dt>
+          <dt className="text-xs text-muted-foreground">3 de cada 4, en menos de</dt>
           <dd className="mt-0.5 text-xl font-semibold tabular-nums">{formatDays(data.p75Days)}</dd>
         </div>
       </dl>
@@ -575,7 +673,15 @@ function Funnel({ data }: { data: SalesFunnelDto }) {
   const money = (c: number) => formatMoneyCents(c, data.currency) ?? EMPTY_VALUE;
   const max = data.stages.reduce((m, s) => Math.max(m, s.leads), 0);
   if (data.stages.length === 0) {
-    return <p className="text-sm text-muted-foreground">No hay etapas configuradas.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No hay etapas configuradas: se crean en{" "}
+        <Link href="/pipeline" className="font-medium text-brand-text underline underline-offset-2 print:no-underline">
+          Seguimiento
+        </Link>
+        .
+      </p>
+    );
   }
   return (
     <div className="space-y-2">
@@ -678,7 +784,7 @@ function HowCounted({ summary, tz }: { summary: SalesSummaryDto | null; tz: stri
           Anuncios → Por fuente. El Resumen, en cambio, agrupa por dónde llegó el lead la primera
           vez, así que un mismo lead puede aparecer en filas distintas en las dos pestañas.
         </li>
-        <li>Los montos nunca suman monedas distintas. Excluye el Laboratorio. Días en {tz}.</li>
+        <li>Los montos nunca suman monedas distintas. Excluye el Laboratorio. Días en {tzLabel(tz) ?? tz}.</li>
         {caveats.map((c) => (
           <li key={c}>{c}</li>
         ))}

@@ -8,7 +8,9 @@ import type {
   SellersReportDto,
   SellersRosterDto,
 } from "@/lib/reports";
+import Link from "next/link";
 import { formatMoneyCents } from "@/lib/money";
+import { tzLabel } from "@/lib/tz-label";
 import { formatWonAmount, wonAmountNote } from "./ads-report-format";
 import { EMPTY_VALUE, formatCount, formatDuration, formatPercent } from "./format";
 import { KpiTile } from "./kpi-tile";
@@ -53,7 +55,7 @@ export function SellersReportClient() {
 
           <ReportSection
             title="Cartera y atención"
-            description="Por vendedor, según la asignación actual de cada conversación. La respuesta humana pudo salir del CRM o del teléfono compartido."
+            description="Cartera = las conversaciones que cada vendedor tiene asignadas hoy (según la asignación actual). La respuesta pudo salir del CRM o del teléfono compartido."
             block={report?.roster}
             loading={loading}
           >
@@ -117,7 +119,7 @@ function Kpis({
         testId="kpi-sellers-persons"
         value={t ? formatCount(t.persons) : "—"}
         detail={t ? `${formatCount(sellers)} ${sellers === 1 ? "vendedor" : "vendedores"}` : undefined}
-        help="Conversaciones con al menos un mensaje recibido en el rango, sumando todas las carteras y las sin asignar (igual que el Resumen)."
+        help="Gente distinta que escribió, sumando a todos los vendedores y a los chats sin asignar (igual que el Resumen)."
         loading={loading}
         unavailable={unavailable}
       />
@@ -126,7 +128,7 @@ function Kpis({
         testId="kpi-sellers-attended"
         value={t ? formatPercent(t.attendedRate) : "—"}
         detail={t ? `${formatCount(t.attended)} de ${formatCount(t.persons)}` : undefined}
-        help="Personas que recibieron respuesta humana (desde el CRM o el teléfono compartido) después de su primer mensaje del rango."
+        help="Alguien del equipo les escribió, desde el CRM o el teléfono compartido; no solo la IA."
         loading={loading}
         unavailable={unavailable}
       />
@@ -134,7 +136,7 @@ function Kpis({
         label="Pendientes de respuesta"
         testId="kpi-sellers-pending"
         value={t ? formatCount(t.pending) : "—"}
-        help="Personas cuyo último mensaje es suyo y nadie le ha respondido, al momento de generar el reporte."
+        help="Su último mensaje sigue sin respuesta, ahora mismo."
         loading={loading}
         unavailable={unavailable}
       />
@@ -143,7 +145,7 @@ function Kpis({
         testId="kpi-sellers-won"
         value={sales ? formatCount(sales.won) : "—"}
         detail={sales && sales.won > 0 ? formatWonAmount(sales.wonAmount) : undefined}
-        help="Leads que hoy están en Ganado y se ganaron en el rango (igual que la pestaña Ventas)."
+        help="Clientes que pasaron a la etapa ganada en Seguimiento en estas fechas (igual que Ventas)."
         loading={loading}
         unavailable={!loading && !sales}
       />
@@ -186,7 +188,7 @@ function RosterTable({ data }: { data: SellersRosterDto }) {
               <MobileStat label="Activa" value={formatCount(r.activePortfolio)} />
               <MobileStat label="Personas" value={formatCount(r.persons)} />
               <MobileStat label="Atendidas" value={countRate(r.attended, r.attendedRate)} />
-              <MobileStat label="Asesor (mediana)" value={p50(r)} />
+              <MobileStat label="Suele atender en" value={p50(r)} />
               <MobileStat label="Pendientes" value={formatCount(r.pending)} />
               {external && <MobileStat label="Externos sin contactar" value={formatCount(r.externalNotContacted)} />}
             </dl>
@@ -209,7 +211,7 @@ function RosterTable({ data }: { data: SellersRosterDto }) {
               <th scope="col" className={TH}>Cartera activa</th>
               <th scope="col" className={TH}>Personas</th>
               <th scope="col" className={TH}>Atendidas</th>
-              <th scope="col" className={TH}>Hasta asesor (mediana)</th>
+              <th scope="col" className={TH}>Suele atender en</th>
               <th scope="col" className={external ? TH : `${TH} pr-0`}>Pendientes</th>
               {external && <th scope="col" className={`${TH} pr-0`}>Externos sin contactar</th>}
             </tr>
@@ -279,7 +281,15 @@ function ResultsTable({ results, agenda }: { results: SellerResults; agenda: boo
   const citas = results.bookingsOk;
   const lines = [...results.rows];
   if (lines.length === 0) {
-    return <p className="text-sm text-muted-foreground">Sin vendedores en este rango.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        Sin vendedores en este rango. Invita a tu equipo en{" "}
+        <Link href="/settings/team" className="font-medium text-brand-text underline underline-offset-2">
+          Ajustes → Equipo
+        </Link>
+        .
+      </p>
+    );
   }
   const cells = (r: SellerResultRow, total = false) => {
     const sa = r.sales;
@@ -323,10 +333,10 @@ function ResultsTable({ results, agenda }: { results: SellerResults; agenda: boo
                 <>
                   <MobileStat label="Ganadas" value={formatCount(r.sales.won)} />
                   <MobileStat label="Perdidas" value={formatCount(r.sales.lost)} />
-                  <MobileStat label="Cierre" value={formatPercent(r.sales.closeRate)} />
+                  <MobileStat label="Compraron" value={formatPercent(r.sales.closeRate)} />
                   <MobileStat label="Monto" value={amountText(r)} />
                   <MobileStat
-                    label="Ticket"
+                    label="Venta promedio"
                     value={formatTicket(r.sales.averageTicketCents, r.sales.wonAmount.currency)}
                   />
                 </>
@@ -363,9 +373,9 @@ function ResultsTable({ results, agenda }: { results: SellerResults; agenda: boo
               <th scope="col" className="pb-2 pr-3 font-medium print:pr-2">Vendedor</th>
               <th scope="col" className={TH}>Ganadas</th>
               <th scope="col" className={TH}>Perdidas</th>
-              <th scope="col" className={TH}>Cierre</th>
+              <th scope="col" className={TH}>Compraron</th>
               <th scope="col" className={TH}>Monto ganado</th>
-              <th scope="col" className={citas ? TH : `${TH} pr-0`}>Ticket promedio</th>
+              <th scope="col" className={citas ? TH : `${TH} pr-0`}>Venta promedio</th>
               {citas && (
                 <>
                   <th scope="col" className={`${TH} border-l pl-3 print:pl-2`}>Agendadas</th>
@@ -414,9 +424,15 @@ function FunnelTable({ data }: { data: SellersFunnelDto }) {
   const money = (c: number) => formatMoneyCents(c, data.currency) ?? EMPTY_VALUE;
   if (data.rows.length === 0) {
     return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-        Ningún lead en el embudo.
+      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+        <Users className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0">
+          Ningún lead en el embudo. Los leads aparecen en{" "}
+          <Link href="/pipeline" className="font-medium text-brand-text underline underline-offset-2">
+            Seguimiento
+          </Link>{" "}
+          cuando alguien escribe.
+        </span>
       </p>
     );
   }
@@ -522,7 +538,7 @@ function HowCounted({ tz, agenda }: { tz: string; agenda: boolean }) {
     ],
     [
       "Atendidas",
-      "personas de su cartera que escribieron en el rango y recibieron respuesta humana desde el CRM o el teléfono compartido; el CRM aún no registra quién envía cada mensaje, así que la respuesta cuenta para la cartera, no para una persona. Hasta asesor: mediana desde el primer mensaje del rango hasta esa respuesta.",
+      "personas de su cartera que escribieron en el rango y recibieron respuesta humana desde el CRM o el teléfono compartido; el CRM aún no registra quién envía cada mensaje, así que la respuesta cuenta para la cartera, no para una persona. Suele atender en: la mitad de las veces atendió en menos de ese tiempo, contando desde el primer mensaje del rango hasta esa respuesta.",
     ],
     [
       "Pendientes",
@@ -530,7 +546,7 @@ function HowCounted({ tz, agenda }: { tz: string; agenda: boolean }) {
     ],
     [
       "Ventas",
-      "las de Ventas → Por asesor: quien movió el lead a Ganado o Perdido; si fue el asistente, el asesor asignado a la conversación; si no hay, «Sin asesor». Ticket promedio: monto entre las ventas con monto en la moneda del negocio.",
+      "las de Ventas → Por asesor: quien movió el lead a Ganado o Perdido; si fue el asistente, el asesor asignado a la conversación; si no hay, «Sin asesor». Compraron: de los que decidieron (compraron o no), cuántos compraron. Venta promedio: monto entre las ventas con monto en la moneda del negocio.",
     ],
     ...(agenda
       ? ([
@@ -558,7 +574,7 @@ function HowCounted({ tz, agenda }: { tz: string; agenda: boolean }) {
         ))}
       </dl>
       <p className="mt-2">
-        Los montos nunca suman monedas distintas. Excluye el Laboratorio. Días en {tz}.
+        Los montos nunca suman monedas distintas. Excluye el Laboratorio. Días en {tzLabel(tz) ?? tz}.
       </p>
     </section>
   );

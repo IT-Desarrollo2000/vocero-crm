@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Inbox } from "lucide-react";
+import { CheckCircle2, Inbox } from "lucide-react";
 import { CHANNEL_LABEL } from "@/lib/channels";
 import { formatMoneyCents } from "@/lib/money";
+import { tzLabel } from "@/lib/tz-label";
+import { cn } from "@/lib/utils";
 import {
   LEAD_ORIGIN_LABEL,
   NO_ORIGIN_LABEL,
@@ -41,9 +43,10 @@ import {
   adRowLabels,
   currentHourIfToday,
   isSummaryReportEmpty,
-  rateDetail,
   showExternalOrigins,
+  responseSpeedLines,
   summaryHighlights,
+  summaryTodayActions,
 } from "./summary-report-format";
 import { useBlocksReport } from "./use-blocks-report";
 
@@ -68,18 +71,35 @@ export function SummaryReportClient() {
       {failureNotice}
 
       {!loading && empty && (
-        <p
+        <div
           role="status"
-          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+          data-testid="summary-empty"
+          className="flex items-start gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
         >
-          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Nadie escribió ni llegó ningún lead en este rango.
-        </p>
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="min-w-0">
+            Nadie escribió ni llegó ningún lead en este rango. Prueba con un rango más largo o
+            revisa que el número de WhatsApp siga conectado en{" "}
+            <Link
+              href="/settings/whatsapp"
+              className="font-medium text-brand-text underline underline-offset-2 hover:text-brand print:no-underline"
+            >
+              Ajustes → WhatsApp
+            </Link>
+            .
+          </p>
+        </div>
       )}
+
+      {report && !empty && <TodayActions report={report} />}
 
       {showBlocks && (
         <>
           <Kpis attention={report?.attention} sales={report?.sales} loading={loading} />
+
+          {report && <ComparisonNote attention={report.attention} />}
+
+          {report && <ResponseSpeed report={report} />}
 
           {report && <Highlights report={report} />}
 
@@ -185,27 +205,65 @@ function Kpis({
         .join(" · ")
     : undefined;
   const amountNote = s ? wonAmountNote(s.wonAmount) : null;
+  const unanswered = a ? Math.max(0, a.persons - a.answered) : 0;
+  // 032 — Las cuatro cifras del diseño primero; mensajes y leads nuevos
+  // después (los cita el self-test y dirección los pide en el PDF).
   return (
     <div
-      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 print:grid-cols-4"
+      className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 print:grid-cols-3"
       role="group"
       aria-label="Resumen para dirección"
     >
-      <KpiTile
-        label="Mensajes recibidos"
-        testId="kpi-summary-inbound"
-        value={a ? formatCount(a.inbound) : "—"}
-        detail={a ? compareDetail(a.inbound, ap?.inbound, ap) : undefined}
-        help="Mensajes que escribieron los clientes en el rango (sin el Laboratorio)."
-        loading={loading}
-        unavailable={aUnavailable}
-      />
       <KpiTile
         label="Personas que escribieron"
         testId="kpi-summary-persons"
         value={a ? formatCount(a.persons) : "—"}
         detail={newDetail}
-        help="Conversaciones con al menos un mensaje recibido en el rango. Nuevas = contactos que se crearon en el rango."
+        help={
+          a && a.persons > 0 && a.newPersons === a.persons
+            ? `Gente distinta que te mandó mensaje. ${a.persons === 1 ? "Es nueva" : `Las ${formatCount(a.persons)} son nuevas`}.`
+            : "Gente distinta que te mandó mensaje. «Nuevas»: es la primera vez que escriben."
+        }
+        loading={loading}
+        unavailable={aUnavailable}
+      />
+      <KpiTile
+        label="Recibieron respuesta"
+        testId="kpi-summary-answered"
+        value={a ? `${formatCount(a.answered)} de ${formatCount(a.persons)}` : "—"}
+        detail={a ? previousRate(ap?.answeredRate) : undefined}
+        help={`Les contestó la IA o alguien del equipo.${
+          unanswered > 0
+            ? ` A ${formatCount(unanswered)} nadie les ha respondido.`
+            : ""
+        }`}
+        loading={loading}
+        unavailable={aUnavailable}
+      />
+      <KpiTile
+        label="Hablaron con una persona"
+        testId="kpi-summary-attended"
+        value={a ? `${formatCount(a.attendedByAdvisor)} de ${formatCount(a.persons)}` : "—"}
+        detail={a ? previousRate(ap?.attendedByAdvisorRate) : undefined}
+        help="Alguien del equipo les escribió, no solo la IA."
+        loading={loading}
+        unavailable={aUnavailable}
+      />
+      <KpiTile
+        label="Ventas"
+        testId="kpi-summary-won"
+        value={s ? (s.won > 0 ? `${formatCount(s.won)} · ${formatWonAmount(s.wonAmount)}` : "0") : "—"}
+        detail={s ? (amountNote ?? compareDetail(s.won, sp?.won, sp)) : undefined}
+        help="Clientes que pasaste a la etapa ganada en Seguimiento en estas fechas."
+        loading={loading}
+        unavailable={sUnavailable}
+      />
+      <KpiTile
+        label="Mensajes recibidos"
+        testId="kpi-summary-inbound"
+        value={a ? formatCount(a.inbound) : "—"}
+        detail={a ? compareDetail(a.inbound, ap?.inbound, ap) : undefined}
+        help="Todos los mensajes que te mandaron, sumando a todas las personas."
         loading={loading}
         unavailable={aUnavailable}
       />
@@ -214,54 +272,34 @@ function Kpis({
         testId="kpi-summary-new-leads"
         value={a ? formatCount(a.newLeads) : "—"}
         detail={a ? leadsDetail : undefined}
-        help="Contactos que se crearon en el rango y escribieron o llegaron como lead externo (formulario o FastApp). El total de leads incluye también a los contactos que ya existían."
+        help="Contactos que aparecieron por primera vez: escribieron o llegaron del formulario o FastApp."
         loading={loading}
         unavailable={aUnavailable}
-      />
-      <KpiTile
-        label="Contestadas"
-        testId="kpi-summary-answered"
-        value={a ? formatPercent(a.answeredRate) : "—"}
-        detail={a ? rateDetail(a.answered, a.persons, ap?.answeredRate) : undefined}
-        help="Personas que recibieron cualquier respuesta (IA, asesor o plantilla) después de su primer mensaje del rango."
-        loading={loading}
-        unavailable={aUnavailable}
-      />
-      <KpiTile
-        label="Atendidas por un asesor"
-        testId="kpi-summary-attended"
-        value={a ? formatPercent(a.attendedByAdvisorRate) : "—"}
-        detail={
-          a ? rateDetail(a.attendedByAdvisor, a.persons, ap?.attendedByAdvisorRate) : undefined
-        }
-        help="Personas a las que una persona del equipo les respondió después de su primer mensaje del rango."
-        loading={loading}
-        unavailable={aUnavailable}
-      />
-      <KpiTile
-        label="Ventas ganadas"
-        testId="kpi-summary-won"
-        value={s ? formatCount(s.won) : "—"}
-        detail={s ? compareDetail(s.won, sp?.won, sp) : undefined}
-        help="Leads que hoy están en Ganado y se ganaron en el rango (igual que la pestaña Ventas)."
-        loading={loading}
-        unavailable={sUnavailable}
-      />
-      <KpiTile
-        label="Monto ganado"
-        testId="kpi-summary-amount"
-        value={s ? formatWonAmount(s.wonAmount) : "—"}
-        detail={
-          s
-            ? (amountNote ??
-              compareDetail(s.wonAmount.amountCents, sp?.wonAmount.amountCents, sp))
-            : undefined
-        }
-        help="Suma de los montos de esas ventas en la moneda del negocio; otras monedas van aparte."
-        loading={loading}
-        unavailable={sUnavailable}
       />
     </div>
+  );
+}
+
+/**
+ * 032 — «antes 70 %» de `rateDetail` sin repetir «8 de 10» (ya va en la
+ * cifra). undefined sin periodo anterior.
+ */
+function previousRate(rate: number | null | undefined): string | undefined {
+  return rate === undefined || rate === null ? undefined : `Antes: ${formatPercent(rate)}`;
+}
+
+/**
+ * 032 — Sin datos del periodo anterior, la comparación se explica en vez de
+ * mostrar un «+100 %» engañoso o nada.
+ */
+function ComparisonNote({ attention }: { attention: ReportBlock<SummaryAttentionDto> }) {
+  if (!attention.ok) return null;
+  const p = attention.data.previous;
+  if (p && (p.inbound > 0 || p.persons > 0 || p.leads > 0)) return null;
+  return (
+    <p className="text-xs text-text-3" data-testid="summary-no-previous">
+      Sin comparación con el periodo anterior: el CRM no tiene datos de esas fechas.
+    </p>
   );
 }
 
@@ -278,21 +316,106 @@ function SellersLink({ label }: { label: string }) {
   );
 }
 
+/**
+ * 032 — «Lo que toca hoy»: lo que alguien puede resolver ya, cada cosa con
+ * su enlace. Va arriba y NO se imprime (en el papel lo dice «Lectura
+ * rápida»). Sin pendientes, una línea que lo confirma.
+ */
+function TodayActions({ report }: { report: SummaryReportDto }) {
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  const items = summaryTodayActions(report);
+  const hrefOf = (href: string) =>
+    href === "sellers" ? (qs ? `/reports/sellers?${qs}` : "/reports/sellers") : href;
+  return (
+    <section
+      aria-label="Lo que toca hoy"
+      data-testid="summary-today"
+      className="space-y-2 print:hidden"
+    >
+      <h3 className="text-sm font-semibold">Lo que toca hoy</h3>
+      {items.length === 0 ? (
+        <p className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success-text" aria-hidden="true" />
+          Nada pendiente: nadie espera respuesta y no falta capturar nada.
+        </p>
+      ) : (
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {items.map((it) => (
+            <li key={it.key} data-today={it.key}>
+              <Link
+                href={hrefOf(it.href)}
+                className="flex min-w-0 items-center gap-3 rounded-lg border border-warning-soft bg-warning-tint px-4 py-3 text-sm transition-colors hover:border-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <strong className="shrink-0 text-2xl font-semibold tabular-nums text-warning-text">
+                  {formatCount(it.count)}
+                </strong>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-foreground">{it.text}</span>
+                  <span className="block text-xs font-medium text-brand-text">{it.linkLabel}</span>
+                </span>
+                <span aria-hidden="true" className="shrink-0 text-text-3">
+                  →
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** 032 — «Qué tan rápido contestan», en palabras (sin mediana ni p90). */
+function ResponseSpeed({ report }: { report: SummaryReportDto }) {
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  const lines = responseSpeedLines(report);
+  if (lines.length === 0) return null;
+  return (
+    <section
+      aria-label="Qué tan rápido contestan"
+      data-testid="summary-speed"
+      className="rounded-lg border bg-card p-4 shadow-sm sm:p-5 print:break-inside-avoid print:shadow-none"
+    >
+      <h3 className="mb-2 text-sm font-semibold">Qué tan rápido contestan</h3>
+      <div className="space-y-1.5 text-sm text-text-2">
+        {lines.map((l) => (
+          <p key={l.key} data-speed={l.key}>
+            <strong className="font-semibold text-foreground">{l.who}:</strong> {l.text}
+          </p>
+        ))}
+      </div>
+      <Link
+        href={qs ? `/reports/agent?${qs}` : "/reports/agent"}
+        className="mt-2 inline-block text-sm font-medium text-brand-text underline underline-offset-2 hover:text-brand print:hidden"
+      >
+        Ver detalle en Agente
+      </Link>
+    </section>
+  );
+}
+
 function Highlights({ report }: { report: SummaryReportDto }) {
   const searchParams = useSearchParams();
   const items = summaryHighlights(report);
   if (items.length === 0) return null;
   const qs = searchParams.toString();
+  // Si todo lo que hay se dice ya en «Lo que toca hoy», en pantalla sobra.
+  const onlyPrint = items.every((h) => h.printOnly);
   return (
     <section
       aria-label="Lectura rápida"
       data-testid="summary-highlights"
-      className="rounded-lg border bg-card p-4 shadow-sm sm:p-5 print:break-inside-avoid print:shadow-none"
+      className={cn(
+        "rounded-lg border bg-card p-4 shadow-sm sm:p-5 print:break-inside-avoid print:shadow-none",
+        onlyPrint && "hidden print:block"
+      )}
     >
       <h3 className="mb-2 text-sm font-semibold">Lectura rápida</h3>
       <ul className="list-disc space-y-1.5 pl-5 text-sm text-text-2">
         {items.map((h) => (
-          <li key={h.key} data-highlight={h.key}>
+          <li key={h.key} data-highlight={h.key} className={h.printOnly ? "hidden print:list-item" : undefined}>
             {h.text}
             {h.agentLink && (
               <>
@@ -480,10 +603,13 @@ function OriginMobileStats({ f }: { f: SummaryOriginFiguresDto }) {
   );
 }
 
-/** «17 min · 1 h» (mediana · 9 de cada 10); «—» sin contactados. */
+/**
+ * 032 — «la mitad: 17 min · 9 de 10: 1 h», sin «mediana»; «—» sin
+ * contactados.
+ */
 function firstContactText(r: SummaryExternalLeadsDto["rows"][number]): string {
   if (r.firstContact.measured === 0) return EMPTY_VALUE;
-  return `${formatDuration(r.firstContact.p50Seconds)} · ${formatDuration(r.firstContact.p90Seconds)}`;
+  return `la mitad: ${formatDuration(r.firstContact.p50Seconds)} · 9 de 10: ${formatDuration(r.firstContact.p90Seconds)}`;
 }
 
 function ExternalLeads({ data }: { data: SummaryExternalLeadsDto }) {
@@ -498,8 +624,10 @@ function ExternalLeads({ data }: { data: SummaryExternalLeadsDto }) {
               <MobileStat label="Contactados" value={countRate(r.contacted, r.received)} />
               <MobileStat label="Sin contactar" value={formatCount(r.notContacted)} />
               <MobileStat label="Respondieron" value={countRate(r.replied, r.received)} />
-              <MobileStat label="Primer contacto" value={firstContactText(r)} />
             </dl>
+            <p className="mt-2 text-xs text-text-2">
+              <span className="text-text-3">Tardaron en contactarlos:</span> {firstContactText(r)}
+            </p>
           </li>
         ))}
       </ul>
@@ -517,7 +645,7 @@ function ExternalLeads({ data }: { data: SummaryExternalLeadsDto }) {
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Sin contactar</th>
             <th scope="col" className="pb-2 pr-3 text-right font-medium">Respondieron</th>
             <th scope="col" className="pb-2 text-right font-medium">
-              Primer contacto <span className="font-normal">(mediana · 9 de 10)</span>
+              Tardaron en contactarlos
             </th>
           </tr>
         </thead>
@@ -540,7 +668,9 @@ function ExternalLeads({ data }: { data: SummaryExternalLeadsDto }) {
       </table>
       <p className="text-xs text-text-3">
         Contactado = cualquier mensaje enviado después de que llegó el lead (asesor, IA o
-        plantilla). Sin contactar se cuenta al momento de generar el reporte. El primer mensaje
+        plantilla). Sin contactar se cuenta al momento de generar el reporte. «La mitad: 17 min»
+        quiere decir que a la mitad de esos leads les escribieron en menos de 17 minutos; «9 de
+        10» es lo que tardaron casi todos. El primer mensaje
         suele requerir plantilla: la ventana de 24 h de WhatsApp sigue cerrada hasta que el cliente
         escribe.
       </p>
@@ -804,23 +934,12 @@ function PendingList({ data, tz }: { data: SummaryPendingDto; tz: string }) {
 }
 
 function HowCounted({ tz, external }: { tz: string; external: boolean }) {
+  // 032 — Lo que ya dice cada cifra bajo su número (personas, respuesta,
+  // equipo) y «Qué tan rápido contestan» no se repite aquí.
   const items: [string, string][] = [
-    ["Mensajes recibidos", "los que escribieron los clientes en el rango."],
     [
-      "Personas",
-      "conversaciones con al menos un mensaje recibido en el rango. Nuevas: las de un contacto que se creó en el rango.",
-    ],
-    [
-      "Contestadas",
-      "personas que recibieron cualquier respuesta (IA, asesor o plantilla) después de su primer mensaje del rango, aunque haya salido después del rango.",
-    ],
-    [
-      "Atendidas por un asesor",
-      "personas a las que una persona del equipo les respondió después de su primer mensaje del rango.",
-    ],
-    [
-      "Tiempo hasta que atiende un asesor",
-      "desde el primer mensaje del rango hasta la primera respuesta de una persona del equipo, aunque antes haya contestado la IA.",
+      "Recibieron respuesta",
+      "cuenta cualquier respuesta (IA, equipo o plantilla) después de su primer mensaje del rango, aunque haya salido después del rango.",
     ],
     [
       "Leads",
@@ -858,7 +977,7 @@ function HowCounted({ tz, external }: { tz: string; external: boolean }) {
           </div>
         ))}
       </dl>
-      <p className="mt-2">Excluye el Laboratorio. Días y horas en {tz}.</p>
+      <p className="mt-2">Excluye el Laboratorio. Días y horas en {tzLabel(tz) ?? tz}.</p>
     </section>
   );
 }

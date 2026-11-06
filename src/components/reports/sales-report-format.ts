@@ -5,7 +5,13 @@
  */
 
 import { formatMoneyCents } from "@/lib/money";
-import type { SalesReportDto, SalesSourceRowDto, SalesSummaryDto } from "@/lib/reports";
+import type {
+  SalesFunnelDto,
+  SalesFunnelStageDto,
+  SalesReportDto,
+  SalesSourceRowDto,
+  SalesSummaryDto,
+} from "@/lib/reports";
 import { formatChange } from "./ads-report-format";
 import { dayBarStep } from "./chart";
 import { EMPTY_VALUE, formatCount, formatDayRange } from "./format";
@@ -105,4 +111,43 @@ export function salesCaveats(s: SalesSummaryDto): string[] {
     );
   }
   return out;
+}
+
+/** 032 — Lo que dice Ventas cuando el rango no tiene ventas ni perdidas. */
+export type NoSalesView = {
+  /** Nombre de la etapa ganada del negocio («Cliente», «Ganado»…). */
+  wonName: string;
+  /** Nombre de la etapa perdida («Perdido»…). */
+  lostName: string;
+  /** Etapas abiertas y la ganada, en su orden (las perdidas no). null sin embudo. */
+  stages: SalesFunnelStageDto[] | null;
+  /** Leads hoy en etapas abiertas. */
+  inProcess: number;
+  /** «¿Alguno de los 2 en «Interesado» ya compró? …»; null sin nadie en proceso. */
+  nudge: string | null;
+};
+
+/**
+ * 032 — Arma la explicación de «Ventas sin ventas» con el embudo actual
+ * (foto, no depende del rango). Usa los nombres reales de las etapas: el
+ * negocio pudo renombrar «Ganado». Si el embudo no llegó, rótulos genéricos.
+ */
+export function noSalesView(funnel: SalesFunnelDto | null): NoSalesView {
+  const all = funnel ? [...funnel.stages].sort((a, b) => a.position - b.position) : [];
+  const won = all.find((s) => s.kind === "won");
+  const lost = all.find((s) => s.kind === "lost");
+  const wonName = won?.name ?? "Ganado";
+  const lostName = lost?.name ?? "Perdido";
+  if (!funnel) return { wonName, lostName, stages: null, inProcess: 0, nudge: null };
+  const open = all.filter((s) => s.kind === "open");
+  const stages = all.filter((s) => s.kind !== "lost");
+  const inProcess = open.reduce((a, s) => a + s.leads, 0);
+  // La etapa abierta más avanzada con gente: ahí está quien pudo comprar.
+  const closest = [...open].reverse().find((s) => s.leads > 0);
+  const nudge = closest
+    ? closest.leads === 1
+      ? `¿El que está en «${closest.name}» ya compró? Muévelo a «${wonName}» y captura el monto.`
+      : `¿Alguno de los ${formatCount(closest.leads)} que están en «${closest.name}» ya compró? Muévelo a «${wonName}» y captura el monto.`
+    : null;
+  return { wonName, lostName, stages, inProcess, nudge };
 }

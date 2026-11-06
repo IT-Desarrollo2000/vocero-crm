@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Clock, Hourglass, Inbox } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { tzLabel } from "@/lib/tz-label";
 import type {
   AttendanceSliceDto,
   BookingCountsDto,
@@ -118,13 +120,22 @@ export function BookingsReportClient() {
       )}
 
       {!loading && empty && (
-        <p
+        <div
           role="status"
-          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+          className="flex items-start gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
         >
-          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Aún no hay ofertas ni citas en este rango.
-        </p>
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="min-w-0">
+            Aún no hay ofertas ni citas en este rango. Las citas se agendan desde{" "}
+            <Link
+              href="/bookings"
+              className="font-medium text-brand-text underline underline-offset-2 hover:text-brand"
+            >
+              Citas
+            </Link>{" "}
+            o las agenda la IA cuando ofrece horarios en el chat.
+          </p>
+        </div>
       )}
 
       {showBlocks && (
@@ -135,8 +146,8 @@ export function BookingsReportClient() {
               apiladas dejaban una línea suelta en una tercera hoja. */}
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 print:grid-cols-2">
             <ReportSection
-              title="Oferta → cita"
-              description="Conversaciones a las que la IA les ofreció horarios y que terminaron en una cita agendada por la IA."
+              title="Ofrecimos horario y agendó"
+              description="Clientes a los que la IA les ofreció horarios, y cuántos terminaron con una cita que agendó la IA."
               block={report?.offers}
               loading={loading}
             >
@@ -144,8 +155,8 @@ export function BookingsReportClient() {
                 <div className="space-y-2 text-sm">
                   <Row label="Conversaciones con oferta" value={formatCount(data.conversationsWithOffer)} />
                   <Row label="Terminaron en cita" value={formatCount(data.converted)} />
-                  <Row label="Conversión" value={formatPercent(data.rate)} />
-                  <Row label="Rondas de horarios ofrecidas" value={formatCount(data.offerRounds)} />
+                  <Row label="Agendaron" value={formatPercent(data.rate)} />
+                  <Row label="Veces que la IA ofreció horarios" value={formatCount(data.offerRounds)} />
                   <p className="text-xs text-text-3">
                     {offerDataSinceNote(data.dataSince, tz ?? "UTC")}
                   </p>
@@ -228,7 +239,7 @@ export function BookingsReportClient() {
               incluye el Laboratorio»): sola, esta línea caía en otra hoja. */}
           {range && (
             <p className="text-xs text-text-3 print:hidden">
-              Excluye el Laboratorio. Días en {range.tz}.
+              Excluye el Laboratorio. Días en {tzLabel(range.tz) ?? range.tz}.
             </p>
           )}
         </>
@@ -303,7 +314,15 @@ function TypeLabel({ r }: { r: TypeRow }) {
 /** 024 — Por tipo de cita: todos los tipos activos (también en cero) y «Sin tipo». */
 function ByTypeTable({ data }: { data: BookingsByTypeDto }) {
   if (data.rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">No hay tipos de cita.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No hay tipos de cita: se crean en{" "}
+        <Link href="/settings/calendar" className="font-medium text-brand-text underline underline-offset-2">
+          Ajustes → Agenda
+        </Link>
+        .
+      </p>
+    );
   }
   return (
     <>
@@ -420,7 +439,15 @@ function BySellerTable({ data }: { data: BookingsBySellerDto }) {
 /** 024 — Citas realizadas → leads hoy en Ganado. */
 function ToSales({ data }: { data: BookingToSalesDto }) {
   if (data.bookingsDone === 0) {
-    return <p className="text-sm text-muted-foreground">Ninguna cita realizada en este rango.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        Ninguna cita realizada en este rango. Si ya pasaron, márcalas en{" "}
+        <Link href="/bookings" className="font-medium text-brand-text underline underline-offset-2">
+          Citas
+        </Link>{" "}
+        para que cuenten.
+      </p>
+    );
   }
   const note = data.won > 0 ? wonAmountNote(data.wonAmount) : null;
   const sinLead =
@@ -434,7 +461,7 @@ function ToSales({ data }: { data: BookingToSalesDto }) {
       <Row label="Citas realizadas" value={formatCount(data.bookingsDone)} />
       <Row label="Leads con cita realizada" value={formatCount(data.leads)} />
       <Row label="Hoy en Ganado" value={formatCount(data.won)} />
-      <Row label="Tasa" value={formatPercent(data.rate)} />
+      <Row label="Terminaron en venta" value={formatPercent(data.rate)} />
       <Row
         label="Monto ganado"
         value={data.won > 0 ? formatWonAmount(data.wonAmount) : EMPTY_VALUE}
@@ -489,11 +516,11 @@ function Kpis({ report, loading }: { report: BookingReportDto | null; loading: b
       aria-label="Resumen de citas"
     >
       <KpiTile
-        label="Oferta → cita"
+        label="Ofrecimos horario y agendó"
         testId="kpi-offer-conversion"
         value={offers?.ok ? formatPercent(offers.data.rate) : "—"}
         detail={offers?.ok ? offerDetail(offers.data) : undefined}
-        help="Conversaciones con al menos una oferta de horarios en el rango que terminaron en una cita agendada por la IA."
+        help="De los clientes a los que la IA les ofreció horarios, cuántos terminaron con una cita."
         loading={loading}
         unavailable={!loading && !offers?.ok}
       />
@@ -502,7 +529,7 @@ function Kpis({ report, loading }: { report: BookingReportDto | null; loading: b
         testId="kpi-attendance"
         value={att?.ok ? formatPercent(att.data.rate) : "—"}
         detail={att?.ok ? attendanceDetail(att.data) : undefined}
-        help="Realizadas entre realizadas más no asistió, de las citas con hora en el rango."
+        help="De las citas que ya pasaron y se marcaron, cuántas personas sí llegaron."
         loading={loading}
         unavailable={!loading && !att?.ok}
       />
@@ -510,7 +537,7 @@ function Kpis({ report, loading }: { report: BookingReportDto | null; loading: b
         label="Pendientes de marcar"
         testId="kpi-pending-to-mark"
         value={att?.ok ? formatCount(att.data.pendingToMark) : "—"}
-        help="Citas cuya hora ya pasó y siguen como agendadas: no cuentan en la asistencia hasta marcarlas."
+        help="Citas que ya pasaron y nadie marcó si la persona vino. Márcalas en Citas para que cuenten."
         loading={loading}
         unavailable={!loading && !att?.ok}
       />

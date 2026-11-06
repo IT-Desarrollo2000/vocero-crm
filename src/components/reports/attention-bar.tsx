@@ -28,7 +28,6 @@ export function AttentionBar({ data }: { data: AttentionDto }) {
             s.count > 0 ? (
               <div
                 key={s.key}
-                title={`${s.label}: ${formatCount(s.count)} (${formatPercent(s.share)})`}
                 className="h-full border-r-2 border-card last:border-r-0"
                 style={{ width: `${(s.share ?? 0) * 100}%`, background: s.color }}
               />

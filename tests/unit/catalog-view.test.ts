@@ -123,7 +123,7 @@ describe("coverImage", () => {
 });
 
 describe("groupFiles", () => {
-  it("Compartidos primero y luego por variante; huérfanos a compartidos", () => {
+  it("Para todas las variantes primero y luego por variante; huérfanos al primero", () => {
     const p = {
       ...tiguan,
       files: [
@@ -135,7 +135,7 @@ describe("groupFiles", () => {
     };
     const groups = groupFiles(p);
     expect(groups.map((g) => [g.label, g.files.map((f) => f.id)])).toEqual([
-      ["Compartidos", ["s1", "s2", "orphan"]],
+      ["Para todas las variantes", ["s1", "s2", "orphan"]],
       ["400 km", ["v400"]],
       ["300 km", []],
     ]);

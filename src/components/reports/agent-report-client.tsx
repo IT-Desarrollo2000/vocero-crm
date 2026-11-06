@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Clock, Inbox } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { tzLabel } from "@/lib/tz-label";
 import { AttentionBar } from "./attention-bar";
 import { DeliveryRates, FailuresBreakdown } from "./delivery-failures";
 import { EscalationsTable } from "./escalations-table";
@@ -111,13 +113,23 @@ export function AgentReportClient() {
       )}
 
       {!loading && empty && (
-        <p
+        <div
           role="status"
-          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+          className="flex items-start gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
         >
-          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Aún no hay datos en este rango.
-        </p>
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="min-w-0">
+            Aún no hay datos en este rango: nadie escribió. Prueba con un rango más largo o revisa
+            en{" "}
+            <Link
+              href="/agent"
+              className="font-medium text-brand-text underline underline-offset-2 hover:text-brand"
+            >
+              Agente
+            </Link>{" "}
+            que la IA esté encendida.
+          </p>
+        </div>
       )}
 
       {showBlocks && (
@@ -126,7 +138,7 @@ export function AgentReportClient() {
 
           <ReportSection
             title="Reparto de atención"
-            description="Quién atendió cada conversación activa del rango."
+            description="Quién contestó cada conversación del rango: solo la IA, la IA y luego una persona, solo una persona, o nadie."
             block={report?.attention}
             loading={loading}
           >
@@ -135,7 +147,7 @@ export function AgentReportClient() {
 
           <ReportSection
             title="Volumen por día y canal"
-            description="Mensajes entrantes y salientes por día, en la zona horaria del negocio."
+            description="Mensajes recibidos y enviados cada día, en la hora del negocio."
             block={report?.volume}
             loading={loading}
           >
@@ -144,8 +156,8 @@ export function AgentReportClient() {
 
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
             <ReportSection
-              title="Escalamientos por motivo"
-              description="Por qué el agente pasó la conversación a una persona."
+              title="Pasadas a una persona, por motivo"
+              description="Por qué la IA dejó la conversación en manos de alguien del equipo."
               block={report?.escalations}
               loading={loading}
             >
@@ -167,8 +179,8 @@ export function AgentReportClient() {
             </ReportSection>
 
             <ReportSection
-              title="Salientes fallidas"
-              description="Mensajes que el canal rechazó, por canal y origen."
+              title="Mensajes que no salieron"
+              description="Mensajes que WhatsApp, Instagram o Messenger no dejaron enviar, y por qué."
               block={report?.failures}
               loading={loading}
             >
@@ -177,7 +189,7 @@ export function AgentReportClient() {
 
             <ReportSection
               title="Entrega y lectura"
-              description="Solo canales que confirman la entrega."
+              description="Si los mensajes llegaron al teléfono del cliente y si los abrió. Solo canales que lo confirman."
               block={report?.delivery}
               loading={loading}
             >
@@ -187,7 +199,7 @@ export function AgentReportClient() {
 
           {range && (
             <p className="text-xs text-text-3">
-              Excluye el Laboratorio. Días en {range.tz}.
+              Excluye el Laboratorio. Días en {tzLabel(range.tz) ?? range.tz}.
             </p>
           )}
         </>
@@ -211,7 +223,7 @@ function Kpis({ report, loading }: { report: AgentReportDto | null; loading: boo
         label="Conversaciones activas"
         testId="kpi-active"
         value={att?.ok ? formatCount(att.data.active) : "—"}
-        help="Conversaciones con al menos un mensaje del cliente en el rango."
+        help="Conversaciones en las que el cliente escribió en estas fechas."
         loading={loading}
         unavailable={!loading && !att?.ok}
       />
@@ -220,32 +232,34 @@ function Kpis({ report, loading }: { report: AgentReportDto | null; loading: boo
         testId="kpi-ai-only"
         value={att?.ok ? formatPercent(att.data.aiOnlyRate) : "—"}
         detail={att?.ok ? `${formatCount(att.data.aiOnly)} conversaciones` : undefined}
-        help="De las activas: respondió la IA, ninguna persona y no se escaló."
+        help="La IA las resolvió sola: nadie del equipo tuvo que escribir."
         loading={loading}
         unavailable={!loading && !att?.ok}
       />
       <KpiTile
-        label="Escalamientos"
+        label="Pasadas a una persona"
         testId="kpi-escalations"
         value={esc?.ok ? formatCount(esc.data.total) : "—"}
         detail={esc?.ok && esc.data.approximate ? "Datos aproximados" : undefined}
-        help="Veces que el agente pasó una conversación a una persona. No incluye las pausas por respuesta manual."
+        help="Veces que la IA dejó el chat en manos del equipo. No cuenta cuando alguien contestó desde el teléfono."
         loading={loading}
         unavailable={!loading && !esc?.ok}
       />
       <KpiTile
-        label="Respuesta IA (mediana)"
+        label="La IA contesta en"
         testId="kpi-ai-p50"
         value={rt?.ok ? formatDuration(rt.data.ai.p50Seconds) : "—"}
         detail={
-          rt?.ok ? `Humano: ${formatDuration(rt.data.human.p50Seconds)}` : undefined
+          rt?.ok && rt.data.human.sessions > 0
+            ? `Una persona: ${formatDuration(rt.data.human.p50Seconds)}`
+            : undefined
         }
-        help="Mediana del tiempo a primera respuesta por sesión, cuando respondió la IA."
+        help="La mitad de las veces la IA contestó en menos de este tiempo."
         loading={loading}
         unavailable={!loading && !rt?.ok}
       />
       <KpiTile
-        label="Salientes fallidas"
+        label="Mensajes que no salieron"
         testId="kpi-failed"
         value={fail?.ok ? formatPercent(fail.data.rate) : "—"}
         detail={
@@ -253,7 +267,7 @@ function Kpis({ report, loading }: { report: AgentReportDto | null; loading: boo
             ? `${formatCount(fail.data.failed)} de ${formatCount(fail.data.total)}`
             : undefined
         }
-        help="Mensajes salientes fallidos entre todos los salientes del rango."
+        help="De todo lo que mandaron la IA y el equipo, lo que el canal no dejó enviar."
         loading={loading}
         unavailable={!loading && !fail?.ok}
       />

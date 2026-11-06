@@ -39,7 +39,7 @@ export function VolumeChart({
   const y = (v: number) => PAD.top + plotH - (v / max) * plotH;
 
   const total = series.inbound + series.outbound;
-  const summary = `Volumen de mensajes por día: ${series.days.length} días, ${formatCount(total)} mensajes (${formatCount(series.inbound)} entrantes, ${formatCount(series.outbound)} salientes)`;
+  const summary = `Volumen de mensajes por día: ${series.days.length} días, ${formatCount(total)} mensajes (${formatCount(series.inbound)} recibidos, ${formatCount(series.outbound)} enviados)`;
 
   return (
     <figure className="m-0">
@@ -59,7 +59,7 @@ export function VolumeChart({
           ))
         )}
         <span className="ml-auto tabular-nums">
-          {formatCount(series.inbound)} entrantes · {formatCount(series.outbound)} salientes
+          {formatCount(series.inbound)} recibidos · {formatCount(series.outbound)} enviados
         </span>
       </div>
 
@@ -104,7 +104,7 @@ export function VolumeChart({
             const tooltip = [
               `${formatDayLong(d.day)}: ${formatCount(d.total)} mensajes`,
               ...segments.map((s) => `${s.label}: ${formatCount(s.value)}`),
-              `${formatCount(d.inbound)} entrantes · ${formatCount(d.outbound)} salientes`,
+              `${formatCount(d.inbound)} recibidos · ${formatCount(d.outbound)} enviados`,
             ].join("\n");
             return (
               <g key={d.day} data-testid="volume-day" data-day={d.day}>
@@ -168,8 +168,8 @@ export function VolumeChart({
                 {CHANNEL_LABEL[c]}
               </th>
             ))}
-            <th scope="col">Entrantes</th>
-            <th scope="col">Salientes</th>
+            <th scope="col">Recibidos</th>
+            <th scope="col">Enviados</th>
           </tr>
         </thead>
         <tbody>

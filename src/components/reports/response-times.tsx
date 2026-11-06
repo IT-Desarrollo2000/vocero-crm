@@ -37,7 +37,7 @@ export function ResponseTimes({
     },
     {
       key: "human",
-      label: "Humano",
+      label: "Una persona",
       sessions: data.human.sessions,
       p50: data.human.p50Seconds,
       p90: data.human.p90Seconds,
@@ -50,7 +50,7 @@ export function ResponseTimes({
     <div className="space-y-4">
       <figure className="m-0">
         <figcaption id={titleId} className="sr-only">
-          Tiempo a primera respuesta, mediana y percentil 90, IA contra humano
+          Tiempo a primera respuesta: en cuánto contestó la mitad de las veces y en cuánto casi siempre, la IA contra una persona
         </figcaption>
         <div className="space-y-3" role="img" aria-labelledby={titleId} aria-describedby={`${titleId}-t`}>
           {rows.map((r) => (
@@ -58,10 +58,11 @@ export function ResponseTimes({
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
                 <span className="font-medium">{r.label}</span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  mediana{" "}
+                  la mitad en menos de{" "}
                   <span className="font-semibold text-foreground">{formatDuration(r.p50)}</span>{" "}
-                  · p90 <span className="font-semibold text-foreground">{formatDuration(r.p90)}</span>{" "}
-                  · {formatCount(r.sessions)} sesiones
+                  · 9 de cada 10 en menos de{" "}
+                  <span className="font-semibold text-foreground">{formatDuration(r.p90)}</span>{" "}
+                  · {formatCount(r.sessions)} {r.sessions === 1 ? "conversación" : "conversaciones"}
                 </span>
               </div>
               <svg
@@ -80,7 +81,7 @@ export function ResponseTimes({
                     fillOpacity={0.35}
                     style={{ fill: r.color }}
                   >
-                    <title>{`${r.label} p90: ${formatDuration(r.p90)}`}</title>
+                    <title>{`${r.label}, 9 de cada 10 en menos de ${formatDuration(r.p90)}`}</title>
                   </rect>
                 )}
                 {r.p50 !== null && (
@@ -92,7 +93,7 @@ export function ResponseTimes({
                     rx="5"
                     style={{ fill: r.color }}
                   >
-                    <title>{`${r.label} mediana: ${formatDuration(r.p50)}`}</title>
+                    <title>{`${r.label}, la mitad en menos de ${formatDuration(r.p50)}`}</title>
                   </rect>
                 )}
               </svg>
@@ -104,9 +105,9 @@ export function ResponseTimes({
           <thead>
             <tr>
               <th scope="col">Quién respondió</th>
-              <th scope="col">Mediana</th>
-              <th scope="col">Percentil 90</th>
-              <th scope="col">Sesiones</th>
+              <th scope="col">La mitad, en menos de</th>
+              <th scope="col">9 de cada 10, en menos de</th>
+              <th scope="col">Conversaciones</th>
             </tr>
           </thead>
           <tbody>
@@ -125,14 +126,14 @@ export function ResponseTimes({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5" aria-hidden="true">
           <span className="h-2 w-4 rounded-sm" style={{ background: "var(--text-3)" }} />
-          Mediana
+          Barra fuerte: la mitad contestó antes
         </span>
         <span className="flex items-center gap-1.5" aria-hidden="true">
           <span className="h-2 w-4 rounded-sm opacity-40" style={{ background: "var(--text-3)" }} />
-          p90 (9 de cada 10 esperan menos)
+          Barra tenue: 9 de cada 10 contestaron antes
         </span>
         <span data-testid="unanswered-sessions">
-          Sesiones sin respuesta:{" "}
+          Conversaciones sin respuesta:{" "}
           <span className="font-semibold text-foreground tabular-nums">
             {formatCount(data.unanswered)}
           </span>
@@ -141,13 +142,13 @@ export function ResponseTimes({
 
       {afterHandoff && (
         <p className="border-t pt-3 text-sm" data-testid="after-handoff">
-          <span className="font-medium">Humano tras escalamiento:</span>{" "}
+          <span className="font-medium">Cuando la IA pasó el chat a una persona:</span>{" "}
           <span className="text-muted-foreground">
-            mediana{" "}
+            la mitad la atendió en menos de{" "}
             <span className="font-semibold text-foreground tabular-nums">
               {formatDuration(afterHandoff.p50Seconds)}
             </span>{" "}
-            · p90{" "}
+            · 9 de cada 10 en menos de{" "}
             <span className="font-semibold text-foreground tabular-nums">
               {formatDuration(afterHandoff.p90Seconds)}
             </span>{" "}

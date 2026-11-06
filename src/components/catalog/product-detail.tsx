@@ -29,10 +29,20 @@ import {
   normalizationSummary,
   normalizeImageFile,
 } from "@/lib/image-normalize";
+import {
+  PAUSED_LABEL,
+  PAUSED_VARIANT_TEXT,
+  defaultShortcutStates,
+  pausedExplanation,
+  type ProductReadiness,
+  type ReadinessCheck,
+  type ShortcutRef,
+} from "@/lib/catalog-readiness";
 import { WHATSAPP_OUTBOUND_FILES } from "@/lib/outbound-files";
 import { cn } from "@/lib/utils";
 import { CatalogThumb } from "./catalog-thumb";
 import { VariantDialog } from "./product-dialog";
+import { ShortcutRow } from "./shortcut-row";
 import {
   formatBytes,
   groupFiles,
@@ -78,6 +88,8 @@ const UPLOAD_IMAGE_MAX_BYTES =
  */
 export function ProductDetail({
   product,
+  readiness,
+  shortcuts: quickReplies,
   categories,
   canEdit,
   onClose,
@@ -87,6 +99,10 @@ export function ProductDetail({
   paused = false,
 }: {
   product: CatalogProductDto;
+  /** 032 — «¿Listo para mandar?» y atajos ligados (`catalog-readiness.ts`). */
+  readiness: ProductReadiness;
+  /** Todos los atajos de `/api/quick-replies`; null = no se pudieron leer. */
+  shortcuts: ShortcutRef[] | null;
   categories: CatalogCategoryDto[];
   canEdit: boolean;
   onClose: () => void;
@@ -132,8 +148,16 @@ export function ProductDetail({
   const category = categories.find((c) => c.id === product.categoryId);
   const groups = groupFiles(product);
   const defaults = defaultShortcutsFor(product);
+  const defaultStates = defaultShortcutStates(product, quickReplies);
+  const allCreated = defaultStates?.every((s) => s.status === "linked") ?? false;
   const uploading = uploads.some((u) => u.status === "pending" || u.status === "uploading");
   const full = product.files.length >= CATALOG_LIMITS.maxFilesPerProduct;
+  const room = Math.max(0, CATALOG_LIMITS.maxFilesPerProduct - product.files.length);
+  const linked = readiness.shortcuts ?? [];
+  // Atajos «de fábrica» que aún no están ligados (los ligados ya salen arriba).
+  const pendingDefaults = (defaultStates ?? []).filter(
+    (d) => d.status !== "linked" && !linked.some((s) => s.shortcut === d.shortcut)
+  );
 
   /** Una acción del Propietario: muestra el error del servidor y relee. */
   async function act(fn: () => Promise<Response | null>, fallback: string): Promise<boolean> {
@@ -235,6 +259,23 @@ export function ProductDetail({
     await onChanged();
   }
 
+  /** Siguiente paso de un punto de «¿Listo para mandar?» que falla. */
+  function checkFix(c: ReadinessCheck): CheckFix | null {
+    if (c.ok) return null;
+    if (c.id === "fotos" || c.id === "ficha") {
+      if (full || uploading) return null;
+      return {
+        label: c.id === "fotos" ? "Subir fotos" : "Subir ficha",
+        disabled: busy,
+        onClick: () => fileInput.current?.click(),
+      };
+    }
+    if (c.id === "atajos" && defaults) {
+      return { label: "Crear atajos", disabled: busy, onClick: () => void createShortcuts() };
+    }
+    return { label: "Editar", disabled: busy, onClick: onEdit };
+  }
+
   async function createShortcuts() {
     if (!defaults) return;
     setBusy(true);
@@ -258,6 +299,8 @@ export function ProductDetail({
       out.push(shortcutOutcome(s.shortcut, res?.status ?? null, body));
       setShortcuts([...out]);
     }
+    // Relee los atajos: «Falta crearlo» pasa a «Ya existe» sin recargar.
+    await onChanged();
     setBusy(false);
   }
 
@@ -283,8 +326,13 @@ export function ProductDetail({
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-text-3">
               {product.code && <code className="text-brand-text">{product.code}</code>}
               {category && <Badge variant="secondary">{category.name}</Badge>}
-              {!product.active && <Badge variant="warning">Inactivo</Badge>}
+              {!product.active && <Badge variant="secondary">{PAUSED_LABEL}</Badge>}
             </div>
+            {!product.active && (
+              <p className="mt-1.5 text-xs text-text-2" data-testid="catalog-paused-reason">
+                {pausedExplanation(canEdit)}
+              </p>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -303,25 +351,6 @@ export function ProductDetail({
                   <Pencil className="h-4 w-4" />
                   Editar
                 </Button>
-                {/* Un botón deshabilitado no muestra tooltip: el `title` va
-                    en el envoltorio y la razón, además, en texto. */}
-                <span
-                  title={
-                    defaults
-                      ? "Crea /fotos_<código> y /ficha_<código> ligados a este producto"
-                      : `Necesita un código de hasta ${SHORTCUT_CODE_MAX} caracteres`
-                  }
-                >
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || !defaults}
-                    onClick={() => void createShortcuts()}
-                  >
-                    <Zap className="h-4 w-4" />
-                    Crear atajos
-                  </Button>
-                </span>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -333,11 +362,6 @@ export function ProductDetail({
                   Eliminar producto
                 </Button>
               </div>
-              {!defaults && (
-                <p className="text-[11px] text-text-3">
-                  «Crear atajos» necesita un código de hasta {SHORTCUT_CODE_MAX} caracteres.
-                </p>
-              )}
               {confirming === `product:${product.id}` && (
                 <Confirm
                   text={`¿Eliminar «${product.name}»? Se borran sus variantes y archivos; los atajos ligados quedan sin producto.`}
@@ -346,26 +370,129 @@ export function ProductDetail({
                   onCancel={() => setConfirming(null)}
                 />
               )}
-              {shortcuts && (
-                <ul className="space-y-1 text-sm" aria-label="Resultado de crear atajos">
-                  {shortcuts.map((s) => (
-                    <li
-                      key={s.shortcut}
-                      data-testid="catalog-shortcut-result"
-                      data-status={s.status}
-                      className={cn(
-                        s.status === "created" && "text-success-text",
-                        s.status === "exists" && "text-text-2",
-                        s.status === "error" && "text-danger-text"
-                      )}
-                    >
-                      {s.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </section>
           )}
+
+          {canEdit && (
+            <section
+              aria-label="¿Listo para mandar?"
+              data-testid="catalog-ready-checks"
+              data-state={readiness.state}
+              className="space-y-2 border-b p-4"
+            >
+              <h4 className="text-sm font-semibold">¿Listo para mandar?</h4>
+              <ul className="space-y-1.5 text-sm">
+                {readiness.checks.map((c) => (
+                  <CheckRow
+                    key={c.id}
+                    check={c}
+                    fix={checkFix(c)}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Atajos */}
+          <section aria-label="Atajos" data-testid="catalog-shortcuts" className="space-y-2 border-b p-4">
+            <h4 className="text-sm font-semibold">Atajos para escribirlo en el chat</h4>
+            {quickReplies === null ? (
+              <p className="text-sm text-text-2" role="alert">
+                No se pudieron leer los atajos.{" "}
+                <button type="button" className="underline" onClick={() => void onChanged()}>
+                  Reintentar
+                </button>
+              </p>
+            ) : !product.active && !canEdit ? (
+              <p className="text-sm text-text-2">
+                Mientras esté pausado, sus atajos no aparecen en el chat.
+              </p>
+            ) : (
+              <>
+                {linked.map((s) => (
+                  <ShortcutRow key={s.shortcut} shortcut={s.shortcut} sends={s.sends} />
+                ))}
+                {canEdit &&
+                  pendingDefaults.map((d) => (
+                    <div
+                      key={d.shortcut}
+                      data-testid="catalog-shortcut-pending"
+                      data-status={d.status}
+                      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-dashed px-2.5 py-1"
+                    >
+                      <code className="min-w-0 flex-1 break-all font-mono text-[13px] text-text-2">
+                        /{d.shortcut}
+                      </code>
+                      <span
+                        className={cn(
+                          "text-xs",
+                          d.status === "taken" ? "text-warning-text" : "text-text-2"
+                        )}
+                      >
+                        {d.text}
+                      </span>
+                    </div>
+                  ))}
+                {linked.length === 0 && pendingDefaults.length === 0 && (
+                  <p className="text-sm text-text-2">
+                    {canEdit
+                      ? `Para crearle atajos, dale un código de hasta ${SHORTCUT_CODE_MAX} letras o números en «Editar».`
+                      : "Sin atajo todavía: mándalo desde «Catálogo» en el chat."}
+                  </p>
+                )}
+                {(linked.length > 0 || pendingDefaults.length > 0) && (
+                  <p className="text-xs text-text-2">
+                    {canEdit
+                      ? "Tu equipo los escribe en un chat y se mandan las fotos o la ficha."
+                      : "Cópialo y pégalo en el chat del cliente, o escríbelo empezando con «/»."}
+                  </p>
+                )}
+                {canEdit && !product.active && linked.length > 0 && (
+                  <p className="text-xs text-warning-text">
+                    Mientras esté pausado, estos atajos no aparecen en el chat.
+                  </p>
+                )}
+              </>
+            )}
+            {canEdit && defaults && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void createShortcuts()}
+                >
+                  <Zap className="h-4 w-4" />
+                  Crear atajos
+                </Button>
+                <span className="text-xs text-text-2">
+                  {allCreated
+                    ? "Ya existen los dos; volver a tocarlo no cambia nada."
+                    : defaultStates?.some((d) => d.status !== "missing")
+                      ? "Crea los que faltan; los que ya existen no se tocan."
+                      : `Crea /${defaults.map((d) => d.shortcut).join(" y /")} ligados a este producto.`}
+                </span>
+              </div>
+            )}
+            {shortcuts && (
+              <ul className="space-y-1 text-sm" aria-label="Resultado de crear atajos">
+                {shortcuts.map((s) => (
+                  <li
+                    key={s.shortcut}
+                    data-testid="catalog-shortcut-result"
+                    data-status={s.status}
+                    className={cn(
+                      s.status === "created" && "text-success-text",
+                      s.status === "exists" && "text-text-2",
+                      s.status === "error" && "text-danger-text"
+                    )}
+                  >
+                    {s.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
           {error && (
             <p className="border-b bg-danger-tint px-4 py-2 text-sm text-danger-text" role="alert">
@@ -425,13 +552,18 @@ export function ProductDetail({
                         <p className="flex flex-wrap items-center gap-2 text-sm">
                           <span className="font-medium">{v.name}</span>
                           {v.code && <code className="text-xs text-brand-text">{v.code}</code>}
-                          {!v.active && <Badge variant="warning">Inactiva</Badge>}
+                          {!v.active && <Badge variant="secondary">Pausada</Badge>}
                         </p>
                         <p className="text-xs text-text-2">
                           {price.inherited
-                            ? `Hereda el precio${price.text ? `: ${price.text}` : ""}`
+                            ? price.text
+                              ? `Mismo precio que el producto: ${price.text}`
+                              : "Sin precio"
                             : price.text}
                         </p>
+                        {!v.active && (
+                          <p className="text-xs text-text-2">{PAUSED_VARIANT_TEXT}.</p>
+                        )}
                         {v.attributes.length > 0 && (
                           <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-xs">
                             {v.attributes.map((a, i) => (
@@ -479,41 +611,47 @@ export function ProductDetail({
 
           {/* Archivos */}
           <section className="space-y-3 p-4" aria-label="Archivos">
-            <h4 className="text-xs font-medium uppercase tracking-wide text-text-3">
-              Archivos ({product.files.length}/{CATALOG_LIMITS.maxFilesPerProduct})
-            </h4>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h4 className="text-sm font-semibold">Fotos y fichas</h4>
+              <span className="text-xs text-text-2" data-testid="catalog-file-count">
+                {product.files.length} de {CATALOG_LIMITS.maxFilesPerProduct}
+                {canEdit && (full ? " · ya no caben más" : ` · ${room === 1 ? "cabe 1 más" : `caben ${room} más`}`)}
+              </span>
+            </div>
 
             {canEdit && (
               <div className="space-y-2 rounded-md border border-dashed p-3">
                 <div className="flex flex-wrap items-end gap-2">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <label htmlFor="cf-target" className="text-xs font-medium">
-                      Pertenecen a
-                    </label>
-                    <select
-                      id="cf-target"
-                      value={uploadTarget}
-                      disabled={uploading}
-                      onChange={(e) => setUploadTarget(e.target.value)}
-                      className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
-                    >
-                      <option value="">Compartidos (todas las variantes)</option>
-                      {product.variants.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {product.variants.length > 0 && (
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <label htmlFor="cf-target" className="text-xs font-medium">
+                        ¿Para qué variante son?
+                      </label>
+                      <select
+                        id="cf-target"
+                        value={uploadTarget}
+                        disabled={uploading}
+                        onChange={(e) => setUploadTarget(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
+                      >
+                        <option value="">Para todas las variantes</option>
+                        {product.variants.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            Solo {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <Button
                     size="sm"
                     className="h-9"
                     disabled={uploading || full}
-                    title={full ? `Tope de ${CATALOG_LIMITS.maxFilesPerProduct} archivos` : undefined}
+                    aria-describedby={full ? "cf-full" : undefined}
                     onClick={() => fileInput.current?.click()}
                   >
                     <Upload className="h-4 w-4" />
-                    Subir archivos
+                    Subir fotos o ficha
                   </Button>
                   <input
                     ref={fileInput}
@@ -530,10 +668,16 @@ export function ProductDetail({
                     }}
                   />
                 </div>
-                <p className="text-[11px] text-text-3">
-                  Imágenes JPG o PNG (WebP, GIF y HEIC se convierten a JPG y las de más de
-                  5 MB se reducen al subir) y documentos PDF, Word, Excel, PowerPoint, TXT o
-                  CSV. Hasta {CATALOG_LIMITS.maxFilesPerProduct} por producto.
+                {full && (
+                  <p id="cf-full" className="text-xs text-warning-text" data-testid="catalog-files-full">
+                    Ya tiene los {CATALOG_LIMITS.maxFilesPerProduct} archivos que caben en un
+                    producto: borra uno para subir otro.
+                  </p>
+                )}
+                <p className="text-xs text-text-2">
+                  Fotos JPG o PNG (las del iPhone y otros formatos se convierten solas, y las
+                  muy pesadas se achican) · fichas en PDF, Word, Excel, PowerPoint o texto.
+                  Hasta {CATALOG_LIMITS.maxFilesPerProduct} archivos por producto.
                 </p>
                 {uploads.length > 0 && (
                   <ul className="space-y-1 text-xs" aria-label="Subidas">
@@ -641,6 +785,39 @@ export function ProductDetail({
   );
 }
 
+type CheckFix = { label: string; disabled: boolean; onClick: () => void };
+
+/** Un punto de «¿Listo para mandar?»: ✓ o ! con su siguiente paso. */
+function CheckRow({ check, fix }: { check: ReadinessCheck; fix: CheckFix | null }) {
+  return (
+    <li className="flex min-w-0 gap-2" data-testid="catalog-ready-check" data-check={check.id} data-ok={check.ok ? "true" : "false"}>
+      <span
+        aria-hidden
+        className={cn("w-3 shrink-0 font-bold", check.ok ? "text-success-text" : "text-warning-text")}
+      >
+        {check.ok ? "✓" : "!"}
+      </span>
+      <span className="sr-only">{check.ok ? "Listo:" : "Falta:"}</span>
+      <span className="min-w-0 flex-1 break-words">
+        {check.text}
+        {fix && (
+          <>
+            {" "}
+            <button
+              type="button"
+              disabled={fix.disabled}
+              onClick={fix.onClick}
+              className="font-medium text-brand-text underline underline-offset-2 hover:no-underline disabled:opacity-50"
+            >
+              {fix.label}
+            </button>
+          </>
+        )}
+      </span>
+    </li>
+  );
+}
+
 function AttrRow({ label, value }: { label: string; value: string }) {
   return (
     <>
@@ -739,20 +916,22 @@ function FileGroupView({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
-        <select
-          aria-label={`Variante de ${f.fileName}`}
-          value={f.variantId ?? ""}
-          disabled={busy}
-          onChange={(e) => onMove(f, e.target.value || null)}
-          className="h-7 min-w-0 max-w-full flex-1 rounded-md border border-input bg-card px-1 text-xs"
-        >
-          <option value="">Compartido</option>
-          {product.variants.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+        {(product.variants.length > 0 || f.variantId !== null) && (
+          <select
+            aria-label={`Variante de ${f.fileName}`}
+            value={f.variantId ?? ""}
+            disabled={busy}
+            onChange={(e) => onMove(f, e.target.value || null)}
+            className="h-7 min-w-0 max-w-full flex-1 rounded-md border border-input bg-card px-1 text-xs"
+          >
+            <option value="">Todas las variantes</option>
+            {product.variants.map((v) => (
+              <option key={v.id} value={v.id}>
+                Solo {v.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
     );
   }
@@ -771,7 +950,7 @@ function FileGroupView({
 
   return (
     <div className="space-y-2" data-testid="catalog-file-group" data-variant-id={group.variantId ?? ""}>
-      <h5 className="text-sm font-medium">{group.label}</h5>
+      {product.variants.length > 0 && <h5 className="text-sm font-medium">{group.label}</h5>}
       {images.length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {images.map((f, i) => (
@@ -790,7 +969,7 @@ function FileGroupView({
               >
                 <CatalogThumb src={f.url} alt={f.fileName} className="aspect-square w-full" />
               </button>
-              <p className="truncate text-[11px] text-text-3" title={f.fileName}>
+              <p className="break-all text-[11px] text-text-3">
                 {f.fileName}
               </p>
               {controls(f, images, i)}
@@ -814,8 +993,7 @@ function FileGroupView({
                 <a
                   href={f.url}
                   download={f.fileName}
-                  className="min-w-0 flex-1 truncate text-sm hover:underline"
-                  title={`Descargar ${f.fileName}`}
+                  className="min-w-0 flex-1 break-all text-sm hover:underline"
                 >
                   {f.fileName}
                 </a>
