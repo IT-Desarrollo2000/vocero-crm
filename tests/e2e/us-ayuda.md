@@ -60,6 +60,13 @@ Para cada `next` = `//evil.com`, `https://evil.com`, `/%2F%2Fevil.com`,
   atiende»; `#citas` cita «¿Cómo le fue a…», «Sí, llegó», «Tomarla», «Sin
   vendedor», «Bloquear un horario» y «todo el negocio», y ya no dice «Sin
   asignar» ni «Mostrar pruebas».
+- 032 fase B — `#contactos` está en las dos pasadas. Con todo encendido va
+  justo después de `#seguimiento` y cita «Activos», «Archivados», «Abrir
+  chat», «Tomar y responder», «Retomar con plantilla», «Escribir primero»,
+  «Enviar y abrir el chat», «Archivar», «Deshacer», «Desarchivar», «Nuevo
+  contacto», «Sin teléfono» y «Lo atiende», más su «¿Y en Instagram y
+  Messenger?»; no dice «Ver archivados». En la pasada `--off` sigue, sin
+  nombrar Instagram ni Messenger.
 
 ## f) Pantallas que se explican solas (US-3, CA-4) — como vendedora
 

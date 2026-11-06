@@ -22,6 +22,10 @@
  *                          («Lo atiende Marco Ríos», «Tomar y responder»…)
  *   citas.png              (032) Citas con «¿Cómo le fue a…?», hoy/mañana y
  *                          «1 cita sin vendedor» con «Tomarla»
+ *   contactos.png          (032 B) Contactos: chat abierto, cerrado, nunca
+ *                          escribió (Elena Vargas, alta a mano), Instagram
+ *                          (Paola Núñez), de Marco, «Tomar y responder» y el
+ *                          aviso «Archivaste a Raúl Sánchez… · Deshacer»
  *
  * 032 — Para esas dos se siembra además un segundo vendedor («Marco Ríos»,
  * sin iniciar sesión), Mónica Pérez y Raúl Sánchez, los tratos en sus etapas
@@ -32,7 +36,7 @@
  * Con `--revisar <dir>` además deja en <dir> la página /ayuda completa (por
  * tramos), tres pantallas en tema OSCURO y (032) `/pipeline` y `/bookings`
  * como vendedora y propietario, claro y oscuro, a 1366×768 y 390×844, para
- * revisarlas a ojo (no se publican).
+ * revisarlas a ojo (no se publican). Fase B suma `/contacts` a esa revisión.
  *
  * Uso: BD aislada RECIÉN RESETEADA (la lista debe tener solo estos clientes)
  * y app con .env.e2e (mocks, AGENDA=on, CATALOG_STORAGE=local):
@@ -621,14 +625,89 @@ async function moduleCaptures({ danielaId }) {
   await ctx.close();
 }
 
-/** 032 — Revisión a ojo de /pipeline y /bookings (no se publica). */
+// ── 032 fase B: Contactos ───────────────────────────────────────────────
+
+/**
+ * Elena Vargas (alta a mano, nunca ha escrito) y Paola Núñez (Instagram, hace
+ * 3 días, de Daniela). Mónica y Ana se archivan por API; Raúl se archiva con
+ * el botón justo antes de la foto, para que se vea «Deshacer». Va DESPUÉS de
+ * Seguimiento y Citas para no cambiar sus capturas.
+ */
+async function seedContacts({ danielaId }) {
+  console.log("\n== 032: siembra de Contactos (datos ficticios) ==");
+  const elena = await owner.api("/api/contacts", {
+    method: "POST",
+    body: body({ name: "Elena Vargas", phone: "5215500000018", source: "referido" }),
+  });
+  ok("alta a mano de Elena Vargas", elena.res.status === 201, short(elena));
+  if ((process.env.CHANNELS ?? "").includes("instagram")) {
+    const acc = "17841400000001";
+    let r = await owner.api("/api/settings/instagram", { method: "PUT", body: body({ source: "meta", igUserId: acc, token: "tok-ayuda-demo-ig" }) });
+    ok("Instagram (mock)", r.res.ok, short(r));
+    r = await owner.api("/api/dev/wa-mock/channel-inbound", {
+      method: "POST",
+      body: body({
+        channel: "instagram",
+        accountId: acc,
+        senderId: "ig-ayuda-paola",
+        text: "¿El librero Roble viene armado?",
+        mid: `mid.ayuda.demo.${Date.now()}`,
+        timestamp: Date.now() - 3 * 24 * 3600 * 1000,
+      }),
+    });
+    ok("DM de Instagram", r.res.ok, short(r));
+    let ig = null;
+    await until(async () => {
+      const list = (await owner.api("/api/conversations")).json?.conversations ?? [];
+      ig = list.find((c) => c.channel === "instagram") ?? null;
+      return !!ig;
+    });
+    ok("chat de Instagram", !!ig);
+    await owner.api(`/api/conversations/${ig?.id}`, { method: "PATCH", body: body({ aiEnabled: false }) });
+    await owner.api(`/api/contacts/${ig?.contact?.id}`, { method: "PATCH", body: body({ name: "Paola Núñez" }) });
+    const as = await owner.api(`/api/conversations/${ig?.id}/assign`, { method: "POST", body: body({ userId: danielaId }) });
+    ok("Paola a nombre de Daniela", as.res.ok, short(as));
+  } else {
+    console.log("  (CHANNELS sin instagram: la fila de Instagram no sale)");
+  }
+  for (const who of [C.monica, C.ana]) {
+    const c = await conv(who);
+    const r = await owner.api(`/api/contacts/${c?.contact?.id}`, { method: "PATCH", body: body({ archived: true }) });
+    ok(`${who.name} archivada`, r.res.ok, short(r));
+  }
+}
+
+async function contactsCapture() {
+  console.log("\n== 032: captura de Contactos (claro, 1366×768, como vendedora) ==");
+  const { ctx, page } = await newPage();
+  await page.goto(`${BASE}/contacts`, { waitUntil: "load", timeout: 90000 });
+  const rows = page.locator("main ul > li");
+  ok("lista de contactos", await until(async () => (await rows.count()) >= 6, 30000), String(await rows.count()));
+  ok("fila de Marco: «Lo atiende Marco Ríos»", await until(async () => (await page.getByText("Lo atiende Marco Ríos").count()) === 1, 10000));
+  ok("fila de Elena: «Escribir primero»", (await page.getByRole("button", { name: "Escribir primero a Elena Vargas" }).count()) === 1);
+  ok("fila de Sofía: «Tomar y responder»", (await page.getByRole("button", { name: "Tomar y responder: Sofía Castro" }).count()) === 1);
+  ok("fila de Carlos: «Retomar con plantilla»", (await page.getByRole("link", { name: "Retomar con plantilla: Carlos Ruiz" }).count()) === 1);
+  const archive = page.getByRole("button", { name: "Archivar a Raúl Sánchez" });
+  const notice = page.getByRole("status").filter({ hasText: "Archivaste a Raúl Sánchez" });
+  ok("«Archivaste a Raúl Sánchez…» con «Deshacer»", await until(async () => {
+    if ((await notice.count()) === 0 && (await archive.count()) === 1) await archive.click();
+    await sleep(500);
+    return (await notice.count()) === 1 && (await notice.getByRole("button", { name: "Deshacer" }).count()) === 1;
+  }, 20000));
+  ok("segmentado «Archivados · 3»", await until(async () => (await page.getByRole("button", { name: "Archivados · 3" }).count()) === 1, 10000));
+  await sleep(800);
+  await save(page, "contactos.png", { x: 0, y: 0, ...VIEWPORT });
+  await ctx.close();
+}
+
+/** 032 — Revisión a ojo de /pipeline, /bookings y /contacts (no se publica). */
 async function reviewModules() {
   if (!REVIEW) return;
   for (const [as, who] of [[seller, "vend"], [owner, "prop"]]) {
     for (const dark of [false, true]) {
       for (const [vp, vpName] of [[VIEWPORT, "1366"], [{ width: 390, height: 844 }, "390"]]) {
         const { ctx, page } = await newPage({ as, dark, viewport: vp });
-        for (const [url, name] of [["/pipeline", "seguimiento"], ["/bookings", "citas"]]) {
+        for (const [url, name] of [["/pipeline", "seguimiento"], ["/bookings", "citas"], ["/contacts", "contactos"]]) {
           await page.goto(`${BASE}${url}`, { waitUntil: "load", timeout: 90000 });
           await sleep(3500);
           const file = `${who}-${name}-${dark ? "oscuro" : "claro"}-${vpName}.png`;
@@ -692,6 +771,8 @@ async function main() {
     await captures();
     await seedModules(seeded);
     await moduleCaptures(seeded);
+    await seedContacts(seeded);
+    await contactsCapture();
     await review();
     await reviewModules();
   } finally {
