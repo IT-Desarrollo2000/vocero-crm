@@ -38,8 +38,8 @@ export function LossReasonDialog({
       >
         <h3 className="mb-1 font-semibold">¿Por qué se perdió?</h3>
         <p className="mb-4 text-xs text-text-3">
-          {leadName} pasa a Perdido. El motivo es lo único que después explica
-          qué cambiar: sin él, la gráfica de pérdidas no dice nada.
+          {leadName} pasa a Perdido. Elige por qué no compró: así sabemos qué
+          mejorar.
         </p>
 
         <div className="space-y-2">

@@ -19,6 +19,7 @@ import { applyHumanPatch, applyUnlock } from "@/components/ficha-view";
 import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { amountHeading } from "@/lib/pipeline-card";
 import { PriorityPicker } from "./priority-picker";
 import type { BoardLead } from "./pipeline-client";
 
@@ -34,6 +35,7 @@ export function LeadDrawer({
   lead,
   stages,
   currency,
+  canOpenChat,
   onClose,
   onMoveStage,
   onAmount,
@@ -43,6 +45,11 @@ export function LeadDrawer({
   stages: StageDto[];
   /** Moneda del negocio, para el lead que aún no tiene la suya. */
   currency: string;
+  /**
+   * 032: ¿quien mira puede abrir este chat? El de otro vendedor no se abre
+   * desde aquí: la Bandeja diría «la atiende otro vendedor».
+   */
+  canOpenChat: boolean;
   onClose: () => void;
   /** Pasa por el mismo camino que el arrastre: perder exige motivo. */
   onMoveStage: (stageId: string) => void;
@@ -157,16 +164,21 @@ export function LeadDrawer({
               </div>
             </div>
 
-            {lead.conversationId ? (
+            {lead.conversationId && canOpenChat ? (
               <Link
                 href={`/inbox?contact=${lead.contact.id}`}
                 className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border bg-secondary px-3 py-2 text-sm font-medium hover:bg-accent"
               >
                 <MessageSquareText className="h-4 w-4" /> Abrir conversación
               </Link>
+            ) : lead.conversationId ? (
+              <p className="mt-3 text-xs text-text-2">
+                Lo atiende {lead.assignedTo?.name || "otro vendedor"}. Solo quien lo
+                atiende abre este chat; si necesitas algo, pídeselo.
+              </p>
             ) : (
-              <p className="mt-3 text-xs text-text-3">
-                Todavía no hay conversación con este contacto.
+              <p className="mt-3 text-xs text-text-2">
+                Nunca te ha escrito: todavía no hay chat con este contacto.
               </p>
             )}
           </section>
@@ -184,7 +196,7 @@ export function LeadDrawer({
           {/* Cuánto */}
           <section className="border-b p-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-3">
-              Monto ({moneda})
+              {amountHeading(moneda)}
             </p>
             {editandoMonto ? (
               <>
