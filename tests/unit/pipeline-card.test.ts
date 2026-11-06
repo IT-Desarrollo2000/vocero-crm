@@ -8,6 +8,7 @@ import {
   durationLabel,
   emptyColumnText,
   filterCounts,
+  keepClockTogether,
   matchesFilter,
   parseFilter,
   pipelineTodo,
@@ -140,6 +141,24 @@ describe("cardView", () => {
       { kind: "open", label: "Abrir chat", href: "/inbox?contact=ct_1" },
       { kind: "amount", label: "Poner monto" },
     ]);
+  });
+
+  it("keepClockTogether: la hora no se parte en dos renglones", () => {
+    expect(keepClockTogether("Mañana: Laura 11:00 a. m. y Carlos 4:00 p. m.")).toBe(
+      "Mañana: Laura 11:00 a. m. y Carlos 4:00 p. m."
+    );
+    expect(keepClockTogether("Sin hora aquí.")).toBe("Sin hora aquí.");
+  });
+
+  it("cuándo escribió con hora: un solo punto al final («p. m.», no «p. m..»)", () => {
+    // NOW = 12:00 p. m. del 6-nov en CDMX; ayer 6:40 p. m. = 00:40Z del 6-nov.
+    const v = cardView(lead({ lastInboundAt: "2026-11-06T00:40:00Z" }), ctx(seller));
+    expect(v.note).toBe("Te escribió ayer, 6:40 p. m.");
+    const o = cardView(
+      lead({ lastInboundAt: "2026-11-06T00:40:00Z", assignedTo: { id: "u_marco", name: "Marco Ríos" } }),
+      ctx(owner)
+    );
+    expect(o.note).toBe("Escribió ayer, 6:40 p. m.");
   });
 
   it("espera respuesta con su duración", () => {

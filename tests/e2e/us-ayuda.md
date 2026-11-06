@@ -53,6 +53,13 @@ Para cada `next` = `//evil.com`, `https://evil.com`, `/%2F%2Fevil.com`,
   una cita» (`#citas`) y el párrafo «Instagram:» en `#archivos`.
 - Con `AGENDA=off CHANNELS=whatsapp` (pasada `--off`): ni `#citas`, ni su
   tarjeta, ni ningún texto «Instagram»/«Messenger».
+- 032 — `#seguimiento` está en las dos pasadas (no depende de la agenda) y,
+  con la agenda apagada, no habla de citas. Con la agenda encendida va justo
+  después de `#mis-chats` en el índice y cita «Mis clientes», «Sin tomar»,
+  «Tomar y responder», «Retomar con plantilla», «Capturar monto» y «Lo
+  atiende»; `#citas` cita «¿Cómo le fue a…», «Sí, llegó», «Tomarla», «Sin
+  vendedor», «Bloquear un horario» y «todo el negocio», y ya no dice «Sin
+  asignar» ni «Mostrar pruebas».
 
 ## f) Pantallas que se explican solas (US-3, CA-4) — como vendedora
 

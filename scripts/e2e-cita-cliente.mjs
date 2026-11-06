@@ -172,7 +172,9 @@ async function gotoList(pg) {
 async function openListCard(pg, name) {
   const row = rowOf(pg, name);
   const card = row.getByTestId("booking-client-card");
-  await clickUntil(row.getByTestId("booking-client-toggle"), card);
+  // «Cargando…» ya cuenta como abierta: en `next dev` la primera carga tarda
+  // ~5 s y volver a hacer clic cerraría y reabriría la tarjeta.
+  await clickUntil(row.getByTestId("booking-client-toggle"), card.or(row.getByTestId("booking-client-loading")));
   return { row, card };
 }
 

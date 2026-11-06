@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { keepClockTogether } from "@/lib/pipeline-card";
 import {
   outcomeQuestion,
   outcomeWhen,
@@ -77,7 +78,7 @@ export function BookingsTodoStrip({
             {outcomeQuestion(pending)}
           </strong>
           <span className="text-[13px] text-text-2">
-            {outcomeWhen(pending, now, tz)}. Marca si llegó; así sabes a quién
+            {keepClockTogether(outcomeWhen(pending, now, tz))}. Marca si llegó; así sabes a quién
             falta atender.
           </span>
           <div className="flex flex-wrap items-center gap-2">
@@ -125,9 +126,9 @@ export function BookingsTodoStrip({
         className={`${card} flex-[1_1_240px] border-info-soft bg-info-tint`}
       >
         <strong className="text-sm font-semibold text-foreground">
-          {todayTitle(todo, owner, tz)}
+          {keepClockTogether(todayTitle(todo, owner, tz))}
         </strong>
-        <span className="text-[13px] text-text-2">{tomorrowLine(todo, owner, tz)}</span>
+        <span className="text-[13px] text-text-2">{keepClockTogether(tomorrowLine(todo, owner, tz))}</span>
       </div>
 
       {free && (
@@ -182,7 +183,7 @@ function UnassignedCard({
       className="flex min-w-0 flex-[1_1_240px] flex-col gap-1.5 rounded-lg border px-3.5 py-3"
     >
       <strong className="text-sm font-semibold text-foreground">{unassignedTitle(count)}</strong>
-      <span className="text-[13px] text-text-2">{unassignedLine(b, now, tz)}</span>
+      <span className="text-[13px] text-text-2">{keepClockTogether(unassignedLine(b, now, tz))}</span>
       <div className="flex flex-wrap items-center gap-2">
         {owner ? (
           assigning ? (

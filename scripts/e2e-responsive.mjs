@@ -153,7 +153,9 @@ await phone.goto(`${BASE}/pipeline`);
 const hamburguesa = phone.getByRole("button", { name: "Abrir el menú" });
 await hamburguesa.waitFor({ timeout: 20000 });
 ok("la hamburguesa se ve", await hamburguesa.isVisible());
-const linkBandeja = phone.getByRole("link", { name: /Bandeja/ });
+// El del MENÚ: desde 032, la franja «lo que te toca» de Seguimiento también
+// enlaza a la Bandeja («…Respóndeles primero en la Bandeja.»).
+const linkBandeja = phone.locator("aside").first().getByRole("link", { name: /Bandeja/ });
 ok(
   "el lateral arranca oculto (sus enlaces no son alcanzables)",
   !(await linkBandeja.isVisible())

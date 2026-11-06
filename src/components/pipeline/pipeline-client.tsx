@@ -29,6 +29,7 @@ import {
   defaultFilter,
   emptyColumnText,
   filterCounts,
+  keepClockTogether,
   matchesFilter,
   parseFilter,
   pipelineTodo,
@@ -589,7 +590,7 @@ function TodoStrip({ items, onGo }: { items: TodoItem[]; onGo: (it: TodoItem) =>
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
               <strong className="text-sm font-semibold text-foreground">{it.title}</strong>
-              <span className="text-[12.5px] text-text-2">{it.hint}</span>
+              <span className="text-[12.5px] text-text-2">{keepClockTogether(it.hint)}</span>
             </span>
             <ArrowRight aria-hidden className={cn("h-4 w-4 shrink-0", tone.text)} strokeWidth={1.8} />
           </>
@@ -879,11 +880,11 @@ function LeadCard({
             CHIP_TONE[c.tone]
           )}
         >
-          {c.text}
+          {keepClockTogether(c.text)}
         </span>
       ))}
       {view.sale && <p className="text-[12.5px] font-semibold text-success-text">{view.sale}</p>}
-      {view.note && <p className="text-[12.5px] text-text-2">{view.note}</p>}
+      {view.note && <p className="text-[12.5px] text-text-2">{keepClockTogether(view.note)}</p>}
       {interactive && (view.primary || view.secondary.length > 0) && (
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {view.primary && renderAction(view.primary, true)}

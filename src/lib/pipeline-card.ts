@@ -109,6 +109,15 @@ export function clockLabel(instant: string | Date, tz: string): string {
   return `${h12}:${String(m).padStart(2, "0")} ${h < 12 ? "a. m." : "p. m."}`;
 }
 
+/**
+ * Para PINTAR: une «4:00 p. m.» con espacios duros para que el renglón no se
+ * corte en «4:00 p.» / «m.». Los textos de la lógica siguen con espacios
+ * normales (los tests y los E2E los comparan así).
+ */
+export function keepClockTogether(text: string): string {
+  return text.replace(/(\d) ([ap])\. m\./g, "$1 $2. m.");
+}
+
 /** «lun 3 nov» de una fecha ISO (YYYY-MM-DD). */
 function shortDate(iso: string): string {
   const d = new Date(`${iso}T12:00:00Z`);
@@ -304,7 +313,9 @@ export function cardView(lead: CardLead, ctx: CardContext): CardView {
       view.secondary.push(openChat);
     } else {
       const when = whenLabel(lead.lastInboundAt ?? "", now, tz);
-      view.note = own === "mine" ? `Te escribió ${when}.` : `Escribió ${when}.`;
+      // «ayer, 6:40 p. m.» ya cierra con punto: sin esto saldría «p. m..».
+      const end = when.endsWith(".") ? "" : ".";
+      view.note = own === "mine" ? `Te escribió ${when}${end}` : `Escribió ${when}${end}`;
       view.secondary.push(openChat);
     }
   }

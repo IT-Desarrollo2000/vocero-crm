@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarPlus, Info, X } from "lucide-react";
+import { CalendarPlus, CheckCircle2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -390,9 +390,10 @@ export function BookingsClient() {
       await refresh();
       return;
     }
-    setNotice(`Tomaste la cita${b.contact ? ` de ${b.contact.name}` : ""}. Ya es tuya.`);
+    // El aviso sale cuando la lista ya dice lo mismo (no antes).
     void loadTodo();
     await refresh();
+    setNotice(`Tomaste la cita${b.contact ? ` de ${b.contact.name}` : ""}. Ya es tuya.`);
   }
 
   /** 023 — Reasignar (Propietario). Un choque del nuevo vendedor es 409. */
@@ -419,9 +420,9 @@ export function BookingsClient() {
       setError(failure.kind === "slot_taken" ? REASSIGN_TAKEN : failure.message);
       return false;
     }
-    setNotice("Cita reasignada.");
     void loadTodo();
     await refresh();
+    setNotice("Cita reasignada.");
     return true;
   }
 
@@ -794,7 +795,9 @@ export function BookingsClient() {
             role="group"
             aria-label="Qué citas ver"
             data-testid="bookings-seller-filter"
-            className="inline-flex rounded-md border p-0.5"
+            // Mismo segmentado que «Mis clientes · Sin tomar · Todos» de
+            // Seguimiento (diseño 032, Citas.dc.html).
+            className="inline-flex flex-wrap gap-1 rounded-lg bg-secondary p-[3px]"
           >
             {SELLER_SEGMENTS.map((o) => (
               <button
@@ -804,10 +807,10 @@ export function BookingsClient() {
                 aria-pressed={sellerFilter === o.value}
                 onClick={() => setSellerFilter(o.value)}
                 className={cn(
-                  "rounded-sm px-2.5 py-1 text-sm transition-colors",
+                  "rounded-md px-3 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   sellerFilter === o.value
-                    ? "bg-brand-tint font-medium text-brand-text"
-                    : "text-text-2 hover:bg-accent"
+                    ? "bg-background font-semibold text-foreground shadow-sm"
+                    : "text-text-2 hover:text-foreground"
                 )}
               >
                 {o.label}
@@ -1154,7 +1157,8 @@ export function BookingsClient() {
           data-testid="bookings-notice"
           className="fixed inset-x-3 bottom-4 z-40 mx-auto flex max-w-md items-start gap-2 rounded-md border bg-background px-3 py-2.5 text-sm shadow-pop md:bottom-6"
         >
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" strokeWidth={1.7} />
+          {/* 032 — Todo aviso de aquí es un «listo»: palomita, no ⓘ (CA-2). */}
+          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success-text" strokeWidth={1.8} />
           <p className="flex-1">{notice}</p>
           <button
             onClick={() => setNotice(null)}
