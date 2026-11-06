@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Reportes · Ventas sin ventas registradas</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4056}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e9eef4; color: #2b4056; text-decoration: none; font-weight: 600">Reportes</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Agente</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Laboratorio</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <header style="padding: 18px 24px 0; border-bottom: 1px solid #ecedf0; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+        <h1 style="margin: 0; font-size: 18px; font-weight: 600">Reportes</h1>
+        <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 7px 12px">Descargar PDF</button>
+      </div>
+      <div role="tablist" aria-label="Reportes" style="display: flex; gap: 4px; flex-wrap: wrap">
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Resumen</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Agente</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Citas</button>
+        <button type="button" role="tab" aria-selected="true" style="font: inherit; font-weight: 600; border: 0; border-bottom: 2px solid #1a1a1e; background: transparent; padding: 8px 12px">Ventas</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Vendedores</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Anuncios</button>
+      </div>
+    </header>
+
+    <div style="padding: 16px 24px 28px; display: flex; flex-direction: column; gap: 16px; max-width: 1000px; box-sizing: border-box">
+      <span style="font-size: 13px; color: #56565e">Últimos 30 días · 8 oct – 6 nov · hora de Ciudad de México</span>
+
+      <section aria-label="Aún no hay ventas" style="border: 1px solid #e0e1e6; border-radius: 14px; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 600">Todavía no hay ventas registradas en estos 30 días</h2>
+          <p style="margin: 0; color: #56565e; max-width: 640px">Una venta se cuenta cuando alguien del equipo pasa al cliente a <strong style="color: #1a1a1e">«Cliente»</strong> en Seguimiento y pone cuánto compró. Si decide no comprar, se pasa a <strong style="color: #1a1a1e">«Perdido»</strong>.</p>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <strong style="font-weight: 600">Así va tu Seguimiento hoy: 12 clientes en proceso</strong>
+          <div style="display: grid; grid-template-columns: 150px 1fr 40px; gap: 8px 12px; align-items: center; font-size: 13.5px">
+            <span>Nuevo</span><span aria-hidden="true" style="height: 12px; border-radius: 6px; background: #c9d3de; width: 100%"></span><span style="text-align: right; font-weight: 600">7</span>
+            <span>En conversación</span><span aria-hidden="true" style="height: 12px; border-radius: 6px; background: #8fa3b8; width: 43%"></span><span style="text-align: right; font-weight: 600">3</span>
+            <span>Interesado</span><span aria-hidden="true" style="height: 12px; border-radius: 6px; background: {{accent}}; width: 29%"></span><span style="text-align: right; font-weight: 600">2</span>
+            <span>Cliente</span><span aria-hidden="true" style="height: 12px; border-radius: 6px; background: #ecedf0; width: 2%"></span><span style="text-align: right; font-weight: 600">0</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid #ecedf0; padding-top: 14px">
+          <span style="flex: 1 1 320px">¿Alguno de los 2 interesados ya compró? Muévelo a «Cliente» y captura el monto.</span>
+          <a href="#" style="font-weight: 600; text-decoration: none; background: {{accent}}; color: #ffffff; border-radius: 9px; padding: 9px 16px">Ir a Seguimiento</a>
+        </div>
+      </section>
+
+      <section aria-label="Qué verás aquí" style="border: 1px dashed #c9cbd2; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; color: #56565e">
+        <strong style="font-weight: 600; color: #1a1a1e">Cuando haya ventas, aquí verás:</strong>
+        <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px">
+          <li>Cuánto se vendió y la venta promedio.</li>
+          <li>De cada 10 clientes que deciden, cuántos compran.</li>
+          <li>Quién del equipo cerró cada venta y por qué se perdieron las otras.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f5972","options":["#3f5972","#25D366","#4a6c96","#1a1a1e"]},"$preview":{"width":1366,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#3f5972' };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Catálogo (propietario)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4056}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e9eef4; color: #2b4056; text-decoration: none; font-weight: 600">Catálogo</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Reportes</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Agente</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Laboratorio</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-wrap: wrap">
+    <div style="flex: 999 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 24px; box-sizing: border-box">
+      <header style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+        <h1 style="margin: 0; font-size: 18px; font-weight: 600">Catálogo</h1>
+        <button type="button" style="font: inherit; font-weight: 600; font-size: 13px; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 7px 12px; min-height: 36px">Nuevo producto</button>
+        <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 7px 12px; min-height: 36px">Categorías</button>
+      </header>
+
+      <section aria-label="Lo que le falta a tu catálogo" style="border: 1px solid #ece2cf; background: #faf7f0; border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px">
+        <strong style="font-weight: 600">2 productos no se pueden mandar completos todavía</strong>
+        <span style="font-size: 13px; color: #56565e">Comedor Roble no tiene fotos · Mesa de centro Roble no tiene código, así que no tiene atajo para escribirlo en el chat.</span>
+      </section>
+
+      <ul aria-label="Productos" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px">
+        <li style="border: 1px solid #e0e1e6; border-radius: 12px; overflow: hidden">
+          <div role="img" aria-label="Foto: Sala Lisboa" style="height: 100px; background: #6b7280"></div>
+          <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+            <strong style="font-weight: 600">Sala modular Lisboa</strong>
+            <span style="font-size: 12.5px; color: #56565e">$18,900 · SAL-014</span>
+            <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #3d6b4f; background: #eef5f0; border: 1px solid #c9dfd1; border-radius: 999px; padding: 1px 8px">Listo para mandar</span>
+          </div>
+        </li>
+        <li style="border: 2px solid {{accent}}; border-radius: 12px; overflow: hidden">
+          <div role="img" aria-label="Foto: Comedor Nogal" style="height: 100px; background: #8a6d4f"></div>
+          <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+            <strong style="font-weight: 600">Comedor Nogal 6 sillas</strong>
+            <span style="font-size: 12.5px; color: #56565e">$24,500 · COM-006</span>
+            <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #8a6d3b; background: #faf7f0; border: 1px solid #ece2cf; border-radius: 999px; padding: 1px 8px">Le falta: ficha PDF</span>
+          </div>
+        </li>
+        <li style="border: 1px solid #e0e1e6; border-radius: 12px; overflow: hidden">
+          <div style="height: 100px; background: #f4f4f5; color: #56565e; display: flex; align-items: center; justify-content: center; font-size: 12.5px">Sin fotos</div>
+          <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+            <strong style="font-weight: 600">Comedor Roble 4 sillas</strong>
+            <span style="font-size: 12.5px; color: #56565e">$16,800 · COM-004</span>
+            <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #a2504c; background: #faf1f0; border: 1px solid #ecd4d2; border-radius: 999px; padding: 1px 8px">Le faltan las fotos</span>
+          </div>
+        </li>
+        <li style="border: 1px solid #e0e1e6; border-radius: 12px; overflow: hidden">
+          <div role="img" aria-label="Foto: Mesa de centro" style="height: 100px; background: #9c8467"></div>
+          <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+            <strong style="font-weight: 600">Mesa de centro Roble</strong>
+            <span style="font-size: 12.5px; color: #56565e">$6,200 · sin código</span>
+            <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #8a6d3b; background: #faf7f0; border: 1px solid #ece2cf; border-radius: 999px; padding: 1px 8px">Le falta: código</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <aside aria-label="Comedor Nogal 6 sillas" style="flex: 1 1 360px; max-width: 420px; box-sizing: border-box; border-left: 1px solid #ecedf0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; background: #fbfbfc">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Comedor Nogal 6 sillas</h2>
+          <span style="font-size: 13px; color: #56565e">Comedores · $24,500</span>
+        </div>
+        <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 6px 12px">Editar</button>
+      </div>
+
+      <section aria-label="¿Listo para mandar?" style="display: flex; flex-direction: column; gap: 8px">
+        <strong style="font-weight: 600">¿Listo para mandar?</strong>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px">
+          <li style="display: flex; gap: 8px"><span aria-hidden="true" style="color: #3d6b4f; font-weight: 700">✓</span><span>3 fotos</span></li>
+          <li style="display: flex; gap: 8px"><span aria-hidden="true" style="color: #3d6b4f; font-weight: 700">✓</span><span>Precio: $24,500</span></li>
+          <li style="display: flex; gap: 8px"><span aria-hidden="true" style="color: #3d6b4f; font-weight: 700">✓</span><span>Visible en el chat (está activo)</span></li>
+          <li style="display: flex; gap: 8px"><span aria-hidden="true" style="color: #8a6d3b; font-weight: 700">!</span><span>Sin ficha PDF: el cliente solo recibe las fotos. <a href="#">Subir ficha</a></span></li>
+        </ul>
+      </section>
+
+      <section aria-label="Atajos" style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #ecedf0; padding-top: 12px">
+        <strong style="font-weight: 600">Atajos para escribirlo en el chat</strong>
+        <span style="display: flex; align-items: center; gap: 8px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 6px 10px"><code style="font-family: 'Geist Mono', monospace; font-size: 13px; flex: 1 1 auto">/fotos_COM-006</code><span style="font-size: 12px; color: #3d6b4f; font-weight: 600">Ya existe</span></span>
+        <span style="display: flex; align-items: center; gap: 8px; border: 1px dashed #c9cbd2; border-radius: 8px; padding: 6px 10px"><code style="font-family: 'Geist Mono', monospace; font-size: 13px; flex: 1 1 auto; color: #56565e">/ficha_COM-006</code><span style="font-size: 12px; color: #56565e">Se crea al subir la ficha</span></span>
+        <span style="font-size: 12.5px; color: #56565e">Tu equipo los escribe en un chat y se mandan las fotos o la ficha.</span>
+      </section>
+
+      <section aria-label="Archivos" style="display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #ecedf0; padding-top: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: center"><strong style="font-weight: 600">Fotos y fichas</strong><span style="font-size: 12.5px; color: #56565e">3 de 10 · caben 7 más</span></div>
+        <div style="display: flex; gap: 8px">
+          <div role="img" aria-label="Foto 1" style="width: 64px; height: 64px; border-radius: 8px; background: #8a6d4f"></div>
+          <div role="img" aria-label="Foto 2" style="width: 64px; height: 64px; border-radius: 8px; background: #a68a64"></div>
+          <div role="img" aria-label="Foto 3" style="width: 64px; height: 64px; border-radius: 8px; background: #6f5a43"></div>
+        </div>
+        <button type="button" style="align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 7px 12px">Subir fotos o ficha</button>
+        <span style="font-size: 12.5px; color: #56565e">Fotos JPG o PNG (las de iPhone se convierten solas) · fichas en PDF.</span>
+      </section>
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f5972","options":["#3f5972","#25D366","#4a6c96","#1a1a1e"]},"$preview":{"width":1366,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#3f5972' };
+  }
+}
+</script>
+</body>
+</html>

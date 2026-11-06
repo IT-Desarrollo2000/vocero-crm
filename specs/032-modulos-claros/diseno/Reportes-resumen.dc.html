@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Reportes · Resumen (propietario)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4056}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 1000px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e9eef4; color: #2b4056; text-decoration: none; font-weight: 600">Reportes</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Agente</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Laboratorio</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <header style="padding: 18px 24px 0; border-bottom: 1px solid #ecedf0; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+        <h1 style="margin: 0; font-size: 18px; font-weight: 600">Reportes</h1>
+        <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 7px 12px">Descargar PDF</button>
+      </div>
+      <div role="tablist" aria-label="Reportes" style="display: flex; gap: 4px; flex-wrap: wrap">
+        <button type="button" role="tab" aria-selected="true" style="font: inherit; font-weight: 600; border: 0; border-bottom: 2px solid #1a1a1e; background: transparent; padding: 8px 12px">Resumen</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Agente</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Citas</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Ventas</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Vendedores</button>
+        <button type="button" role="tab" aria-selected="false" style="font: inherit; border: 0; background: transparent; color: #56565e; padding: 8px 12px">Anuncios</button>
+      </div>
+    </header>
+
+    <div style="padding: 16px 24px 28px; display: flex; flex-direction: column; gap: 16px; max-width: 1180px; box-sizing: border-box">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+        <div role="group" aria-label="Rango del reporte" style="display: inline-flex; gap: 4px; background: #f4f4f5; padding: 3px; border-radius: 9px">
+          <button type="button" style="font: inherit; font-size: 13px; border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: #56565e">Hoy</button>
+          <button type="button" style="font: inherit; font-size: 13px; border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: #56565e">7 días</button>
+          <button type="button" aria-pressed="true" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 7px; padding: 6px 10px; background: #ffffff; box-shadow: 0 1px 2px rgba(20,20,30,0.08)">30 días</button>
+          <button type="button" style="font: inherit; font-size: 13px; border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: #56565e">90 días</button>
+        </div>
+        <span style="font-size: 13px; color: #56565e">8 oct – 6 nov · hora de Ciudad de México · sin contar el Laboratorio</span>
+      </div>
+
+      <section aria-label="Lo que toca hoy" style="border: 1px solid #e0e1e6; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">Lo que toca hoy</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px">
+          <a href="#" style="display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #ecd4d2; background: #faf1f0; border-radius: 10px; text-decoration: none; color: #1a1a1e"><strong style="font-size: 20px; color: #a2504c">4</strong><span style="flex: 1 1 auto; font-size: 13px">personas esperan respuesta<br><span style="color: #56565e">Ir a la Bandeja</span></span><span aria-hidden="true">→</span></a>
+          <a href="#" style="display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #ece2cf; background: #faf7f0; border-radius: 10px; text-decoration: none; color: #1a1a1e"><strong style="font-size: 20px; color: #8a6d3b">2</strong><span style="flex: 1 1 auto; font-size: 13px">sin responder de Daniela<br><span style="color: #56565e">Ver Vendedores</span></span><span aria-hidden="true">→</span></a>
+          <a href="#" style="display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #ece2cf; background: #faf7f0; border-radius: 10px; text-decoration: none; color: #1a1a1e"><strong style="font-size: 20px; color: #8a6d3b">3</strong><span style="flex: 1 1 auto; font-size: 13px">del formulario web nadie los ha contactado<br><span style="color: #56565e">Ver la lista</span></span><span aria-hidden="true">→</span></a>
+          <a href="#" style="display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #e0e1e6; border-radius: 10px; text-decoration: none; color: #1a1a1e"><strong style="font-size: 20px; color: #56565e">1</strong><span style="flex: 1 1 auto; font-size: 13px">venta sin monto: no suma al total<br><span style="color: #56565e">Captúralo en Seguimiento</span></span><span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
+      <section aria-label="Números del periodo" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+        <div style="border: 1px solid #e0e1e6; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; color: #56565e">Personas que escribieron</span>
+          <strong style="font-size: 26px; font-weight: 600">5</strong>
+          <span style="font-size: 12.5px; color: #56565e">Gente distinta que te mandó mensaje. Las 5 son nuevas.</span>
+        </div>
+        <div style="border: 1px solid #e0e1e6; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; color: #56565e">Recibieron respuesta</span>
+          <strong style="font-size: 26px; font-weight: 600">2 de 5</strong>
+          <span style="font-size: 12.5px; color: #56565e">Les contestó la IA o alguien del equipo. A 3 nadie les ha respondido.</span>
+        </div>
+        <div style="border: 1px solid #e0e1e6; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; color: #56565e">Hablaron con una persona</span>
+          <strong style="font-size: 26px; font-weight: 600">1 de 5</strong>
+          <span style="font-size: 12.5px; color: #56565e">Alguien del equipo les escribió, no solo la IA.</span>
+        </div>
+        <div style="border: 1px solid #e0e1e6; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+          <span style="font-size: 13px; color: #56565e">Ventas</span>
+          <strong style="font-size: 26px; font-weight: 600">1 · $18,900</strong>
+          <span style="font-size: 12.5px; color: #56565e">Clientes que pasaste a «Cliente» en Seguimiento.</span>
+        </div>
+      </section>
+      <p style="margin: -4px 0 0; font-size: 12.5px; color: #56565e">Sin comparación con el mes pasado: el CRM aún no tenía datos de esas fechas.</p>
+
+      <section aria-label="Qué tan rápido contestan" style="border: 1px solid #e0e1e6; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">Qué tan rápido contestan</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px">
+          <p style="margin: 0; font-size: 14px"><strong style="font-weight: 600">La IA:</strong> normalmente en 4 segundos. Casi siempre (9 de cada 10) en menos de 10 segundos.</p>
+          <p style="margin: 0; font-size: 14px"><strong style="font-weight: 600">Tu equipo:</strong> normalmente en 8 segundos, contando desde que alguien toma el chat.</p>
+        </div>
+      </section>
+
+      <section aria-label="Lectura rápida" style="border: 1px solid #e0e1e6; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">Lectura rápida</h2>
+        <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px">
+          <li>Ninguno de los 5 llegó por un anuncio.</li>
+          <li>Se mandaron 2 mensajes: 1 de la IA y 1 del equipo. Ninguna plantilla.</li>
+          <li>1 venta por $18,900: de 1 trato cerrado, lo ganaste.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f5972","options":["#3f5972","#25D366","#4a6c96","#1a1a1e"]},"$preview":{"width":1366,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#3f5972' };
+  }
+}
+</script>
+</body>
+</html>
