@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   applyClientFilter,
   bookingsQuery,
+  busyShortDetail,
   conflictDetail,
   conflictsTitle,
   groupSlotsByDay,
   isMine,
   overlapMessage,
   parseBookingError,
+  saveBlockedReason,
   sellerFilterToQuery,
   type SlotConflict,
   type StaffSlot,
@@ -73,7 +75,7 @@ describe("detalle de choques", () => {
         undefined,
         "10:00"
       )
-    ).toBe("Cita · Sin asignar · 10:00");
+    ).toBe("Cita · Sin vendedor · 10:00");
   });
 
   it("una zona inválida no rompe: cae en la hora de respaldo", () => {
@@ -96,7 +98,7 @@ describe("detalle de choques", () => {
     expect(
       overlapMessage([servicioJuan, { ...servicioJuan, sellerName: null }])
     ).toBe(
-      "A esa hora ya hay 2 citas (Servicio, con Juan; Servicio, sin asignar). ¿Agendar de todos modos?"
+      "A esa hora ya hay 2 citas (Servicio, con Juan; Servicio, sin vendedor). ¿Agendar de todos modos?"
     );
   });
 });
@@ -177,5 +179,34 @@ describe("parseBookingError", () => {
     expect(
       parseBookingError(403, { error: { code: "forbidden", message: "No" } })
     ).toEqual({ kind: "error", message: "No" });
+  });
+});
+
+describe("032 — motivos visibles en el diálogo", () => {
+  it("«Guardar» deshabilitado dice qué falta", () => {
+    const base = { rescheduling: false, hasContact: true, hasType: false, hasSlot: false };
+    expect(saveBlockedReason(base)).toBe("Falta elegir: tipo de cita, horario");
+    expect(saveBlockedReason({ ...base, hasContact: false })).toBe(
+      "Falta elegir: contacto, tipo de cita, horario"
+    );
+    expect(saveBlockedReason({ ...base, hasType: true, hasSlot: true })).toBeNull();
+    expect(saveBlockedReason({ rescheduling: true, hasContact: false, hasType: false, hasSlot: false })).toBe(
+      "Falta elegir: el nuevo horario"
+    );
+    expect(saveBlockedReason({ ...base, saving: true })).toBeNull();
+  });
+
+  it("«Ocupado» con su detalle corto a la vista", () => {
+    const c = (sellerName: string | null, typeName: string | null = "Servicio"): SlotConflict => ({
+      bookingId: "bk",
+      typeName,
+      sellerName,
+      startUtc: "2026-08-05T15:00:00.000Z",
+      endUtc: "2026-08-05T15:30:00.000Z",
+    });
+    expect(busyShortDetail([])).toBeNull();
+    expect(busyShortDetail([c("Juan")])).toBe("Juan");
+    expect(busyShortDetail([c(null)])).toBe("Servicio");
+    expect(busyShortDetail([c("Juan"), c("Ana")])).toBe("2 citas");
   });
 });

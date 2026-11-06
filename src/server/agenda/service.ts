@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -75,10 +75,19 @@ export type BookingErrorCode =
   | "invalid"
   | "overlap_warning"
   /** 028 — `move` con `expectedStartUtc`: otra persona ya la movió. */
-  | "stale";
+  | "stale"
+  /** 032 — «Tomarla»: la cita ya tiene vendedor (otro la tomó antes). */
+  | "already_taken";
 
 /** 028 — Mensaje del 409 `stale`. */
 export const STALE_MESSAGE = "Otra persona ya movió esta cita";
+
+/**
+ * 032 — Mensaje del 409 `already_taken`. No dice QUIÉN: la cita ya es de
+ * otro vendedor y quien la pidió deja de verla (misma regla que tomar una
+ * conversación).
+ */
+export const ALREADY_TAKEN_MESSAGE = "Otro vendedor ya la tomó";
 
 export class BookingError extends Error {
   code: BookingErrorCode;
@@ -883,6 +892,79 @@ export async function assignBooking(input: {
     data: { bookingId: updated.id },
   });
   return updated;
+}
+
+/**
+ * 032 (decisión 2) — «Tomarla»: quien pide se asigna A SÍ MISMO una cita que
+ * sigue sin vendedor. Atómico: la escritura es UN `UPDATE … WHERE
+ * assigned_user_id IS NULL` (o ya es suya: idempotente). Si otro la tomó
+ * antes, el UPDATE no toca nada y se responde `already_taken`. La lectura
+ * previa solo valida (sesión agendada y sin choque con otra cita de quien
+ * toma, igual que al reasignar).
+ */
+export async function takeBooking(input: {
+  organizationId: string;
+  bookingId: string;
+  userId: string;
+}): Promise<{ booking: BookingRow; changed: boolean }> {
+  const settings = await getSettings(input.organizationId);
+  const result = await withAgendaLock(input.organizationId, async (tx) => {
+    const booking = await getOwnBooking(input.organizationId, input.bookingId, tx);
+    if (booking.assignedUserId === input.userId) {
+      return { booking, changed: false };
+    }
+    // Antes que el estado: de una cita ajena no se dice nada más.
+    if (booking.assignedUserId !== null) {
+      throw new BookingError("already_taken", ALREADY_TAKEN_MESSAGE);
+    }
+    if (booking.kind !== "session") {
+      throw new BookingError("invalid", "Un bloqueo no tiene vendedor");
+    }
+    if (booking.status !== "agendada") {
+      throw new BookingError("invalid", "Esta cita ya no está agendada");
+    }
+    if (!booking.isTest) {
+      await assertSellerFree(tx, {
+        organizationId: input.organizationId,
+        booking,
+        sellerId: input.userId,
+        settings,
+      });
+    }
+    const rows = await tx
+      .update(schema.booking)
+      .set({ assignedUserId: input.userId, updatedAt: new Date() })
+      .where(
+        scoped(
+          schema.booking.organizationId,
+          input.organizationId,
+          eq(schema.booking.id, booking.id),
+          eq(schema.booking.kind, "session"),
+          eq(schema.booking.status, "agendada"),
+          or(
+            isNull(schema.booking.assignedUserId),
+            eq(schema.booking.assignedUserId, input.userId)
+          )
+        )
+      )
+      .returning();
+    if (!rows[0]) {
+      throw new BookingError("already_taken", ALREADY_TAKEN_MESSAGE);
+    }
+    return { booking: rows[0], changed: true };
+  }).catch((err: unknown) => {
+    if (isUniqueViolation(err)) {
+      throw new BookingError("slot_taken", "Ya tienes otra cita a esa hora");
+    }
+    throw err;
+  });
+  if (result.changed) {
+    publish(input.organizationId, {
+      type: "booking.updated",
+      data: { bookingId: result.booking.id },
+    });
+  }
+  return result;
 }
 
 /**

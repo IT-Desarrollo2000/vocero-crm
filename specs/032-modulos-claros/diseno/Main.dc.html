@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Seguimiento (vendedora)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4056}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e9eef4; color: #2b4056; text-decoration: none; font-weight: 600">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; background: #ffffff">
+    <header style="padding: 18px 24px 12px; border-bottom: 1px solid #ecedf0; display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+      <div style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 18px; font-weight: 600">Seguimiento</h1>
+        <p style="margin: 0; color: #56565e; font-size: 13px">En qué va cada cliente. Arrastra la tarjeta a su nueva etapa, o ábrela y elige la etapa ahí.</p>
+      </div>
+      <div role="group" aria-label="Qué clientes ver" style="display: inline-flex; gap: 4px; background: #f4f4f5; padding: 3px; border-radius: 9px">
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Mis clientes · 5</button>
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Sin tomar · 1</button>
+        <button type="button" aria-pressed="true" style="font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 6px 12px; background: #ffffff; box-shadow: 0 1px 2px rgba(20,20,30,0.08); color: #1a1a1e">Todos · 7</button>
+      </div>
+    </header>
+
+    <div style="overflow-x: auto; flex: 1 1 auto; display: flex; flex-direction: column">
+      <section aria-label="Lo que te toca" style="padding: 14px 24px 4px; display: flex; flex-wrap: wrap; gap: 10px">
+        <a href="#" style="flex: 1 1 260px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #ecd4d2; background: #faf1f0; border-radius: 10px; text-decoration: none; color: #1a1a1e">
+          <span style="flex: 0 0 28px; height: 28px; border-radius: 50%; background: #ffffff; color: #a2504c; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">2</span>
+          <span style="flex: 1 1 auto; display: flex; flex-direction: column"><strong style="font-weight: 600">Clientes tuyos sin respuesta hace 3 días o más</strong><span style="font-size: 12.5px; color: #56565e">Retómalos antes de que se enfríen.</span></span>
+          <span aria-hidden="true" style="color: #a2504c">→</span>
+        </a>
+        <a href="#" style="flex: 1 1 260px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #ece2cf; background: #faf7f0; border-radius: 10px; text-decoration: none; color: #1a1a1e">
+          <span style="flex: 0 0 28px; height: 28px; border-radius: 50%; background: #ffffff; color: #8a6d3b; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">1</span>
+          <span style="flex: 1 1 auto; display: flex; flex-direction: column"><strong style="font-weight: 600">Venta sin monto</strong><span style="font-size: 12.5px; color: #56565e">Captúralo para que cuente en los reportes.</span></span>
+          <span aria-hidden="true" style="color: #8a6d3b">→</span>
+        </a>
+        <a href="#" style="flex: 1 1 260px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #dde5ee; background: #f3f6f9; border-radius: 10px; text-decoration: none; color: #1a1a1e">
+          <span style="flex: 0 0 28px; height: 28px; border-radius: 50%; background: #ffffff; color: #2b4056; font-weight: 700; display: inline-flex; align-items: center; justify-content: center">2</span>
+          <span style="flex: 1 1 auto; display: flex; flex-direction: column"><strong style="font-weight: 600">Citas mañana</strong><span style="font-size: 12.5px; color: #56565e">Laura 11:00 a. m. · Carlos 4:00 p. m.</span></span>
+          <span aria-hidden="true" style="color: #2b4056">→</span>
+        </a>
+      </section>
+
+      <div style="display: flex; gap: 12px; padding: 14px 24px 20px; align-items: flex-start; min-width: min-content">
+
+        <section aria-label="Etapa Nuevo" style="flex: 0 0 248px; background: #f8f8f9; border: 1px solid #ecedf0; border-radius: 12px; display: flex; flex-direction: column">
+          <h2 style="margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between">Nuevo <span style="color: #56565e; font-weight: 500">2</span></h2>
+          <div style="padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px">
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <strong style="font-weight: 600">Sofía Castro</strong>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #8a6d3b; background: #faf7f0; border: 1px solid #ece2cf; border-radius: 999px; padding: 1px 8px">Espera respuesta · 1 h 37 min</span>
+              <span style="font-size: 12.5px; color: #56565e">Nadie ha tomado su chat.</span>
+              <a href="#" style="align-self: flex-start; font-size: 13px; font-weight: 600; text-decoration: none; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 6px 12px">Tomar y responder</a>
+            </article>
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <strong style="font-weight: 600">Jorge Méndez</strong>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 500; color: #56565e; background: #f4f4f5; border: 1px solid #e0e1e6; border-radius: 999px; padding: 1px 8px">Lo atiende Marco Ríos</span>
+              <span style="font-size: 12.5px; color: #56565e">Solo Marco abre este chat. Si necesitas algo, pídeselo a él.</span>
+            </article>
+          </div>
+        </section>
+
+        <section aria-label="Etapa En conversación" style="flex: 0 0 248px; background: #f8f8f9; border: 1px solid #ecedf0; border-radius: 12px; display: flex; flex-direction: column">
+          <h2 style="margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between">En conversación <span style="color: #56565e; font-weight: 500">1</span></h2>
+          <div style="padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px">
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <strong style="font-weight: 600">Mónica Pérez</strong>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 500; color: #2b4056; background: #f3f6f9; border: 1px solid #dde5ee; border-radius: 999px; padding: 1px 8px">Tú la atiendes</span>
+              <span style="font-size: 12.5px; color: #56565e">Te escribió ayer, 6:40 p. m.</span>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                <a href="#" style="font-size: 13px; text-decoration: none; border: 1px solid #e0e1e6; color: #1a1a1e; border-radius: 8px; padding: 5px 10px">Abrir chat</a>
+                <button type="button" style="font: inherit; font-size: 13px; border: 1px dashed #c9cbd2; background: #ffffff; color: #56565e; border-radius: 8px; padding: 5px 10px">Poner monto</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section aria-label="Etapa Interesado" style="flex: 0 0 248px; background: #f8f8f9; border: 1px solid #ecedf0; border-radius: 12px; display: flex; flex-direction: column">
+          <h2 style="margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between">Interesado <span style="color: #56565e; font-weight: 500">2</span></h2>
+          <div style="padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px">
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px"><strong style="font-weight: 600">Carlos Ruiz</strong><span style="font-size: 11px; font-weight: 700; color: #a2504c; background: #faf1f0; border: 1px solid #ecd4d2; border-radius: 6px; padding: 0 6px">ALTA</span></div>
+              <span style="font-weight: 600">$24,500</span>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 600; color: #a2504c; background: #faf1f0; border: 1px solid #ecd4d2; border-radius: 999px; padding: 1px 8px">Sin respuesta de él hace 3 días</span>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 500; color: #2b4056; background: #f3f6f9; border: 1px solid #dde5ee; border-radius: 999px; padding: 1px 8px">Cita mañana · 4:00 p. m.</span>
+              <span style="font-size: 12.5px; color: #56565e">Su chat se cerró: retómalo con un mensaje aprobado.</span>
+              <a href="#" style="align-self: flex-start; font-size: 13px; font-weight: 600; text-decoration: none; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 6px 12px">Retomar con plantilla</a>
+            </article>
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px"><strong style="font-weight: 600">Laura Gómez</strong><span style="font-size: 11px; font-weight: 700; color: #8a6d3b; background: #faf7f0; border: 1px solid #ece2cf; border-radius: 6px; padding: 0 6px">MEDIA</span></div>
+              <span style="align-self: flex-start; font-size: 11.5px; font-weight: 500; color: #2b4056; background: #f3f6f9; border: 1px solid #dde5ee; border-radius: 999px; padding: 1px 8px">Cita mañana · 11:00 a. m.</span>
+              <span style="font-size: 12.5px; color: #56565e">Tú la atiendes · te escribió hace 12 min.</span>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                <a href="#" style="font-size: 13px; text-decoration: none; border: 1px solid #e0e1e6; color: #1a1a1e; border-radius: 8px; padding: 5px 10px">Abrir chat</a>
+                <button type="button" style="font: inherit; font-size: 13px; border: 1px dashed #c9cbd2; background: #ffffff; color: #56565e; border-radius: 8px; padding: 5px 10px">Poner monto</button>
+              </div>
+            </article>
+          </div>
+          <p style="margin: 0; padding: 8px 12px; border-top: 1px solid #ecedf0; font-size: 12px; color: #56565e">Suma $24,500 · a 1 le falta el monto</p>
+        </section>
+
+        <section aria-label="Etapa Cliente" style="flex: 0 0 248px; background: #f8f8f9; border: 1px solid #ecedf0; border-radius: 12px; display: flex; flex-direction: column">
+          <h2 style="margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between">Cliente · ya compró <span style="color: #56565e; font-weight: 500">2</span></h2>
+          <div style="padding: 0 8px 8px; display: flex; flex-direction: column; gap: 8px">
+            <article style="background: #ffffff; border: 1px solid #e0e1e6; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <strong style="font-weight: 600">Ana Torres</strong>
+              <span style="font-size: 12.5px; color: #3d6b4f; font-weight: 600">Venta de $18,900</span>
+            </article>
+            <article style="background: #ffffff; border: 1px solid #ece2cf; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+              <strong style="font-weight: 600">Raúl Sánchez</strong>
+              <span style="font-size: 12.5px; color: #56565e">Compró, pero falta cuánto. Sin monto no suma en las ventas del mes.</span>
+              <button type="button" style="align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 6px 12px">Capturar monto</button>
+            </article>
+          </div>
+        </section>
+
+        <section aria-label="Etapa Perdido" style="flex: 0 0 248px; background: #f8f8f9; border: 1px solid #ecedf0; border-radius: 12px; display: flex; flex-direction: column">
+          <h2 style="margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between">Perdido · no compró <span style="color: #56565e; font-weight: 500">0</span></h2>
+          <div style="padding: 0 8px 8px">
+            <div style="border: 1px dashed #c9cbd2; border-radius: 10px; padding: 14px 12px; font-size: 12.5px; color: #56565e; display: flex; flex-direction: column; gap: 4px">
+              <span>Aquí van los que decidieron no comprar.</span>
+              <span>Al moverlos te preguntamos por qué, para saber qué mejorar.</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f5972","options":["#3f5972","#25D366","#4a6c96","#1a1a1e"]},"$preview":{"width":1366,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#3f5972' };
+  }
+}
+</script>
+</body>
+</html>

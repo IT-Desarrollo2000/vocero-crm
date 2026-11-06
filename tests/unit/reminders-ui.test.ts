@@ -275,6 +275,35 @@ describe("recordatorios — etiquetas en Citas", () => {
     }
   });
 
+  // 032 — Palabras llanas y «pídele al propietario» para el Vendedor.
+  it("el error crudo del proveedor se dice en palabras llanas", () => {
+    expect(
+      describeReminder(
+        reminder({ status: "failed", error: "(#131026) Message undeliverable" }),
+        fmt
+      ).text
+    ).toBe("Recordatorio 24 h: falló: WhatsApp no aceptó el mensaje");
+    expect(
+      describeReminder(
+        reminder({ delivery: "failed", deliveryError: "Recipient phone number not in allowed list" }),
+        fmt
+      ).text
+    ).toBe("Recordatorio 24 h: enviado · no entregado: WhatsApp no pudo entregarlo al cliente");
+    expect(reminderErrorLabel(REMINDER_INTERRUPTED_ERROR)).not.toMatch(/servidor/);
+  });
+
+  it("al Vendedor, lo que arregla el Propietario se le pide al propietario", () => {
+    const member = { owner: false };
+    for (const reason of ["template_not_approved", "template_missing", "not_connected", "reconnect_required"] as const) {
+      const view = describeReminder(reminder({ status: "skipped", reason }), fmt, member);
+      expect(view.text).toMatch(/pídele al propietario/);
+    }
+    // Lo del contacto se dice igual a los dos.
+    expect(
+      describeReminder(reminder({ status: "skipped", reason: "no_recipient" }), fmt, member).text
+    ).toBe(`Recordatorio 24 h: omitido: ${SKIP_REASON_LABEL.no_recipient}`);
+  });
+
   it("mensajes del reintento por código (409) y 501", () => {
     expect(retryErrorMessage(200, { ok: true })).toBeNull();
     expect(retryErrorMessage(409, { error: { code: "not_retryable", message: "x" } })).toMatch(

@@ -22,16 +22,52 @@ export function statusLabel(b: Pick<Booking, "kind" | "status">): string {
   return STATUS_LABEL[b.status];
 }
 
+/** 032 — Rótulo de la sesión que ya pasó y sigue sin resultado. */
+export const PAST_PENDING_LABEL = "Ya pasó · falta resultado";
+
+/**
+ * 032 — ¿Sesión aún `agendada` cuyo horario ya terminó? Se ve «Ya pasó ·
+ * falta resultado» en vez de «Agendada» (las acciones no cambian).
+ */
+export function isPastPending(
+  b: Pick<Booking, "kind" | "status" | "scheduledAtUtc" | "durationMinutes">,
+  now: Date | number
+): boolean {
+  const t = typeof now === "number" ? now : now.getTime();
+  return (
+    b.kind === "session" &&
+    b.status === "agendada" &&
+    Date.parse(b.scheduledAtUtc) + b.durationMinutes * 60_000 <= t
+  );
+}
+
+/** 032 — El estado que se LEE en pantalla (con `now`). */
+export function visibleStatus(
+  b: Pick<Booking, "kind" | "status" | "scheduledAtUtc" | "durationMinutes">,
+  now: Date | number
+): string {
+  return isPastPending(b, now) ? PAST_PENDING_LABEL : statusLabel(b);
+}
+
+/** 032 — «La agendó la IA» / «La agendó una persona». */
+export function sourceLabel(b: Pick<Booking, "source">): string {
+  return b.source === "ai" ? "La agendó la IA" : "La agendó una persona";
+}
+
 /** Lo que se lee en la rejilla: el contacto o, en un bloqueo, su nota. */
 export function bookingTitle(b: Pick<Booking, "kind" | "notes" | "contact">): string {
   if (b.kind === "block") return b.notes?.trim() || "Bloqueo";
   return b.contact?.name.trim() || "Sin contacto";
 }
 
-/** Texto del atributo de traslape (A4). */
+/**
+ * Texto del atributo de traslape (A4), dicho EN el bloque (032). `hard` no
+ * siempre es «tuya»: también es una sesión bajo un bloqueo o el mismo tipo
+ * exclusivo, así que se dice sin culpar a nadie.
+ */
 export const OVERLAP_TEXT: Record<OverlapLevel, string> = {
-  soft: "Traslape con otro vendedor",
-  hard: "Conflicto",
+  soft: "Otra cita a la misma hora (otro vendedor)",
+  hard: "Choca con otra cita o un bloqueo",
 };
 
 /**
@@ -41,8 +77,12 @@ export const OVERLAP_TEXT: Record<OverlapLevel, string> = {
  * `soft` como franja ámbar a la izquierda.
  */
 export function bookingTone(
-  b: Pick<Booking, "kind" | "status" | "isTest">,
-  overlap?: OverlapLevel | null
+  b: Pick<Booking, "kind" | "status" | "isTest"> & {
+    assignedUser?: Booking["assignedUser"];
+  },
+  overlap?: OverlapLevel | null,
+  /** 032 — Ya pasó y sigue `agendada` (ver `isPastPending`). */
+  pastPending = false
 ): string {
   let box: string;
   if (b.status === "cancelada") {
@@ -53,6 +93,12 @@ export function bookingTone(
     box = "border-success-soft bg-success-tint text-success-text";
   } else if (b.status === "no_show") {
     box = "border-danger-soft bg-danger-tint text-danger-text";
+  } else if (pastPending) {
+    // 032 — Ya pasó y nadie dijo cómo le fue: ámbar, para pedir el resultado.
+    box = "border-warning bg-warning-tint text-warning-text";
+  } else if (b.kind === "session" && b.assignedUser === null) {
+    // 032 — Sin vendedor: borde punteado sobre el fondo de la tarjeta.
+    box = "border-dashed border-warning bg-card text-foreground";
   } else {
     box = "border-transparent bg-brand text-brand-fg";
   }
@@ -82,7 +128,7 @@ export function bookingAriaLabel(
   const parts = [timeRange, bookingTitle(b)];
   if (b.kind === "session") {
     if (b.type) parts.push(b.type.name);
-    parts.push(b.assignedUser?.name ? `con ${b.assignedUser.name}` : "sin asignar");
+    parts.push(b.assignedUser?.name ? `con ${b.assignedUser.name}` : "sin vendedor");
   }
   parts.push(statusLabel(b));
   if (b.isTest) parts.push("prueba");

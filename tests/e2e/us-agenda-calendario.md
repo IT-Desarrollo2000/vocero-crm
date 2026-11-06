@@ -45,9 +45,12 @@ NEGOCIO. Las capturas quedan en `E2E_SHOTS_DIR`.
 4. El sábado se ve sombreado de 13:00 a 18:00; el domingo no tiene huecos.
 
 ## CA-2 — Traslapes
-1. S1 y S2 se ven lado a lado con el ícono ⧉ (traslape permitido).
-2. H, debajo del bloqueo, se ve con borde de alerta y "⚠ Conflicto"; su
-   panel de detalle lo explica.
+1. S1 y S2 se ven lado a lado con el ícono ⧉ y el texto «otro vendedor»
+   (en un bloque alto: «Otra cita a la misma hora (otro vendedor)»).
+2. H, debajo del bloqueo, se ve con borde de alerta, ⚠ y el texto «choca»
+   (en un bloque alto: «Choca con otra cita o un bloqueo»); su panel de
+   detalle lo explica. (032: sin tooltips; la leyenda ya no lista el
+   traslape ni el conflicto.)
 
 ## CA-3 — Clic en hueco libre
 1. Toca el hueco de D a las 11:30 → **Nueva cita**.

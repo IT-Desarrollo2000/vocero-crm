@@ -52,7 +52,7 @@ export function AmountDialog({
         <p className="mt-0.5 text-xs text-text-3">{leadName}</p>
 
         <label className="mt-3 block text-xs font-medium" htmlFor="monto">
-          Cuánto vale este trato ({currency})
+          Cuánto vale este trato, {currency === "MXN" ? "en pesos" : `en ${currency}`}
         </label>
         <Input
           id="monto"

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-/** 022: qué hace la casilla "No archivar" (tooltip y texto en pantallas anchas). */
+/** 022: qué hace la casilla "No archivar" (032: siempre visible, también en móvil). */
 const KEEP_ACTIVE_HINT = "sus conversaciones no se archivan por inactividad";
 
 /** Gestión de etapas: renombrar, reordenar, agregar, eliminar (con reasignación). */
@@ -141,38 +141,50 @@ export function StageManager({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={i === 0}
-                aria-label="Subir"
-                onClick={() => void move(s, -1)}
-              >
-                <ArrowUp className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                disabled={i === sorted.length - 1}
-                aria-label="Bajar"
-                onClick={() => void move(s, 1)}
-              >
-                <ArrowDown className="h-4 w-4" />
-              </Button>
+              {/* 032: en la primera y la última no hay a dónde mover; en vez
+                  de un botón apagado sin explicación, no hay botón (el hueco
+                  mantiene alineadas las filas). */}
+              {i === 0 ? (
+                <span aria-hidden className="h-9 w-9" />
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Subir"
+                  onClick={() => void move(s, -1)}
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+              )}
+              {i === sorted.length - 1 ? (
+                <span aria-hidden className="h-9 w-9" />
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Bajar"
+                  onClick={() => void move(s, 1)}
+                >
+                  <ArrowDown className="h-4 w-4" />
+                </Button>
+              )}
+              {s.kind !== "open" && (
+                <p className="basis-full pl-1 text-xs text-text-3">
+                  {s.kind === "won"
+                    ? "Aquí van los que compraron: se puede renombrar, pero no eliminar."
+                    : "Aquí van los que no compraron: se puede renombrar, pero no eliminar."}
+                </p>
+              )}
               {/* 022: segunda línea para no apretar la fila en 360 px. */}
-              <label
-                className="flex basis-full cursor-pointer items-center gap-1.5 pl-1 text-xs text-text-3"
-                title={KEEP_ACTIVE_HINT}
-              >
+              <label className="flex basis-full cursor-pointer items-start gap-1.5 pl-1 text-xs text-text-3">
                 <input
                   type="checkbox"
                   checked={keepActive[s.id] ?? s.keepActive}
                   onChange={(e) => void toggleKeepActive(s, e.target.checked)}
                   aria-label={`No archivar automáticamente "${s.name}"`}
-                  className="accent-primary"
+                  className="mt-0.5 accent-primary"
                 />
-                No archivar
-                <span className="max-sm:hidden">— {KEEP_ACTIVE_HINT}</span>
+                <span>No archivar — {KEEP_ACTIVE_HINT}</span>
               </label>
             </li>
           ))}
@@ -225,6 +237,11 @@ export function StageManager({
             Agregar
           </Button>
         </div>
+        {!newName.trim() && (
+          <p className="mt-1 text-xs text-text-3">
+            Escribe el nombre de la etapa nueva para poder agregarla.
+          </p>
+        )}
 
         <div className="mt-4 flex justify-end">
           <Button variant="ghost" onClick={onClose}>

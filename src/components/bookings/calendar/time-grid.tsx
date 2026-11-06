@@ -282,6 +282,7 @@ function Column({
             continuesAfter={it.seg.continuesAfter}
             draggable={drag ? drag.canDrag(it) : false}
             hidden={drag?.activeBookingId === it.booking.id}
+            now={now}
             onOpen={onOpenBooking}
           />
         );

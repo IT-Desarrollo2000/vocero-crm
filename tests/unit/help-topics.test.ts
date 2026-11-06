@@ -32,6 +32,20 @@ describe("visibleTopics", () => {
     expect(ids).toContain("citas");
   });
 
+  it("Seguimiento está con o sin agenda (no depende de un módulo)", () => {
+    for (const agenda of [false, true]) {
+      const ids = visibleTopics({ agenda, channels: ["whatsapp"] }).map((t) => t.id);
+      expect(ids).toContain("seguimiento");
+    }
+  });
+
+  it("sin agenda, Seguimiento no habla de citas (topics.ts no condiciona bloques por agenda)", () => {
+    const seguimiento = visibleTopics({ agenda: false, channels: ["whatsapp"] }).find(
+      (t) => t.id === "seguimiento"
+    );
+    expect(JSON.stringify(seguimiento)).not.toMatch(/[Cc]ita/);
+  });
+
   it("solo WhatsApp: sin párrafos de Instagram ni Messenger", () => {
     const text = allText(visibleTopics({ agenda: true, channels: new Set(["whatsapp"]) }));
     expect(text).not.toMatch(/Instagram|Messenger|canalesMeta/);
@@ -99,6 +113,26 @@ describe("temas", () => {
     expect(text).not.toContain("Elige una plantilla…");
     expect(text).not.toContain("La ventana de 24 horas está cerrada.");
     expect(text).not.toContain("**clip**");
+    // 032 — rótulos que cambiaron en Citas.
+    expect(text).not.toContain("Sin asignar");
+    expect(text).not.toContain("Mostrar pruebas");
+    expect(text).not.toContain("«Manual»");
+  });
+
+  it("Seguimiento va junto a «¿Qué chats me tocan?» y cada tema trae su captura", () => {
+    const order = HELP_TOPICS.map((t) => t.id);
+    expect(order.indexOf("seguimiento")).toBe(order.indexOf("mis-chats") + 1);
+    expect(HELP_TOPICS.find((t) => t.id === "seguimiento")?.captura).toEqual(["seguimiento.png"]);
+    expect(HELP_TOPICS.find((t) => t.id === "citas")?.captura).toEqual(["cita.png", "citas.png"]);
+  });
+
+  it("no le presenta al vendedor lo que solo hace el Propietario", () => {
+    const text = JSON.stringify(
+      HELP_TOPICS.filter((t) => t.id === "seguimiento" || t.id === "citas")
+    );
+    expect(text).not.toContain("Gestionar etapas");
+    expect(text).not.toContain("Mostrar citas del Laboratorio");
+    expect(text).not.toContain("«Asignar»");
   });
 
   it("cita las etiquetas de la pantalla nueva", () => {
@@ -119,6 +153,27 @@ describe("temas", () => {
       "«Sí, atiendo yo»",
       "«No, que siga»",
       "«Responde la IA»",
+      // 032 — Seguimiento
+      "«Mis clientes»",
+      "«Sin tomar»",
+      "«Todos»",
+      "«Tomar y responder»",
+      "«Retomar con plantilla»",
+      "«Poner monto»",
+      "«Capturar monto»",
+      "«Lo atiende …»",
+      "«¿Por qué se perdió?»",
+      // 032 — Citas
+      "«¿Cómo le fue a …?»",
+      "«Sí, llegó»",
+      "«No asistió»",
+      "«Reprogramar»",
+      "«Tomarla»",
+      "«Mías»",
+      "«Sin vendedor»",
+      "«Todas»",
+      "«Bloquear un horario»",
+      "«La agendó una persona»",
     ]) {
       expect(text, label).toContain(label);
     }

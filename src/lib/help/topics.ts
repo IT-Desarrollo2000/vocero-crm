@@ -324,6 +324,44 @@ export const HELP_TOPICS: HelpTopic[] = [
     captura: ["mis-chats.png"],
   },
   {
+    id: "seguimiento",
+    antetitulo: "Seguimiento",
+    titulo: "¿En qué va cada cliente?",
+    resumen: "El tablero: qué te toca y el siguiente paso de cada cliente.",
+    intro:
+      "En «Seguimiento» del menú cada columna es una etapa (por ejemplo «Nuevo», «En conversación», «Interesado») y cada tarjeta es un cliente. La tarjeta te dice quién lo atiende, si espera tu respuesta y qué sigue.",
+    bloques: [
+      {
+        tipo: "pasos",
+        items: [
+          "Arriba elige qué ver: «Mis clientes» (los tuyos; empiezas aquí), «Sin tomar» (nadie los atiende todavía) o «Todos». Cada uno dice cuántos hay, y la pantalla recuerda lo que elegiste.",
+          "Debajo, unas tarjetas de color te dicen lo que te toca, como «… clientes tuyos esperan tu respuesta» o «Venta sin monto». Haz clic en una y te lleva a lo que falta.",
+          "Cada cliente trae su siguiente paso: «Tomar y responder» (el chat queda a tu nombre y se abre), «Abrir chat», o «Retomar con plantilla» si su chat ya se cerró.",
+          "Para cambiarlo de etapa, arrastra la tarjeta a otra columna, o haz clic en ella y elige la etapa en su panel.",
+          "Con «Poner monto» anotas cuánto vale el trato; abajo de cada columna ves la suma.",
+        ],
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Cuando compra o no compra",
+        texto:
+          "Si compró, muévelo a la columna que dice «ya compró». Si lo mueves a «Perdido», te preguntamos «¿Por qué se perdió?»: elige el motivo; así se sabe qué mejorar.",
+      },
+      {
+        tipo: "lista",
+        tono: "siNo",
+        titulo: "¿Y si…?",
+        items: [
+          "**La tarjeta dice «Lo atiende …»:** ese cliente es de otro compañero y solo él abre su chat. Si necesitas algo, pídeselo.",
+          "**«… ya tomó el chat de …»:** otro compañero lo tomó antes que tú; busca otro en «Sin tomar».",
+          "**Compró, pero no sabes cuánto:** muévelo igual. La tarjeta dirá «Compró, pero falta cuánto.» y te deja «Capturar monto» para ponerlo cuando lo sepas; sin monto no suma en las ventas del mes.",
+          "**«No se pudo cargar el tablero.»:** revisa tu conexión y haz clic en «Reintentar».",
+        ],
+      },
+    ],
+    captura: ["seguimiento.png"],
+  },
+  {
     id: "ia",
     antetitulo: "Trabajar con la IA",
     titulo: "¿Cuándo contesta la IA y cuándo yo?",
@@ -355,9 +393,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "citas",
     antetitulo: "Agenda",
     titulo: "El cliente quiere una cita",
-    resumen: "Agéndala desde el chat en 3 pasos.",
+    resumen: "Agéndala desde el chat y luego marca cómo le fue.",
     intro:
-      "Desde el mismo chat puedes apartarle un horario al cliente; la cita queda en «Citas» del menú.",
+      "Desde el mismo chat puedes apartarle un horario al cliente; la cita queda en «Citas» del menú, donde además ves lo que te toca.",
     requiere: "agenda",
     bloques: [
       {
@@ -366,8 +404,33 @@ export const HELP_TOPICS: HelpTopic[] = [
           "En el chat haz clic en «Agendar».",
           "Elige el «Tipo de cita», el «Día» y el «Horario».",
           "Agrega «Notas» si hace falta y haz clic en «Guardar».",
-          "Verás «Cita agendada para …». La encuentras en «Citas» del menú, en vista «Semana», «Día» o «Lista»; con «Mías» ves solo las tuyas.",
+          "Verás «Cita agendada para …». La encuentras en «Citas» del menú, en vista «Semana», «Día» o «Lista». Arriba eliges «Mías», «Sin vendedor» o «Todas».",
         ],
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Lo que te toca en «Citas»",
+        texto:
+          "Arriba del calendario ves tus citas de hoy y de mañana. Si una cita tuya ya pasó y nadie dijo cómo salió, aparece «¿Cómo le fue a …?»: elige «Sí, llegó», «No asistió» o «Reprogramar».",
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Citas sin vendedor",
+        texto:
+          "Si hay una cita que nadie tiene, verás «… cita sin vendedor» con el botón «Tomarla»: un clic y queda a tu nombre.",
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Bloquear un horario",
+        texto:
+          "Abajo, en «Bloquear un horario», apartas un rato (comida, junta, inventario). Ojo: **cierra la agenda de todo el negocio**; nadie podrá agendar en ese tiempo, ni la IA ni el equipo. Si ya había una cita a esa hora, te lo avisa: sigue agendada y tú decides si la mueves.",
+      },
+      {
+        tipo: "parrafo",
+        tono: "nota",
+        titulo: "Las horas",
+        texto:
+          "Todo se ve en la hora del negocio; arriba dice cuál, por ejemplo «Horarios en hora de Ciudad de México.».",
       },
       {
         tipo: "lista",
@@ -376,10 +439,12 @@ export const HELP_TOPICS: HelpTopic[] = [
         items: [
           "Un horario dice «Ocupado»: ya hay otra cita a esa hora; elige otro.",
           "«No hay horarios disponibles.»: prueba otro día u otro tipo de cita.",
+          "«Otro vendedor ya la tomó.»: un compañero tomó esa cita antes que tú; ya no aparece en tu lista.",
+          "Una cita dice «La agendó la IA» o «La agendó una persona»: así sabes quién la apartó.",
         ],
       },
     ],
-    captura: ["cita.png"],
+    captura: ["cita.png", "citas.png"],
   },
   {
     id: "ventana-24h",

@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarPlus, Info, X } from "lucide-react";
+import { CalendarPlus, CheckCircle2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEvents } from "@/components/use-events";
 import { useViewer } from "@/components/viewer-context";
+import { bookingsTodo, todoRange } from "@/lib/bookings-todo";
 import { isOwner } from "@/lib/roles";
+import { tzLabel } from "@/lib/tz-label";
+import { cn } from "@/lib/utils";
 import {
   blockStartUtc,
   calendarVisible,
@@ -29,14 +32,16 @@ import {
 import { BookingActions, type BookingActionHandlers } from "./booking-actions";
 import { BookingClientCard } from "./booking-client-card";
 import { BookingDetailPanel } from "./booking-detail-panel";
-import { STATUS_LABEL, type Booking } from "./booking-look";
+import { isPastPending, sourceLabel, visibleStatus, type Booking } from "./booking-look";
 import {
   applyClientFilter,
   bookingsQuery,
+  conflictDetail,
   parseBookingError,
   type SellerFilter,
   type SlotConflict,
 } from "./booking-logic";
+import { BookingsTodoStrip } from "./bookings-todo-strip";
 import { CalendarLegend } from "./calendar/calendar-legend";
 import {
   defaultView,
@@ -76,7 +81,27 @@ import { retryErrorMessage } from "./reminder-labels";
  * filtros de vendedor y tipo aplican a las tres. Clic en un hueco ⇒ Nueva
  * cita con esa hora; clic en una cita ⇒ panel de detalle con las MISMAS
  * acciones que la fila (`BookingActions`).
+ *
+ * 032 — Se explica sola: franja «Lo que te toca» (`bookings-todo-strip.tsx`,
+ * con su PROPIO rango −14 d … +2 d, sin filtros, aparte del calendario),
+ * «Horarios en hora de …» (`tz-label`), filtros rotulados (Vendedor:
+ * «Mías · Sin vendedor · Todas»), «Tomarla», bloqueo explicado con su aviso
+ * y los interruptores de canceladas / Laboratorio también en la Lista.
  */
+
+/** 032 — Opciones del filtro del Vendedor (mismos valores que antes). */
+const SELLER_SEGMENTS: { value: SellerFilter; label: string }[] = [
+  { value: "mine", label: "Mías" },
+  { value: "none", label: "Sin vendedor" },
+  { value: "all", label: "Todas" },
+];
+
+/** 032 — Límites visibles de «Minutos» del bloqueo. */
+const BLOCK_MIN = 10;
+const BLOCK_MAX = 480;
+
+/** 032 — Qué dijo el último bloqueo creado (y las citas que pisa). */
+type BlockResult = { label: string; affected: SlotConflict[] };
 
 type DialogState =
   | {
@@ -151,6 +176,11 @@ export function BookingsClient() {
   const [error, setError] = useState<string | null>(null);
   const [blockStart, setBlockStart] = useState("");
   const [blockMinutes, setBlockMinutes] = useState(60);
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const blockMinutesError =
+    Number.isInteger(blockMinutes) && blockMinutes >= BLOCK_MIN && blockMinutes <= BLOCK_MAX
+      ? null
+      : `Escribe entre ${BLOCK_MIN} y ${BLOCK_MAX} minutos (minutos enteros).`;
   const [now, setNow] = useState(() => new Date());
   // 028 (Fase B) — Movimiento optimista, error del arrastre y confirmación.
   const [override, setOverride] = useState<MoveOverride | null>(null);
@@ -165,6 +195,12 @@ export function BookingsClient() {
   // R1 — La carga falló (500, 422, red): se dice y se ofrece reintentar, en
   // vez de quedarse en "Cargando…" para siempre.
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 032 — «Lo que te toca»: su propio rango y su propia carga (null = aún no).
+  const [todoBookings, setTodoBookings] = useState<Booking[] | null>(null);
+  const [todoError, setTodoError] = useState(false);
+  const [blockResult, setBlockResult] = useState<BlockResult | null>(null);
+  const [blockSaving, setBlockSaving] = useState(false);
+  const todoSeq = useRef(0);
 
   useEffect(() => {
     const isWide = window.matchMedia?.("(min-width: 768px)").matches ?? true;
@@ -203,10 +239,42 @@ export function BookingsClient() {
   // (el rango visible), y una ráfaga de avisos cuesta una sola recarga.
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   refreshRef.current = refresh;
+  const todoRef = useRef<() => Promise<void>>(async () => {});
+  todoRef.current = loadTodo;
   const sse = useMemo(
-    () => coalesce(() => void refreshRef.current(), SSE_COALESCE_MS),
+    () =>
+      coalesce(() => {
+        void refreshRef.current();
+        void todoRef.current();
+      }, SSE_COALESCE_MS),
     []
   );
+
+  // 032 — La franja pide su rango (−14 d … +2 d desde HOY en la zona del
+  // negocio) en cuanto se conoce la zona, y otra vez si cambia el día.
+  const todoFrom = businessTimezone ? todoRange(now, businessTimezone).from : null;
+  useEffect(() => {
+    if (todoFrom) void todoRef.current();
+  }, [todoFrom]);
+
+  async function loadTodo() {
+    if (!businessTimezone) return;
+    const { from, to } = todoRange(new Date(), businessTimezone);
+    const seq = ++todoSeq.current;
+    const res = await fetch(`/api/bookings?from=${from}&to=${to}`).catch(() => null);
+    if (seq !== todoSeq.current) return;
+    const data = res?.ok
+      ? ((await res.json().catch(() => null)) as { bookings?: Booking[] } | null)
+      : null;
+    if (seq !== todoSeq.current) return;
+    if (data?.bookings) {
+      setTodoBookings(data.bookings);
+      setTodoError(false);
+    } else {
+      // Sin la franja la pantalla sigue sirviendo: se dice y se reintenta.
+      setTodoError(true);
+    }
+  }
   useEffect(() => () => sse.cancel(), [sse]);
   // 028 (A6) — Mientras se arrastra, el SSE se guarda y se aplica al soltar:
   // una recarga a media maniobra movería la rejilla bajo el puntero.
@@ -289,7 +357,43 @@ export function BookingsClient() {
       setError(data?.error?.message ?? "No se pudo completar la acción");
       return;
     }
+    void loadTodo();
     await refresh();
+  }
+
+  /**
+   * 032 — «Tomarla» (decisión 2): el Vendedor se asigna una cita sin
+   * vendedor. Si otro la tomó antes, el servidor responde 409 con el motivo.
+   */
+  async function take(b: Booking) {
+    setBusy(b.id);
+    setError(null);
+    const res = await fetch(`/api/bookings/${b.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "take" }),
+    }).catch(() => null);
+    setBusy(null);
+    if (!res) {
+      setError("Sin conexión con el servidor.");
+      return;
+    }
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => null);
+      const failure = parseBookingError(res.status, body, "No se pudo tomar la cita.");
+      setError(
+        failure.kind === "slot_taken"
+          ? "Ya tienes otra cita a esa hora: no puedes tomar esta."
+          : `${failure.message}.`.replace(/\.\.$/, ".")
+      );
+      void loadTodo();
+      await refresh();
+      return;
+    }
+    // El aviso sale cuando la lista ya dice lo mismo (no antes).
+    void loadTodo();
+    await refresh();
+    setNotice(`Tomaste la cita${b.contact ? ` de ${b.contact.name}` : ""}. Ya es tuya.`);
   }
 
   /** 023 — Reasignar (Propietario). Un choque del nuevo vendedor es 409. */
@@ -316,8 +420,9 @@ export function BookingsClient() {
       setError(failure.kind === "slot_taken" ? REASSIGN_TAKEN : failure.message);
       return false;
     }
-    setNotice("Cita reasignada.");
+    void loadTodo();
     await refresh();
+    setNotice("Cita reasignada.");
     return true;
   }
 
@@ -341,16 +446,18 @@ export function BookingsClient() {
   }
 
   async function createBlock() {
-    if (!blockStart || !businessTimezone) return;
-    setError(null);
+    if (!blockStart || !businessTimezone || blockMinutesError) return;
+    setBlockError(null);
+    setBlockResult(null);
     // 028 (A8) — El campo da día y hora "de pared"; se leen en la zona del
     // NEGOCIO, no en la del navegador (antes: `new Date(valor)`).
     const [day = "", time = ""] = blockStart.split("T");
     const startUtc = blockStartUtc(day, time.slice(0, 5), businessTimezone);
     if (!startUtc) {
-      setError("Fecha u hora inválida.");
+      setBlockError("Fecha u hora inválida.");
       return;
     }
+    setBlockSaving(true);
     const res = await fetch("/api/bookings", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -360,14 +467,26 @@ export function BookingsClient() {
         durationMinutes: blockMinutes,
       }),
     }).catch(() => null);
-    if (res?.status !== 201) {
-      const data = (await res?.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-      setError(data?.error?.message ?? "No se pudo bloquear ese rango");
+    setBlockSaving(false);
+    if (!res) {
+      setBlockError("Sin conexión con el servidor. Intenta de nuevo.");
       return;
     }
+    const data = (await res.json().catch(() => null)) as {
+      error?: { message?: string };
+      affected?: SlotConflict[];
+    } | null;
+    if (res.status !== 201) {
+      setBlockError(data?.error?.message ?? "No se pudo bloquear ese horario.");
+      return;
+    }
+    // 032 — Aviso de éxito y, si el bloqueo pisa citas, cuáles (`route.ts`
+    // las devuelve en `affected`): siguen agendadas, hay que moverlas.
+    const label = wallLabel(startUtc, businessTimezone);
+    setBlockResult({ label, affected: Array.isArray(data?.affected) ? data.affected : [] });
+    setNotice(`Horario bloqueado: ${label}.`);
     setBlockStart("");
+    void loadTodo();
     await refresh();
   }
 
@@ -458,6 +577,7 @@ export function BookingsClient() {
     onReassign: reassign,
     onRetryReminder: (id, reminderId) => void retryReminder(id, reminderId),
     onClearError: () => setError(null),
+    onTake: (b) => void take(b),
   };
 
   function changeView(v: CalView) {
@@ -487,59 +607,130 @@ export function BookingsClient() {
   const filtered = sellerFilter !== "all" || typeFilter !== "all";
   const allLoaded = loaded?.bookings ?? [];
   const visible = applyClientFilter(allLoaded, sellerFilter, viewer.userId);
-  const calBookings = calendarVisible(applyOverride(visible, override), {
-    showCancelled,
-    showTests,
-  });
+  // 032 — Las citas del Laboratorio son solo del Propietario (decisión 4):
+  // el Vendedor nunca las ve, no solo pierde el interruptor.
+  const showOpts = { showCancelled, showTests: owner && showTests };
+  const calBookings = calendarVisible(applyOverride(visible, override), showOpts);
+  // 032 — La Lista respeta los mismos interruptores que el calendario.
+  const listBookings = calendarVisible(visible, showOpts);
   const detail = detailId ? allLoaded.find((b) => b.id === detailId) ?? null : null;
   const overlaps = loaded?.mode === "range" ? loaded.overlaps : {};
   const scrollKey = `${view}:${anchor}`;
+  const nowMs = now.getTime();
+  const todo =
+    todoBookings && businessTimezone
+      ? bookingsTodo(todoBookings, viewer, nowMs, businessTimezone)
+      : null;
+  const zone = tzLabel(businessTimezone);
+  const blockDisabledReason = !businessTimezone
+    ? "Cargando la zona del negocio…"
+    : !blockStart
+      ? "Elige el día y la hora de inicio."
+      : blockMinutesError;
 
   const blockSection = (
-    <section className="space-y-2">
-      <h3 className="text-sm font-semibold">Bloquear un rango</h3>
-      <p className="text-sm text-text-3">
-        Para compromisos que viven fuera del CRM: ese tiempo deja de
-        ofrecerse.
-        {businessTimezone && ` Hora del negocio (${businessTimezone}).`}
-      </p>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="block-start">Inicio</Label>
-          <Input
-            id="block-start"
-            type="datetime-local"
-            value={blockStart}
-            onChange={(e) => setBlockStart(e.target.value)}
-            className="w-56"
-          />
+    <details
+      data-testid="bookings-block-section"
+      className="group rounded-lg border px-3.5 py-2.5"
+    >
+      <summary className="cursor-pointer text-sm font-semibold">
+        Bloquear un horario{" "}
+        <span className="font-normal text-text-2">
+          · cierra la agenda de todo el negocio (comida, junta, inventario)
+        </span>
+      </summary>
+      <div className="mt-3 space-y-2">
+        <p className="text-sm text-text-3">
+          Nadie podrá agendar en ese tiempo: ni la IA ni el equipo.
+          {zone && ` Horario en ${zone}.`}
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="block-start">Inicio</Label>
+            <Input
+              id="block-start"
+              type="datetime-local"
+              value={blockStart}
+              onChange={(e) => setBlockStart(e.target.value)}
+              className="w-56"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="block-min">Minutos</Label>
+            <Input
+              id="block-min"
+              type="number"
+              min={BLOCK_MIN}
+              max={BLOCK_MAX}
+              value={Number.isFinite(blockMinutes) ? blockMinutes : ""}
+              aria-invalid={blockMinutesError ? true : undefined}
+              aria-describedby="block-min-error"
+              onChange={(e) => setBlockMinutes(Number(e.target.value))}
+              className="w-24"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => void createBlock()}
+            disabled={Boolean(blockDisabledReason) || blockSaving}
+          >
+            {blockSaving ? "Bloqueando…" : "Bloquear"}
+          </Button>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="block-min">Minutos</Label>
-          <Input
-            id="block-min"
-            type="number"
-            min={10}
-            max={480}
-            value={blockMinutes}
-            onChange={(e) => setBlockMinutes(Number(e.target.value))}
-            className="w-24"
-          />
-        </div>
-        <Button
-          variant="secondary"
-          onClick={createBlock}
-          disabled={!blockStart || !businessTimezone}
-        >
-          Bloquear
-        </Button>
+        {blockMinutesError ? (
+          <p id="block-min-error" className="text-xs text-danger-text">
+            {blockMinutesError}
+          </p>
+        ) : (
+          blockDisabledReason && (
+            <p id="block-min-error" className="text-xs text-text-3">
+              {blockDisabledReason}
+            </p>
+          )
+        )}
+        {blockError && (
+          <p role="alert" className="text-sm text-destructive">
+            {blockError}
+          </p>
+        )}
+        {blockResult && (
+          <div
+            role="status"
+            data-testid="bookings-block-result"
+            className={cn(
+              "rounded-sm border p-2 text-sm",
+              blockResult.affected.length > 0
+                ? "border-warning-soft bg-warning-tint text-warning-text"
+                : "border-success-soft bg-success-tint text-success-text"
+            )}
+          >
+            <p>Listo: bloqueaste {blockResult.label}.</p>
+            {blockResult.affected.length > 0 && (
+              <>
+                <p className="font-medium">
+                  {blockResult.affected.length === 1
+                    ? "Ojo: ya había 1 cita a esa hora. Sigue agendada; muévela o avísale al cliente:"
+                    : `Ojo: ya había ${blockResult.affected.length} citas a esa hora. Siguen agendadas; muévelas o avísales a los clientes:`}
+                </p>
+                <ul className="list-disc pl-5">
+                  {blockResult.affected.map((c) => (
+                    <li key={c.bookingId}>{conflictDetail(c, businessTimezone)}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
       </div>
-    </section>
+    </details>
   );
 
   return (
     <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
+        <p data-testid="bookings-tz" className="text-sm text-text-2">
+          {zone ? `Horarios en ${zone}.` : " "}
+        </p>
         <Button
           data-testid="bookings-new"
           onClick={() => {
@@ -550,38 +741,91 @@ export function BookingsClient() {
           <CalendarPlus className="h-4 w-4" strokeWidth={1.8} aria-hidden />
           Nueva cita
         </Button>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
+      </div>
+
+      {todo && businessTimezone && (
+        <BookingsTodoStrip
+          todo={todo}
+          owner={owner}
+          tz={businessTimezone}
+          now={nowMs}
+          busy={busy}
+          sellers={sellers}
+          onOutcome={(b, status) => void act(b.id, { action: "status", status })}
+          onReschedule={(b) => {
+            setError(null);
+            setDialog({ mode: "reschedule", booking: b });
+          }}
+          onTake={(b) => void take(b)}
+          onAssign={reassign}
+          onShowList={() => changeView("lista")}
+        />
+      )}
+      {todoError && !todo && (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-text-3">
+          No se pudo cargar «lo que te toca».
+          <Button size="sm" variant="ghost" onClick={() => void loadTodo()}>
+            Reintentar
+          </Button>
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-end gap-3">
+        {owner ? (
+          <div className="space-y-1">
+            <Label htmlFor="bookings-seller-filter">Vendedor</Label>
+            <select
+              id="bookings-seller-filter"
+              data-testid="bookings-seller-filter"
+              value={sellerFilter}
+              onChange={(e) => setSellerFilter(e.target.value)}
+              className="block h-9 rounded-md border border-input bg-card px-2 text-sm"
+            >
+              <option value="all">Todos los vendedores</option>
+              {sellers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+              <option value="none">Sin vendedor</option>
+            </select>
+          </div>
+        ) : (
+          <div
+            role="group"
+            aria-label="Qué citas ver"
             data-testid="bookings-seller-filter"
-            aria-label="Filtrar por vendedor"
-            value={sellerFilter}
-            onChange={(e) => setSellerFilter(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            // Mismo segmentado que «Mis clientes · Sin tomar · Todos» de
+            // Seguimiento (diseño 032, Citas.dc.html).
+            className="inline-flex flex-wrap gap-1 rounded-lg bg-secondary p-[3px]"
           >
-            {owner ? (
-              <>
-                <option value="all">Todos los vendedores</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-                <option value="none">Sin asignar</option>
-              </>
-            ) : (
-              <>
-                <option value="all">Todas</option>
-                <option value="mine">Mías</option>
-                <option value="none">Sin asignar</option>
-              </>
-            )}
-          </select>
+            {SELLER_SEGMENTS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                data-value={o.value}
+                aria-pressed={sellerFilter === o.value}
+                onClick={() => setSellerFilter(o.value)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  sellerFilter === o.value
+                    ? "bg-background font-semibold text-foreground shadow-sm"
+                    : "text-text-2 hover:text-foreground"
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="space-y-1">
+          <Label htmlFor="bookings-type-filter">Tipo</Label>
           <select
+            id="bookings-type-filter"
             data-testid="bookings-type-filter"
-            aria-label="Filtrar por tipo de cita"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            className="block h-9 rounded-md border border-input bg-card px-2 text-sm"
           >
             <option value="all">Todo tipo</option>
             {types.map((t) => (
@@ -596,6 +840,7 @@ export function BookingsClient() {
       {view && (
         <CalendarToolbar
           view={view}
+          owner={owner}
           title={calView && anchor ? rangeLabel(calView, anchor) : ""}
           showCancelled={showCancelled}
           showTests={showTests}
@@ -621,7 +866,14 @@ export function BookingsClient() {
           className="flex flex-wrap items-center gap-2 rounded-sm border border-danger-soft bg-danger-tint p-2 text-sm text-danger-text"
         >
           <p className="flex-1">{loadError}</p>
-          <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              void refresh();
+              void loadTodo();
+            }}
+          >
             Reintentar
           </Button>
         </div>
@@ -727,24 +979,32 @@ export function BookingsClient() {
         </section>
       )}
 
-      {ready && view === "lista" && blockSection}
-
       {ready && view === "lista" && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">
-            Citas <span className="text-text-3">({visible.length})</span>
+            Citas <span className="text-text-3">({listBookings.length})</span>
           </h3>
-          {visible.length === 0 &&
-            (filtered ? (
+          {listBookings.length === 0 &&
+            (visible.length > 0 ? (
+              <p className="text-sm text-text-3">
+                Solo hay citas canceladas{owner ? " o del Laboratorio" : ""}: actívalas
+                arriba para verlas.
+              </p>
+            ) : filtered ? (
               <p className="text-sm text-text-3">No hay citas con estos filtros.</p>
-            ) : (
+            ) : owner ? (
               <p className="text-sm text-text-3">
                 Todavía no hay nada agendado. Configura tu horario en Ajustes →
                 Agenda para empezar a recibir citas.
               </p>
+            ) : (
+              <p className="text-sm text-text-3">
+                Todavía no tienes citas. Si nadie puede agendar, pídele al
+                propietario que configure el horario de la agenda.
+              </p>
             ))}
           <ul className="divide-y rounded-md border">
-            {visible.map((b) => (
+            {listBookings.map((b) => (
               <li key={b.id} className="space-y-2 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">
@@ -754,19 +1014,23 @@ export function BookingsClient() {
                     {b.durationMinutes} min
                   </span>
                   <Badge
-                    variant={b.status === "cancelada" ? "secondary" : "default"}
+                    variant={
+                      b.status === "cancelada"
+                        ? "secondary"
+                        : isPastPending(b, now)
+                          ? "warning"
+                          : "default"
+                    }
                   >
-                    {STATUS_LABEL[b.status]}
+                    {b.kind === "block" ? (b.status === "cancelada" ? "Cancelada" : "Agendada") : visibleStatus(b, now)}
                   </Badge>
                   {b.type && <Badge variant="outline">{b.type.name}</Badge>}
                   {b.kind === "block" ? (
                     <Badge variant="secondary">Bloqueo</Badge>
                   ) : (
-                    <Badge variant="secondary">
-                      {b.source === "ai" ? "Agendó la IA" : "Manual"}
-                    </Badge>
+                    <Badge variant="secondary">{sourceLabel(b)}</Badge>
                   )}
-                  {b.isTest && <Badge variant="secondary">Prueba</Badge>}
+                  {b.isTest && <Badge variant="secondary">Del Laboratorio</Badge>}
                   {b.linkPending && b.status !== "cancelada" && (
                     <Badge variant="secondary">Sin enlace</Badge>
                   )}
@@ -776,7 +1040,7 @@ export function BookingsClient() {
                   {b.contact && <span>{b.contact.name}</span>}
                   {b.kind === "session" && (
                     <span data-testid="booking-seller-name">
-                      {b.assignedUser?.name || "Sin asignar"}
+                      {b.assignedUser?.name || "Sin vendedor"}
                     </span>
                   )}
                   {b.meetingLink && (
@@ -808,7 +1072,7 @@ export function BookingsClient() {
         </section>
       )}
 
-      {ready && view !== "lista" && blockSection}
+      {ready && blockSection}
 
       {detail && businessTimezone && view !== "lista" && (
         <BookingDetailPanel
@@ -822,6 +1086,7 @@ export function BookingsClient() {
           businessTimezone={businessTimezone}
           handlers={handlers}
           covered={dialog !== null || moveConfirm !== null}
+          now={now}
           onClose={() => {
             setDetailId(null);
             setError(null);
@@ -881,6 +1146,7 @@ export function BookingsClient() {
             setDialog(null);
             setNotice(`${verb} ${label}`);
             void refresh();
+            void loadTodo();
           }}
         />
       )}
@@ -891,7 +1157,8 @@ export function BookingsClient() {
           data-testid="bookings-notice"
           className="fixed inset-x-3 bottom-4 z-40 mx-auto flex max-w-md items-start gap-2 rounded-md border bg-background px-3 py-2.5 text-sm shadow-pop md:bottom-6"
         >
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" strokeWidth={1.7} />
+          {/* 032 — Todo aviso de aquí es un «listo»: palomita, no ⓘ (CA-2). */}
+          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success-text" strokeWidth={1.8} />
           <p className="flex-1">{notice}</p>
           <button
             onClick={() => setNotice(null)}

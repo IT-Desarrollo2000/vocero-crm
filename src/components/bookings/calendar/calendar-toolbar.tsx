@@ -7,8 +7,11 @@ import type { CalView } from "./calendar-model";
 
 /**
  * 028 — Barra del calendario: vista (Semana | Día | Lista), ‹ Hoy ›, el título
- * del rango y los interruptores de canceladas y pruebas. En la Lista solo se
- * ve el selector: la Lista se conserva tal cual (US-3).
+ * del rango y los interruptores de canceladas y pruebas.
+ *
+ * 032 — Los interruptores también se ven (y aplican) en la Lista. «Mostrar
+ * pruebas» es solo del Propietario (decisión 4) y se llama por lo que es:
+ * «Mostrar citas del Laboratorio».
  */
 
 const VIEW_BUTTONS: { view: CalView; label: string; testId: string }[] = [
@@ -19,6 +22,7 @@ const VIEW_BUTTONS: { view: CalView; label: string; testId: string }[] = [
 
 export function CalendarToolbar({
   view,
+  owner,
   title,
   showCancelled,
   showTests,
@@ -30,6 +34,8 @@ export function CalendarToolbar({
   onShowTests,
 }: {
   view: CalView;
+  /** 032 — Solo el Propietario ve las citas del Laboratorio. */
+  owner: boolean;
   title: string;
   showCancelled: boolean;
   showTests: boolean;
@@ -99,28 +105,30 @@ export function CalendarToolbar({
           >
             {title}
           </h3>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-text-2 sm:ml-auto">
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                data-testid="cal-toggle-cancelled"
-                checked={showCancelled}
-                onChange={(e) => onShowCancelled(e.target.checked)}
-              />
-              Mostrar canceladas
-            </label>
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                data-testid="cal-toggle-tests"
-                checked={showTests}
-                onChange={(e) => onShowTests(e.target.checked)}
-              />
-              Mostrar pruebas
-            </label>
-          </div>
         </>
       )}
+      <div className="flex flex-wrap items-center gap-3 text-sm text-text-2 sm:ml-auto">
+        <label className="inline-flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            data-testid="cal-toggle-cancelled"
+            checked={showCancelled}
+            onChange={(e) => onShowCancelled(e.target.checked)}
+          />
+          Mostrar canceladas
+        </label>
+        {owner && (
+          <label className="inline-flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              data-testid="cal-toggle-tests"
+              checked={showTests}
+              onChange={(e) => onShowTests(e.target.checked)}
+            />
+            Mostrar citas del Laboratorio
+          </label>
+        )}
+      </div>
     </div>
   );
 }

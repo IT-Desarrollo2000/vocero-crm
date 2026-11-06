@@ -9,6 +9,7 @@ import {
   moveBooking,
   rescheduleBooking,
   retryMeetingLink,
+  takeBooking,
 } from "@/server/agenda/service";
 import { bookingErrorResponse } from "@/server/agenda/http";
 
@@ -31,6 +32,9 @@ const patchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("retry_link") }),
   // 023 — Reasignar el vendedor (`null` = sin asignar). Solo Propietario.
   z.object({ action: z.literal("assign"), userId: z.string().min(1).nullable() }),
+  // 032 — «Tomarla»: quien pide se asigna a SÍ MISMO una cita sin vendedor.
+  // Sin `userId`: siempre es la sesión. Cualquier rol.
+  z.object({ action: z.literal("take") }),
   // 028 — Mover desde el calendario: hora y/o vendedor, atómico. Al menos
   // uno de los dos (se valida abajo). `userId` solo Propietario.
   z.object({
@@ -55,6 +59,13 @@ const patchSchema = z.discriminatedUnion("action", [
  * 028 — `move` (calendario): hora y/o vendedor en una sola escritura, con
  * las reglas de reprogramar + reasignar; `userId` solo Propietario (403);
  * 409 `slot_taken` / `overlap_warning` / `stale`.
+ *
+ * 032 — `take` («Tomarla», decisión 2): cualquier rol se asigna a sí mismo
+ * una cita que sigue sin vendedor, con un UPDATE condicional (atómico). Si
+ * otro la tomó antes ⇒ 409 `already_taken` («Otro vendedor ya la tomó»).
+ * No pasa por la visibilidad: la cita que otro acaba de tomar ya no se ve y
+ * un 404 escondería el motivo; el servicio la lee con `scoped()` y no dice de
+ * quién es.
  */
 export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
@@ -74,6 +85,18 @@ export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Par
   ) {
     const denied = requireOwner(session);
     if (denied) return denied;
+  }
+  if (body.data.action === "take") {
+    try {
+      const { booking } = await takeBooking({
+        organizationId: session.organizationId,
+        bookingId: id,
+        userId: session.userId,
+      });
+      return Response.json({ ok: true, assignedUserId: booking.assignedUserId });
+    } catch (err) {
+      return bookingErrorResponse(err);
+    }
   }
   const visible = await getVisibleBooking(session.organizationId, id, {
     userId: session.userId,

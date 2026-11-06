@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Citas (vendedora)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4056}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e9eef4; color: #2b4056; text-decoration: none; font-weight: 600">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 24px; box-sizing: border-box">
+    <header style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <h1 style="margin: 0; font-size: 18px; font-weight: 600">Citas</h1>
+        <p style="margin: 0; color: #56565e; font-size: 13px">Horarios en hora de Ciudad de México.</p>
+      </div>
+      <button type="button" style="font: inherit; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 9px; padding: 9px 16px; min-height: 40px">Nueva cita</button>
+    </header>
+
+    <section aria-label="Lo que te toca" style="display: flex; flex-wrap: wrap; gap: 10px">
+      <div style="flex: 2 1 420px; border: 1px solid #ece2cf; background: #faf7f0; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+        <strong style="font-weight: 600">¿Cómo le fue a Sofía Castro?</strong>
+        <span style="font-size: 13px; color: #56565e">Ayer, 5:00 p. m. · Visita a la tienda. Cuéntale al sistema si llegó; así sabes quién falta por atender.</span>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <button type="button" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 7px 14px; min-height: 36px">Sí, llegó</button>
+          <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 7px 14px; min-height: 36px">No asistió</button>
+          <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 7px 14px; min-height: 36px">Reprogramar</button>
+        </div>
+      </div>
+      <div style="flex: 1 1 240px; border: 1px solid #dde5ee; background: #f3f6f9; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+        <strong style="font-weight: 600">Hoy no tienes citas</strong>
+        <span style="font-size: 13px; color: #56565e">Mañana: Laura 11:00 a. m. y Carlos 4:00 p. m.</span>
+      </div>
+      <div style="flex: 1 1 240px; border: 1px solid #e0e1e6; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+        <strong style="font-weight: 600">1 cita sin vendedor</strong>
+        <span style="font-size: 13px; color: #56565e">Jorge Méndez · sáb 12:00 p. m.</span>
+        <button type="button" style="align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 6px 12px">Tomarla</button>
+      </div>
+    </section>
+
+    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+      <div role="group" aria-label="Qué citas ver" style="display: inline-flex; gap: 4px; background: #f4f4f5; padding: 3px; border-radius: 9px">
+        <button type="button" aria-pressed="true" style="font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 6px 12px; background: #ffffff; box-shadow: 0 1px 2px rgba(20,20,30,0.08); color: #1a1a1e">Mías</button>
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Sin vendedor</button>
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Todas</button>
+      </div>
+      <div role="group" aria-label="Vista" style="display: inline-flex; gap: 4px; background: #f4f4f5; padding: 3px; border-radius: 9px">
+        <button type="button" aria-pressed="true" style="font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 6px 12px; background: #ffffff; box-shadow: 0 1px 2px rgba(20,20,30,0.08); color: #1a1a1e">Semana</button>
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Día</button>
+        <button type="button" aria-pressed="false" style="font: inherit; border: 0; border-radius: 7px; padding: 6px 12px; background: transparent; color: #56565e">Lista</button>
+      </div>
+      <span style="font-weight: 600">2 – 8 de nov</span>
+      <span style="flex: 1 1 auto"></span>
+      <span style="font-size: 12.5px; color: #56565e; display: inline-flex; gap: 12px; flex-wrap: wrap">
+        <span><span aria-hidden="true" style="display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: {{accent}}; vertical-align: -1px"></span> Agendada</span>
+        <span><span aria-hidden="true" style="display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #e3efe7; border: 1px solid #b9d3c2; vertical-align: -1px"></span> Ya pasó</span>
+        <span><span aria-hidden="true" style="display: inline-block; width: 10px; height: 10px; border-radius: 3px; border: 1px dashed #8a6d3b; vertical-align: -1px"></span> Sin vendedor</span>
+      </span>
+    </div>
+
+    <div style="overflow-x: auto; border: 1px solid #e0e1e6; border-radius: 12px">
+      <div style="display: grid; grid-template-columns: 56px repeat(7, minmax(110px, 1fr)); grid-template-rows: 40px repeat(9, 40px); min-width: 820px; background-image: repeating-linear-gradient(to bottom, transparent 0 39px, #ecedf0 39px 40px)">
+        <span style="grid-column: 2; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">LUN 2</span>
+        <span style="grid-column: 3; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">MAR 3</span>
+        <span style="grid-column: 4; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">MIÉ 4</span>
+        <span style="grid-column: 5; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">JUE 5</span>
+        <span style="grid-column: 6; grid-row: 1; font-size: 12px; font-weight: 700; color: #2b4056; text-align: center; align-self: center">HOY · VIE 6</span>
+        <span style="grid-column: 7; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">SÁB 7</span>
+        <span style="grid-column: 8; grid-row: 1; font-size: 12px; color: #56565e; text-align: center; align-self: center">DOM 8</span>
+
+        <span style="grid-column: 1; grid-row: 2; font-size: 11.5px; color: #56565e; padding: 2px 8px 0 0; text-align: right">10:00</span>
+        <span style="grid-column: 1; grid-row: 4; font-size: 11.5px; color: #56565e; padding: 2px 8px 0 0; text-align: right">12:00</span>
+        <span style="grid-column: 1; grid-row: 6; font-size: 11.5px; color: #56565e; padding: 2px 8px 0 0; text-align: right">14:00</span>
+        <span style="grid-column: 1; grid-row: 8; font-size: 11.5px; color: #56565e; padding: 2px 8px 0 0; text-align: right">16:00</span>
+        <span style="grid-column: 1; grid-row: 10; font-size: 11.5px; color: #56565e; padding: 2px 8px 0 0; text-align: right">18:00</span>
+
+        <div style="grid-column: 8; grid-row: 2 / 11; background: #f4f4f5; display: flex; align-items: center; justify-content: center; font-size: 12.5px; color: #56565e">Cerrado</div>
+
+        <div style="grid-column: 4; grid-row: 4; margin: 2px 4px; border-radius: 7px; background: #e3efe7; border: 1px solid #b9d3c2; padding: 3px 7px; font-size: 12px; overflow: hidden"><strong style="font-weight: 600">Ana Torres</strong> · llegó</div>
+
+        <div style="grid-column: 5; grid-row: 9; margin: 2px 4px; border-radius: 7px; background: #faf7f0; border: 1px solid #c9a96b; padding: 3px 7px; font-size: 12px; overflow: hidden"><strong style="font-weight: 600">Sofía Castro</strong> · ¿llegó?</div>
+
+        <div style="grid-column: 7; grid-row: 3; margin: 2px 4px; border-radius: 7px; background: {{accent}}; color: #ffffff; padding: 3px 7px; font-size: 12px; overflow: hidden"><strong style="font-weight: 600">11:00 Laura Gómez</strong><br>Visita a la tienda</div>
+        <div style="grid-column: 7; grid-row: 4; margin: 2px 4px; border-radius: 7px; border: 1px dashed #8a6d3b; background: #ffffff; padding: 3px 7px; font-size: 12px; overflow: hidden"><strong style="font-weight: 600">12:00 Jorge Méndez</strong> · sin vendedor</div>
+        <div style="grid-column: 7; grid-row: 8; margin: 2px 4px; border-radius: 7px; background: {{accent}}; color: #ffffff; padding: 3px 7px; font-size: 12px; overflow: hidden"><strong style="font-weight: 600">16:00 Carlos Ruiz</strong><br>Medición a domicilio</div>
+      </div>
+    </div>
+
+    <details style="border: 1px solid #e0e1e6; border-radius: 12px; padding: 10px 14px">
+      <summary style="cursor: pointer; font-weight: 600">Bloquear un horario <span style="font-weight: 400; color: #56565e">· cierra la agenda de todo el negocio (comida, junta, inventario)</span></summary>
+    </details>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f5972","options":["#3f5972","#25D366","#4a6c96","#1a1a1e"]},"$preview":{"width":1366,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#3f5972' };
+  }
+}
+</script>
+</body>
+</html>

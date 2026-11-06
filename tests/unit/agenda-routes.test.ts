@@ -105,9 +105,13 @@ const moveBooking = vi.fn(async (..._a: unknown[]) => ({
   label: "mié 5 ago, 10:00",
   booking: { scheduledAt: new Date("2026-08-05T16:00:00.000Z"), assignedUserId: "u_juan" },
 }));
+const takeBooking = vi.fn(async (..._a: unknown[]) => ({
+  booking: { assignedUserId: "u_ana" },
+  changed: true,
+}));
 vi.mock("@/server/agenda/service", async (orig) => {
   const real = await orig<typeof import("@/server/agenda/service")>();
-  return { ...real, createSessionBooking, assignBooking, rescheduleBooking, moveBooking };
+  return { ...real, createSessionBooking, assignBooking, rescheduleBooking, moveBooking, takeBooking };
 });
 
 const replaceOffers = vi.fn(async (..._a: unknown[]) => {});
@@ -148,7 +152,7 @@ beforeEach(() => {
   vi.stubEnv("AGENDA", "on");
   sessionState.current = null;
   visible = { id: "bk_1", assignedUserId: "u_ana", createdByUserId: null };
-  for (const f of [listTypes, createType, updateType, computeAvailability, listBookings, createSessionBooking, assignBooking, rescheduleBooking, moveBooking]) {
+  for (const f of [listTypes, createType, updateType, computeAvailability, listBookings, createSessionBooking, assignBooking, rescheduleBooking, moveBooking, takeBooking]) {
     f.mockClear();
   }
 });
@@ -350,6 +354,45 @@ describe("/api/bookings/[id]", () => {
     const res = await bookingById.PATCH(patch({ action: "assign", userId: "u_juan" }), params("bk_1"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, assignedUserId: "u_juan" });
+  });
+
+  // 032 — «Tomarla» (decisión 2).
+  it("take: el Vendedor se asigna a sí mismo (sin userId en el cuerpo)", async () => {
+    sessionState.current = SELLER;
+    const res = await bookingById.PATCH(patch({ action: "take" }), params("bk_1"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, assignedUserId: "u_ana" });
+    expect(takeBooking).toHaveBeenCalledOnce();
+    expect(takeBooking.mock.calls[0]![0]).toEqual({
+      organizationId: "org_1",
+      bookingId: "bk_1",
+      userId: "u_ana",
+    });
+    // `assign` sigue siendo del Propietario, aunque sea a sí mismo.
+    expect(
+      (await bookingById.PATCH(patch({ action: "assign", userId: "u_ana" }), params("bk_1"))).status
+    ).toBe(403);
+    expect(assignBooking).not.toHaveBeenCalled();
+  });
+
+  it("take: si otro la tomó antes ⇒ 409 already_taken con motivo, aunque ya no se vea", async () => {
+    sessionState.current = SELLER;
+    visible = null;
+    const { BookingError, ALREADY_TAKEN_MESSAGE } = await import("@/server/agenda/service");
+    takeBooking.mockRejectedValueOnce(new BookingError("already_taken", ALREADY_TAKEN_MESSAGE));
+    const res = await bookingById.PATCH(patch({ action: "take" }), params("bk_1"));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string; message: string } }).error).toEqual({
+      code: "already_taken",
+      message: "Otro vendedor ya la tomó",
+    });
+  });
+
+  it("take: no acepta userId de otra persona en el cuerpo", async () => {
+    sessionState.current = SELLER;
+    await bookingById.PATCH(patch({ action: "take", userId: "u_juan" }), params("bk_1"));
+    // Zod descarta la llave: siempre se toma para la sesión.
+    expect((takeBooking.mock.calls[0]![0] as { userId: string }).userId).toBe("u_ana");
   });
 
   // 028 — move (calendario).

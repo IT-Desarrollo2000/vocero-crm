@@ -199,6 +199,50 @@ Captura: `mis-chats.png`
 
 ---
 
+## 5b. `seguimiento` — Seguimiento · «¿En qué va cada cliente?» *(032)*
+
+Índice: El tablero: qué te toca y el siguiente paso de cada cliente.
+
+*(Sin bandera. `topics.ts` solo condiciona temas enteros por la agenda, no
+bloques: por eso este tema no menciona citas.)*
+
+**Intro:** en «Seguimiento» del menú cada columna es una etapa (por ejemplo
+«Nuevo», «En conversación», «Interesado») y cada tarjeta es un cliente. La
+tarjeta te dice quién lo atiende, si espera tu respuesta y qué sigue.
+
+1. Arriba elige qué ver: «Mis clientes» (los tuyos; empiezas aquí), «Sin
+   tomar» (nadie los atiende todavía) o «Todos». Cada uno dice cuántos hay, y
+   la pantalla recuerda lo que elegiste.
+2. Debajo, unas tarjetas de color te dicen lo que te toca, como «… clientes
+   tuyos esperan tu respuesta» o «Venta sin monto». Haz clic en una y te
+   lleva a lo que falta.
+3. Cada cliente trae su siguiente paso: «Tomar y responder» (el chat queda a
+   tu nombre y se abre), «Abrir chat», o «Retomar con plantilla» si su chat
+   ya se cerró.
+4. Para cambiarlo de etapa, arrastra la tarjeta a otra columna, o haz clic en
+   ella y elige la etapa en su panel.
+5. Con «Poner monto» anotas cuánto vale el trato; abajo de cada columna ves
+   la suma.
+
+**Cuando compra o no compra:** si compró, muévelo a la columna que dice «ya
+compró». Si lo mueves a «Perdido», te preguntamos «¿Por qué se perdió?»:
+elige el motivo; así se sabe qué mejorar.
+
+**¿Y si…?**
+- **La tarjeta dice «Lo atiende …»:** ese cliente es de otro compañero y solo
+  él abre su chat. Si necesitas algo, pídeselo.
+- **«… ya tomó el chat de …»:** otro compañero lo tomó antes que tú; busca
+  otro en «Sin tomar».
+- **Compró, pero no sabes cuánto:** muévelo igual. La tarjeta dirá «Compró,
+  pero falta cuánto.» y te deja «Capturar monto» para ponerlo cuando lo
+  sepas; sin monto no suma en las ventas del mes.
+- **«No se pudo cargar el tablero.»:** revisa tu conexión y haz clic en
+  «Reintentar».
+
+Captura: `seguimiento.png`
+
+---
+
 ## 6. `ia` — Trabajar con la IA · «¿Cuándo contesta la IA y cuándo yo?»
 
 Índice: Cómo tomar un chat sin que respondan los dos.
@@ -232,22 +276,45 @@ Captura: `ia.png`
 
 ## 7. `citas` — Agenda · «El cliente quiere una cita» *(solo con AGENDA)*
 
-Índice: Agéndala desde el chat en 3 pasos.
+Índice: Agéndala desde el chat y luego marca cómo le fue. *(032)*
 
 **Intro:** desde el mismo chat puedes apartarle un horario al cliente; la
-cita queda en «Citas» del menú.
+cita queda en «Citas» del menú, donde además ves lo que te toca.
 
 1. En el chat haz clic en «Agendar».
 2. Elige el «Tipo de cita», el «Día» y el «Horario».
 3. Agrega «Notas» si hace falta y haz clic en «Guardar».
 4. Verás «Cita agendada para …». La encuentras en «Citas» del menú, en
-   vista «Semana», «Día» o «Lista»; con «Mías» ves solo las tuyas.
+   vista «Semana», «Día» o «Lista». Arriba eliges «Mías», «Sin vendedor» o
+   «Todas».
+
+**Lo que te toca en «Citas»:** arriba del calendario ves tus citas de hoy y
+de mañana. Si una cita tuya ya pasó y nadie dijo cómo salió, aparece «¿Cómo
+le fue a …?»: elige «Sí, llegó», «No asistió» o «Reprogramar».
+
+**Citas sin vendedor:** si hay una cita que nadie tiene, verás «… cita sin
+vendedor» con el botón «Tomarla»: un clic y queda a tu nombre.
+
+**Bloquear un horario:** abajo, en «Bloquear un horario», apartas un rato
+(comida, junta, inventario). Ojo: **cierra la agenda de todo el negocio**;
+nadie podrá agendar en ese tiempo, ni la IA ni el equipo. Si ya había una
+cita a esa hora, te lo avisa: sigue agendada y tú decides si la mueves.
+
+Nota (las horas): todo se ve en la hora del negocio; arriba dice cuál, por
+ejemplo «Horarios en hora de Ciudad de México.».
 
 **¿Y si…?**
 - Un horario dice «Ocupado»: ya hay otra cita a esa hora; elige otro.
 - «No hay horarios disponibles.»: prueba otro día u otro tipo de cita.
+- «Otro vendedor ya la tomó.»: un compañero tomó esa cita antes que tú; ya no
+  aparece en tu lista.
+- Una cita dice «La agendó la IA» o «La agendó una persona»: así sabes quién
+  la apartó.
 
-Captura: `cita.png`
+*(032: «Sin asignar» ahora es «Sin vendedor»; «Manual» es «La agendó una
+persona»; «Mostrar pruebas» ya no se le muestra al vendedor.)*
+
+Captura: `cita.png`, `citas.png`
 
 ---
 

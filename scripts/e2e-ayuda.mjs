@@ -12,7 +12,9 @@
  *      existe en la página
  *   e) con `AGENDA` encendida está el tema de citas (y con Instagram en
  *      `CHANNELS`, su párrafo). Segunda pasada con `--off` (server con
- *      `AGENDA=off CHANNELS=whatsapp`): ni citas ni Instagram/Messenger
+ *      `AGENDA=off CHANNELS=whatsapp`): ni citas ni Instagram/Messenger.
+ *      032: `#seguimiento` en las dos pasadas (sin hablar de citas en la
+ *      `--off`) y los rótulos nuevos de Seguimiento y Citas
  *   f) pantallas (como vendedora): ventana abierta (barra de tiempo, menú
  *      «Adjuntar», `accept` de «Documento»), ventana cerrada sin plantillas y
  *      con una plantilla de 2 espacios (prellenado, motivo, envío con los dos
@@ -240,6 +242,10 @@ async function offPass() {
   ok("ni «El cliente quiere una cita»", !text.includes("El cliente quiere una cita"));
   ok("sin texto de Instagram ni Messenger", !/Instagram|Messenger/.test(text), (text.match(/.{0,60}(Instagram|Messenger).{0,60}/) ?? [""])[0]);
   ok("los demás temas siguen (#plantillas, #archivos)", (await page.locator("#plantillas").count()) === 1 && (await page.locator("#archivos").count()) === 1);
+  // 032 — Seguimiento no depende de la agenda: está, y sin hablar de citas.
+  const seg = page.locator("#seguimiento");
+  ok("#seguimiento sigue con la agenda apagada", (await seg.count()) === 1);
+  ok("…y no habla de citas", !/[Cc]ita/.test((await seg.innerText().catch(() => "")) ?? ""));
   await ctx.close();
 }
 
@@ -327,6 +333,19 @@ async function helpPageChecks() {
   console.log("\n== e) Con AGENDA y CHANNELS encendidos ==");
   ok("hay tema de citas (#citas en el índice y en la página)", hrefs.includes("#citas") && (await page.locator("#citas").count()) === 1);
   ok("y el párrafo de Instagram en #archivos", ((await page.locator("#archivos").innerText()) ?? "").includes("Instagram:"));
+
+  // 032 — Tema Seguimiento nuevo y Citas al día (rótulos de la pantalla de hoy).
+  ok("hay tema Seguimiento (#seguimiento en el índice y en la página)", hrefs.includes("#seguimiento") && (await page.locator("#seguimiento").count()) === 1);
+  ok("…justo después de «¿Qué chats me tocan?»", hrefs.indexOf("#seguimiento") === hrefs.indexOf("#mis-chats") + 1, JSON.stringify(hrefs));
+  const segText = (await page.locator("#seguimiento").innerText().catch(() => "")) ?? "";
+  for (const label of ["Mis clientes", "Sin tomar", "Tomar y responder", "Retomar con plantilla", "Capturar monto", "Lo atiende"]) {
+    ok(`#seguimiento cita «${label}»`, segText.includes(label));
+  }
+  const citasText = (await page.locator("#citas").innerText().catch(() => "")) ?? "";
+  for (const label of ["¿Cómo le fue a", "Sí, llegó", "Tomarla", "Sin vendedor", "Bloquear un horario", "todo el negocio"]) {
+    ok(`#citas cita «${label}»`, citasText.includes(label));
+  }
+  ok("#citas ya no dice «Sin asignar» ni «Mostrar pruebas»", !/Sin asignar|Mostrar pruebas/.test(citasText));
   await ctx.close();
 }
 

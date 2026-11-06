@@ -27,7 +27,17 @@ export type BookingActionHandlers = {
   onRetryReminder: (bookingId: string, reminderId: string) => void;
   /** Limpia el error de la pantalla al abrir un editor (como antes). */
   onClearError: () => void;
+  /** 032 — «Tomarla»: el Vendedor se asigna una cita sin vendedor. */
+  onTake: (b: Booking) => void;
 };
+
+/** 032 — ¿Quien mira puede tomar esta cita? (Vendedor, sesión agendada sin vendedor). */
+export function canTakeBooking(
+  b: Pick<Booking, "kind" | "status" | "assignedUser">,
+  owner: boolean
+): boolean {
+  return !owner && b.kind === "session" && b.status === "agendada" && !b.assignedUser;
+}
 
 export function BookingActions({
   booking: b,
@@ -61,8 +71,10 @@ export function BookingActions({
           className="flex flex-wrap items-center gap-2"
         >
           {(b.reminders ?? []).map((r) => {
-            const view = describeReminder(r, (iso) =>
-              formatDue(iso, businessTimezone)
+            const view = describeReminder(
+              r,
+              (iso) => formatDue(iso, businessTimezone),
+              { owner }
             );
             const reminderId = r.id;
             return (
@@ -95,7 +107,7 @@ export function BookingActions({
       {b.linkPending && b.status !== "cancelada" && (
         <div className="flex flex-wrap items-center gap-2 rounded-sm bg-subtle p-2">
           <span className="text-sm text-text-2">
-            Esta cita quedó sin enlace: el proveedor no respondió.
+            No se pudo crear el enlace de la reunión. La cita sigue en pie.
           </span>
           <Button
             size="sm"
@@ -148,6 +160,17 @@ export function BookingActions({
             >
               Reprogramar
             </Button>
+            {canTakeBooking(b, owner) && (
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid="booking-take"
+                disabled={isBusy}
+                onClick={() => handlers.onTake(b)}
+              >
+                Tomarla
+              </Button>
+            )}
             {owner && b.kind === "session" && (
               <Button
                 size="sm"
@@ -161,7 +184,7 @@ export function BookingActions({
                   setReassigning((r) => !r);
                 }}
               >
-                Reasignar
+                {b.assignedUser ? "Reasignar" : "Asignar"}
               </Button>
             )}
           </ActionGroup>
@@ -225,7 +248,7 @@ export function BookingActions({
                 {s.name}
               </option>
             ))}
-            <option value="none">Sin asignar</option>
+            <option value="none">Sin vendedor</option>
           </select>
           <Button
             size="sm"
