@@ -66,4 +66,5 @@
   81/81, modulos-b 100/100, selftest 651/651. Revisión claro/oscuro 1366/390
   de /catalog (dos roles) y /reports (seis pestañas) + impresión del Resumen.
   Gate verde (185 archivos, 2546 tests)
-- [ ] C5 Merge, deploy y verificación en vivo
+- [x] C5 Merge, deploy y verificación en vivo — EN PROD ab7c7d7 (7-nov,
+  deploy leh0ctovytmxdowzebnset8r, healthy, sin migración; reversa 4fdbaac)
