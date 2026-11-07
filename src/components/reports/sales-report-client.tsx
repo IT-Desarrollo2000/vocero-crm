@@ -433,25 +433,28 @@ function SalesDayChart({ data }: { data: SalesByDayDto }) {
           />
         </svg>
       </div>
-      <table className="sr-only">
-        <caption>Ventas por día</caption>
-        <thead>
-          <tr>
-            <th scope="col">Día</th>
-            <th scope="col">Ventas</th>
-            <th scope="col">Monto</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.day}>
-              <th scope="row">{formatDayLong(r.day)}</th>
-              <td>{formatCount(r.won)}</td>
-              <td>{money(r.amountCents)}</td>
+      {/* 032 — Una <table> crece con su contenido aunque sea sr-only: el div de 1 px la recorta (si no, desborda la página a lo ancho). */}
+      <div className="sr-only">
+        <table>
+          <caption>Ventas por día</caption>
+          <thead>
+            <tr>
+              <th scope="col">Día</th>
+              <th scope="col">Ventas</th>
+              <th scope="col">Monto</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.day}>
+                <th scope="row">{formatDayLong(r.day)}</th>
+                <td>{formatCount(r.won)}</td>
+                <td>{money(r.amountCents)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

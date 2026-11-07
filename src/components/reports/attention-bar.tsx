@@ -57,25 +57,28 @@ export function AttentionBar({ data }: { data: AttentionDto }) {
           ))}
         </ul>
       </figcaption>
-      <table className="sr-only">
-        <caption>Reparto de atención de las conversaciones activas</caption>
-        <thead>
-          <tr>
-            <th scope="col">Atención</th>
-            <th scope="col">Conversaciones</th>
-            <th scope="col">Porcentaje</th>
-          </tr>
-        </thead>
-        <tbody>
-          {segments.map((s) => (
-            <tr key={s.key}>
-              <th scope="row">{s.label}</th>
-              <td>{formatCount(s.count)}</td>
-              <td>{formatPercent(s.share)}</td>
+      {/* 032 — Una <table> crece con su contenido aunque sea sr-only: el div de 1 px la recorta (si no, desborda la página a lo ancho). */}
+      <div className="sr-only">
+        <table>
+          <caption>Reparto de atención de las conversaciones activas</caption>
+          <thead>
+            <tr>
+              <th scope="col">Atención</th>
+              <th scope="col">Conversaciones</th>
+              <th scope="col">Porcentaje</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {segments.map((s) => (
+              <tr key={s.key}>
+                <th scope="row">{s.label}</th>
+                <td>{formatCount(s.count)}</td>
+                <td>{formatPercent(s.share)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

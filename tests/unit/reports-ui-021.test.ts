@@ -389,10 +389,24 @@ describe("021 — Resumen: cifras", () => {
     const base = summaryReport();
     const items = summaryTodayActions(base);
     expect(items.map((x) => [x.key, x.count, x.href])).toEqual([
-      ["pending", 2, "/inbox?filter=human"],
+      // 1 de los 2 pendientes está sin tomar: el Buzón (lo que abre el Propietario).
+      ["pending", 2, "/inbox?scope=inbox&filter=human"],
       ["team-pending", 1, "sellers"],
       ["external", 2, "/inbox?filter=human"],
     ]);
+    // Si la mayoría ya es de un vendedor, el Buzón no los mostraría: «Equipo».
+    const deVendedores = summaryTodayActions(
+      summaryReport({
+        pending: { ok: true, data: { total: 3, rows: [] } },
+        team: base.team.ok
+          ? { ok: true, data: { ...base.team.data, unassigned: { ...base.team.data.unassigned, pending: 1 } } }
+          : base.team,
+      })
+    );
+    expect(deVendedores.find((x) => x.key === "pending")?.href).toBe("/inbox?scope=team&filter=human");
+    // Sin el bloque Equipo, la vista de siempre.
+    const sinEquipo = summaryTodayActions(summaryReport({ team: { ok: false, error: "timeout" } }));
+    expect(sinEquipo.find((x) => x.key === "pending")?.href).toBe("/inbox?filter=human");
     expect(items[1]?.text).toBe("sin responder de Ana");
     expect(items[1]?.linkLabel).toBe("Ver Vendedores");
 

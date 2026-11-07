@@ -142,6 +142,19 @@ describe("temas", () => {
     // 032 fase B — Contactos, justo después de Seguimiento.
     expect(order.indexOf("contactos")).toBe(order.indexOf("seguimiento") + 1);
     expect(HELP_TOPICS.find((t) => t.id === "contactos")?.captura).toEqual(["contactos.png"]);
+    // 032 fase C — Catálogo: el panel del chat y la pantalla del menú.
+    expect(HELP_TOPICS.find((t) => t.id === "catalogo")?.captura).toEqual(["catalogo.png", "catalogo-atajos.png"]);
+  });
+
+  it("032 fase C — el tema del catálogo es para vendedores (nada del Propietario ni de Reportes)", () => {
+    const text = JSON.stringify(HELP_TOPICS.find((t) => t.id === "catalogo"));
+    // Esos rótulos solo los ve el Propietario en «Catálogo».
+    for (const ownerOnly of ["Le falta", "Listo para mandar", "Crear atajos", "Nuevo producto"]) {
+      expect(text, ownerOnly).not.toContain(ownerOnly);
+    }
+    expect(text).toContain("pídele al propietario");
+    // Reportes es solo del Propietario: ningún tema de la guía lo menciona.
+    expect(JSON.stringify(HELP_TOPICS)).not.toMatch(/Reportes|reporte/);
   });
 
   it("no le presenta al vendedor lo que solo hace el Propietario", () => {
@@ -205,6 +218,17 @@ describe("temas", () => {
       "«Nunca te ha escrito · el primer mensaje tiene que ser uno aprobado»",
       "«Sin teléfono: no hay a dónde mandarle el primer mensaje»",
       "«No se pudieron cargar los contactos.»",
+      // 032 fase C — Catálogo
+      "«Para mandarle un producto a un cliente:»",
+      "«Copiar»",
+      "«Copiado»",
+      "«Pausado: no se puede mandar»",
+      "«Sin fotos todavía: pídele al propietario que las suba.»",
+      "«Sin ficha PDF»",
+      "«Sin atajo todavía»",
+      "«No se pudo copiar: escribe … en el chat.»",
+      "«Todavía no hay productos»",
+      "«No se puede mandar por aquí: …»",
     ]) {
       expect(text, label).toContain(label);
     }

@@ -138,11 +138,13 @@ Captura: `adjunto.png`
 
 ## 4. `catalogo` — Productos · «Quiero mandarle un producto»
 
-Índice: Fotos y fichas desde el Catálogo.
+Índice: Fotos y fichas desde el Catálogo, o con su atajo.
 
 **Intro:** el **Catálogo** guarda las fotos y fichas de los productos para
-que las mandes sin buscarlas en tu computadora.
+que las mandes sin buscarlas en tu computadora. Se mandan desde el chat del
+cliente; «Catálogo» en el menú sirve para ver los productos y copiar su atajo.
 
+**Desde el chat:**
 1. En el chat haz clic en el botón «Catálogo», junto a «Adjuntar».
 2. Busca por «Nombre o código» o elige una categoría.
 3. Abre el producto, marca las fotos o fichas que quieras y haz clic en
@@ -150,18 +152,43 @@ que las mandes sin buscarlas en tu computadora.
    mensaje.
 4. Envía. Primero sale tu texto y después los archivos, en ese orden.
 
-Atajo: algunas respuestas rápidas ya traen los archivos de un producto; al
-elegirlas con **/** se agregan solos.
+**Con su atajo** (032):
+1. En el menú, abre «Catálogo». Arriba dice «Para mandarle un producto a un
+   cliente:» y cada producto trae sus atajos, por ejemplo `/fotos_sal-014`
+   (sus fotos) o `/ficha_sal-014` (su ficha).
+2. Haz clic en «Copiar» junto al atajo; el botón dice «Copiado».
+3. En el chat del cliente, pégalo y elígelo en la lista que aparece: se
+   agregan solas sus fotos o su ficha. Revisa y envía.
+
+Atajo: los atajos son respuestas rápidas: también puedes escribirlos
+empezando con **/**, sin pasar por «Catálogo».
 
 **¿Y si…?**
-- «El catálogo está vacío.»: pídele al propietario que suba los productos.
+- Un producto dice «Pausado: no se puede mandar»: el propietario lo pausó
+  (por ejemplo, porque se agotó) y no aparece en «Catálogo» dentro del chat
+  ni en sus atajos. Ofrécele otro parecido; si el cliente lo quiere,
+  pregúntale al propietario cuándo vuelve.
+- Dice «Sin fotos todavía: pídele al propietario que las suba.» o «Sin ficha
+  PDF»: a ese producto le falta algo. Pídele al propietario que lo suba y,
+  mientras, manda lo que sí tiene.
+- Dice «Sin atajo todavía»: mándalo desde «Catálogo» en el chat.
+- Sale «No se pudo copiar: escribe … en el chat.»: tu navegador no dejó
+  copiar; escribe el atajo tal cual.
+- «Todavía no hay productos» o «El catálogo está vacío.»: pídele al
+  propietario que suba los productos.
+- Un archivo dice «No se puede mandar por aquí: …»: ese canal no acepta ese
+  tipo de archivo; elige otro.
 - Un archivo dice «No compatible · no se envía»: ese canal no acepta ese
   tipo de archivo; quítalo.
 - Máximo 10 archivos por envío.
 - Si ya tenías un archivo de «Adjuntar», quítalo para usar el catálogo (no
   se mezclan).
 
-Captura: `catalogo.png`
+(«Le falta: …» y «Listo para mandar» solo los ve el Propietario: la guía es
+para vendedores.)
+
+Captura: `catalogo.png` (panel «Catálogo» del chat) y `catalogo-atajos.png`
+(032: «Catálogo» del menú visto por la vendedora, con «Copiar» y un pausado)
 
 ---
 

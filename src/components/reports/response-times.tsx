@@ -100,27 +100,30 @@ export function ResponseTimes({
             </div>
           ))}
         </div>
-        <table id={`${titleId}-t`} className="sr-only">
-          <caption>Tiempo a primera respuesta por quién respondió</caption>
-          <thead>
-            <tr>
-              <th scope="col">Quién respondió</th>
-              <th scope="col">La mitad, en menos de</th>
-              <th scope="col">9 de cada 10, en menos de</th>
-              <th scope="col">Conversaciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.key}>
-                <th scope="row">{r.label}</th>
-                <td>{formatDuration(r.p50)}</td>
-                <td>{formatDuration(r.p90)}</td>
-                <td>{formatCount(r.sessions)}</td>
+        {/* 032 — Una <table> crece con su contenido aunque sea sr-only: el div de 1 px la recorta (si no, desborda la página a lo ancho). */}
+        <div className="sr-only">
+          <table id={`${titleId}-t`}>
+            <caption>Tiempo a primera respuesta por quién respondió</caption>
+            <thead>
+              <tr>
+                <th scope="col">Quién respondió</th>
+                <th scope="col">La mitad, en menos de</th>
+                <th scope="col">9 de cada 10, en menos de</th>
+                <th scope="col">Conversaciones</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key}>
+                  <th scope="row">{r.label}</th>
+                  <td>{formatDuration(r.p50)}</td>
+                  <td>{formatDuration(r.p90)}</td>
+                  <td>{formatCount(r.sessions)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </figure>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

@@ -277,6 +277,20 @@ export type TodayAction = {
 };
 
 /**
+ * 032 — A qué vista de la Bandeja lleva «N personas esperan respuesta». El
+ * Propietario abre por defecto el Buzón (sin tomar): si la mayoría de los
+ * pendientes ya son de un vendedor, ahí no se verían, así que va a «Equipo».
+ * Siempre en «Por atender». Sin el bloque Equipo, la vista de siempre.
+ */
+function pendingInboxHref(report: SummaryReportDto, total: number): string {
+  if (!report.team.ok) return "/inbox?filter=human";
+  const unassigned = report.team.data.unassigned.pending;
+  return unassigned >= total - unassigned
+    ? "/inbox?scope=inbox&filter=human"
+    : "/inbox?scope=team&filter=human";
+}
+
+/**
  * 032 — «Lo que toca hoy»: lo que alguien puede resolver ya, armado SOLO
  * con los bloques que el Resumen ya trae (sin consultas nuevas). Un bloque
  * caído no inventa tarjetas; sin nada pendiente, la lista sale vacía.
@@ -290,7 +304,7 @@ export function summaryTodayActions(report: SummaryReportDto): TodayAction[] {
       count: t,
       text: t === 1 ? "persona espera respuesta" : "personas esperan respuesta",
       linkLabel: "Ir a la Bandeja",
-      href: "/inbox?filter=human",
+      href: pendingInboxHref(report, t),
     });
   }
   const top = report.team.ok ? report.team.data.topPending : null;

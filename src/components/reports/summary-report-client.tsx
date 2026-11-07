@@ -183,7 +183,9 @@ function Kpis({
   loading: boolean;
 }) {
   const a = attention?.ok ? attention.data : null;
-  const ap = a?.previous ?? null;
+  // 032 — Sin datos del periodo anterior no se compara («nuevo vs. …» sería
+  // engañoso): lo explica `ComparisonNote` debajo, como en el diseño.
+  const ap = hasPreviousData(a?.previous) ? (a?.previous ?? null) : null;
   const s = sales?.ok ? sales.data : null;
   const sp = s?.previous ?? null;
   const aUnavailable = !loading && !a;
@@ -234,7 +236,9 @@ function Kpis({
         detail={a ? previousRate(ap?.answeredRate) : undefined}
         help={`Les contestó la IA o alguien del equipo.${
           unanswered > 0
-            ? ` A ${formatCount(unanswered)} nadie les ha respondido.`
+            ? unanswered === 1
+              ? " A 1 nadie le ha respondido."
+              : ` A ${formatCount(unanswered)} nadie les ha respondido.`
             : ""
         }`}
         loading={loading}
@@ -288,14 +292,20 @@ function previousRate(rate: number | null | undefined): string | undefined {
   return rate === undefined || rate === null ? undefined : `Antes: ${formatPercent(rate)}`;
 }
 
+/** ¿El periodo anterior trae algo con qué comparar? */
+function hasPreviousData(
+  p: { inbound: number; persons: number; leads: number } | null | undefined
+): boolean {
+  return !!p && (p.inbound > 0 || p.persons > 0 || p.leads > 0);
+}
+
 /**
  * 032 — Sin datos del periodo anterior, la comparación se explica en vez de
  * mostrar un «+100 %» engañoso o nada.
  */
 function ComparisonNote({ attention }: { attention: ReportBlock<SummaryAttentionDto> }) {
   if (!attention.ok) return null;
-  const p = attention.data.previous;
-  if (p && (p.inbound > 0 || p.persons > 0 || p.leads > 0)) return null;
+  if (hasPreviousData(attention.data.previous)) return null;
   return (
     <p className="text-xs text-text-3" data-testid="summary-no-previous">
       Sin comparación con el periodo anterior: el CRM no tiene datos de esas fechas.

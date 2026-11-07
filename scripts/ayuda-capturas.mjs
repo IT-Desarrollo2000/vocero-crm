@@ -26,6 +26,10 @@
  *                          escribió (Elena Vargas, alta a mano), Instagram
  *                          (Paola Núñez), de Marco, «Tomar y responder» y el
  *                          aviso «Archivaste a Raúl Sánchez… · Deshacer»
+ *   catalogo-atajos.png    (032 C) «Catálogo» del menú: «Para mandarle un
+ *                          producto a un cliente:», Lisboa con sus 2 atajos
+ *                          y «Copiar», Nogal con 3 fotos y sin ficha, y el
+ *                          Comedor Roble «Pausado: no se puede mandar»
  *
  * 032 — Para esas dos se siembra además un segundo vendedor («Marco Ríos»,
  * sin iniciar sesión), Mónica Pérez y Raúl Sánchez, los tratos en sus etapas
@@ -36,7 +40,9 @@
  * Con `--revisar <dir>` además deja en <dir> la página /ayuda completa (por
  * tramos), tres pantallas en tema OSCURO y (032) `/pipeline` y `/bookings`
  * como vendedora y propietario, claro y oscuro, a 1366×768 y 390×844, para
- * revisarlas a ojo (no se publican). Fase B suma `/contacts` a esa revisión.
+ * revisarlas a ojo (no se publican). Fase B suma `/contacts` a esa revisión;
+ * fase C, `/catalog` (los dos roles) y las pestañas de `/reports`
+ * (Propietario) con su impresión del Resumen.
  *
  * Uso: BD aislada RECIÉN RESETEADA (la lista debe tener solo estos clientes)
  * y app con .env.e2e (mocks, AGENDA=on, CATALOG_STORAGE=local):
@@ -237,7 +243,7 @@ async function productPhoto(label, from, to) {
   const ctx = await browser.newContext({ viewport: { width: 640, height: 480 } });
   const page = await ctx.newPage();
   await page.setContent(
-    `<div style="width:640px;height:480px;display:flex;align-items:flex-end;justify-content:flex-start;background:linear-gradient(135deg,${from},${to});font:600 34px system-ui,sans-serif;color:#fff;padding:28px;box-sizing:border-box">${label}</div>`
+    `<body style="margin:0"><div style="width:640px;height:480px;display:flex;align-items:flex-end;justify-content:flex-start;background:linear-gradient(135deg,${from},${to});font:600 34px system-ui,sans-serif;color:#fff;padding:28px;box-sizing:border-box">${label}</div>`
   );
   const buf = await page.screenshot({ type: "png" });
   await ctx.close();
@@ -700,18 +706,104 @@ async function contactsCapture() {
   await ctx.close();
 }
 
-/** 032 — Revisión a ojo de /pipeline, /bookings y /contacts (no se publica). */
+// ── 032 fase C: Catálogo ────────────────────────────────────────────────
+
+/**
+ * Como el diseño (`Catalogo-vendedor.dc.html`): Nogal con 3 fotos y solo su
+ * atajo de fotos, Lisboa con sus dos atajos y el Comedor Roble pausado y sin
+ * fotos. Va DESPUÉS de las demás capturas para no cambiarlas.
+ */
+async function seedCatalogShortcuts() {
+  console.log("\n== 032 C: siembra del catálogo para la vendedora (datos ficticios) ==");
+  const cat = (await owner.api("/api/catalog")).json;
+  const byName = (n) => (cat?.products ?? []).find((p) => p.name === n);
+  const lisboa = byName("Sala modular Lisboa");
+  const nogal = byName("Comedor Nogal 6 sillas");
+  const comedores = (cat?.categories ?? []).find((c) => c.name === "Comedores");
+  if (nogal?.categoryId !== comedores?.id) {
+    await owner.api(`/api/catalog/products/${nogal?.id}`, { method: "PATCH", body: body({ categoryId: comedores?.id }) });
+  }
+  for (const [file, from, to] of [
+    ["nogal-frente.png", "#8b5e3c", "#5c3b22"],
+    ["nogal-lado.png", "#a47148", "#6f4a2c"],
+    ["nogal-detalle.png", "#c08a5b", "#7d5434"],
+  ]) {
+    const fd = new FormData();
+    fd.set("file", new Blob([await productPhoto("Comedor Nogal", from, to)], { type: "image/png" }), file);
+    const up = await owner.api(`/api/catalog/products/${nogal?.id}/files`, { method: "POST", body: fd });
+    ok(`foto ${file}`, up.res.ok, short(up));
+  }
+  const roble = await owner.api("/api/catalog/products", {
+    method: "POST",
+    body: body({ name: "Comedor Roble 4 sillas", code: "COM-004", categoryId: comedores?.id, price: "$16,800" }),
+  });
+  ok("producto «Comedor Roble 4 sillas»", roble.res.status === 201, short(roble));
+  const off = await owner.api(`/api/catalog/products/${roble.json?.product?.id}`, { method: "PATCH", body: body({ active: false }) });
+  ok("Comedor Roble pausado (se agotó)", off.res.ok, short(off));
+  for (const [p, kind, attach, what] of [
+    [lisboa, "fotos", "images", "las fotos"],
+    [lisboa, "ficha", "documents", "la ficha técnica"],
+    [nogal, "fotos", "images", "las fotos"],
+  ]) {
+    const shortcut = `${kind}_${p?.code?.toLowerCase()}`;
+    const r = await owner.api("/api/quick-replies", {
+      method: "POST",
+      body: body({ shortcut, title: `${kind === "fotos" ? "Fotos" : "Ficha técnica"} ${p?.name}`, body: `Te comparto ${what} de {{producto}}`, productId: p?.id, attach }),
+    });
+    ok(`atajo /${shortcut}`, r.res.status === 201, short(r));
+  }
+}
+
+async function catalogCapture() {
+  console.log("\n== 032 C: captura de «Catálogo» (claro, 1366×768, como vendedora) ==");
+  const { ctx, page } = await newPage();
+  await page.goto(`${BASE}/catalog`, { waitUntil: "load", timeout: 90000 });
+  await page.getByTestId("catalog-how-to-send").waitFor({ timeout: 60000 });
+  const list = page.getByRole("list", { name: "Productos" });
+  ok("3 productos", await until(async () => (await list.locator(":scope > li").count()) === 3, 30000));
+  ok("atajos con «Copiar» (3)", await until(async () => (await page.getByRole("button", { name: /^Copiar \// }).count()) === 3, 20000));
+  ok("«Pausado: no se puede mandar»", (await page.getByText("Pausado: no se puede mandar").count()) === 1);
+  const imgs = list.locator("img");
+  ok("portadas cargadas", await until(async () =>
+    (await imgs.count()) >= 2 &&
+    (await imgs.evaluateAll((all) => all.every((i) => i.complete && i.naturalWidth > 0))), 20000));
+  await sleep(800);
+  // Solo la columna del Catálogo (sin el menú): en la guía se lee mejor.
+  const header = page.locator("main header").filter({ has: page.getByRole("heading", { name: "Catálogo" }) }).first();
+  const hb = await header.boundingBox();
+  await save(page, "catalogo-atajos.png", await clipOf(page, [header, list], { pad: 12, left: hb?.x ?? 0 }));
+  await ctx.close();
+}
+
+/** 032 — Revisión a ojo de /pipeline, /bookings, /contacts, /catalog y /reports (no se publica). */
 async function reviewModules() {
   if (!REVIEW) return;
+  const REPORT_TABS = ["summary", "agent", "bookings", "sales", "sellers", "ads"].map((t) => [`/reports/${t}`, `reportes-${t}`]);
   for (const [as, who] of [[seller, "vend"], [owner, "prop"]]) {
     for (const dark of [false, true]) {
       for (const [vp, vpName] of [[VIEWPORT, "1366"], [{ width: 390, height: 844 }, "390"]]) {
         const { ctx, page } = await newPage({ as, dark, viewport: vp });
-        for (const [url, name] of [["/pipeline", "seguimiento"], ["/bookings", "citas"], ["/contacts", "contactos"]]) {
+        const pages = [["/pipeline", "seguimiento"], ["/bookings", "citas"], ["/contacts", "contactos"], ["/catalog", "catalogo"], ...(as === owner ? REPORT_TABS : [])];
+        for (const [url, name] of pages) {
           await page.goto(`${BASE}${url}`, { waitUntil: "load", timeout: 90000 });
           await sleep(3500);
+          // Reportes: que termine de cargar (el botón del PDF se habilita).
+          if (url.startsWith("/reports")) await until(async () => await page.getByTestId("report-print").isEnabled(), 60000);
           const file = `${who}-${name}-${dark ? "oscuro" : "claro"}-${vpName}.png`;
-          await page.screenshot({ path: path.join(REVIEW, file), fullPage: true, animations: "disabled", caret: "hide" });
+          // La app hace scroll DENTRO de un contenedor: para la foto entera se
+          // agranda el viewport a su alto y se restaura.
+          const tall = await page.evaluate(() =>
+            Math.max(
+              document.documentElement.scrollHeight,
+              ...[...document.querySelectorAll("main, main *")]
+                .filter((e) => /(auto|scroll)/.test(getComputedStyle(e).overflowY))
+                .map((e) => e.scrollHeight + e.getBoundingClientRect().top)
+            )
+          );
+          if (tall > vp.height) await page.setViewportSize({ width: vp.width, height: Math.min(Math.ceil(tall) + 40, 8000) });
+          await sleep(400);
+          await page.screenshot({ path: path.join(REVIEW, file), animations: "disabled", caret: "hide" });
+          await page.setViewportSize(vp);
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
           ok(`${file} (desborde horizontal ${overflow}px)`, overflow <= 0);
         }
@@ -719,6 +811,17 @@ async function reviewModules() {
       }
     }
   }
+  // Impresión del Resumen (Descargar PDF): «Lo que toca hoy» no va al papel.
+  const { ctx, page } = await newPage({ as: owner });
+  await page.goto(`${BASE}/reports/summary`, { waitUntil: "load", timeout: 90000 });
+  await until(async () => await page.getByTestId("report-print").isEnabled(), 60000);
+  await sleep(2500);
+  await page.emulateMedia({ media: "print" });
+  await sleep(600);
+  ok("impresión: sin «Lo que toca hoy»", !(await page.getByTestId("summary-today").isVisible()));
+  await page.screenshot({ path: path.join(REVIEW, "prop-reportes-summary-impresion.png"), fullPage: true, animations: "disabled" });
+  await page.pdf({ path: path.join(REVIEW, "prop-reportes-summary.pdf"), format: "Letter", printBackground: true }).catch(() => {});
+  await ctx.close();
 }
 
 /** Revisión a ojo (no se publica): /ayuda por tramos + tema oscuro. */
@@ -773,6 +876,8 @@ async function main() {
     await moduleCaptures(seeded);
     await seedContacts(seeded);
     await contactsCapture();
+    await seedCatalogShortcuts();
+    await catalogCapture();
     await review();
     await reviewModules();
   } finally {
