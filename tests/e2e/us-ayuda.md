@@ -67,6 +67,14 @@ Para cada `next` = `//evil.com`, `https://evil.com`, `/%2F%2Fevil.com`,
   contacto», «Sin teléfono» y «Lo atiende», más su «¿Y en Instagram y
   Messenger?»; no dice «Ver archivados». En la pasada `--off` sigue, sin
   nombrar Instagram ni Messenger.
+- 032 fase C — `#catalogo` («Quiero mandarle un producto») está en las dos
+  pasadas con sus dos caminos, «Desde el chat» y «Con su atajo», y cita «Para
+  mandarle un producto a un cliente:», «Copiar», «Copiado», «Pausado: no se
+  puede mandar», «pídele al propietario», «Sin atajo todavía», «No se pudo
+  copiar» y «No se puede mandar por aquí». No trae rótulos que solo ve el
+  Propietario («Le falta», «Listo para mandar», «Crear atajos») y ninguna
+  parte de la guía menciona Reportes. Capturas: `catalogo.png` (panel del
+  chat) y `catalogo-atajos.png` («Catálogo» del menú, vista de vendedora).
 
 ## f) Pantallas que se explican solas (US-3, CA-4) — como vendedora
 

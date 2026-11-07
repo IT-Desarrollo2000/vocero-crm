@@ -1,12 +1,12 @@
 import { useId } from "react";
-import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EMPTY_VALUE } from "./format";
 
 /**
- * Cifra principal de una métrica. La definición (la fórmula de dev-tasks/02)
- * va como ayuda: visible al pasar el cursor y leída por el lector de
- * pantalla como descripción de la tarjeta.
+ * Cifra principal de una métrica. 032 — La definición va VISIBLE bajo el
+ * número, en palabras simples (nada de ⓘ ni de texto al pasar el cursor), y
+ * el lector de pantalla la lee como descripción de la tarjeta. También sale
+ * en el PDF.
  */
 export function KpiTile({
   label,
@@ -20,7 +20,9 @@ export function KpiTile({
   label: string;
   /** Ya formateado («25 %», «4 s», «—»). */
   value: string;
+  /** Qué cuenta el número, en una frase corta. */
   help: string;
+  /** Comparación o desglose («3 nuevas · +25 % vs. …»). */
   detail?: string;
   loading?: boolean;
   unavailable?: boolean;
@@ -35,17 +37,12 @@ export function KpiTile({
       aria-describedby={helpId}
       aria-busy={loading || undefined}
       data-testid={testId}
-      className="min-w-0 rounded-lg border bg-card p-4 shadow-sm print:break-inside-avoid print:p-3 print:shadow-none"
+      className="flex min-w-0 flex-col rounded-lg border bg-card p-4 shadow-sm print:break-inside-avoid print:p-3 print:shadow-none"
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <span title={help} className="shrink-0 text-text-4 print:hidden">
-          <Info className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
-      </div>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p
         className={cn(
-          "mt-1 text-2xl font-semibold tabular-nums",
+          "mt-1 break-words text-2xl font-semibold tabular-nums",
           (loading || unavailable || shown === EMPTY_VALUE) && "text-text-3"
         )}
       >
@@ -54,11 +51,11 @@ export function KpiTile({
       {unavailable ? (
         <p className="mt-0.5 text-xs text-warning-text">No disponible</p>
       ) : (
-        detail && <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
+        detail && <p className="mt-0.5 text-xs text-text-2">{detail}</p>
       )}
-      <span id={helpId} className="sr-only">
+      <p id={helpId} className="mt-1.5 text-xs leading-snug text-muted-foreground print:text-[10px]">
         {help}
-      </span>
+      </p>
     </div>
   );
 }

@@ -75,7 +75,7 @@ export function CategoriesDialog({
   return (
     <CatalogDialog
       title="Categorías"
-      description="Un solo nivel. Borrar una categoría deja sus productos sin categoría."
+      description="Sirven para agrupar los productos (sin subcategorías). Si borras una, sus productos se quedan sin categoría; no se borran."
       onClose={onClose}
     >
       <form

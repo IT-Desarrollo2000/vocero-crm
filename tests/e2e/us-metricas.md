@@ -51,12 +51,13 @@ A (leído) y B (entregado) sí se pueden verificar.
 ## Checks de UI (selectores de la pantalla 02-B)
 
 - Menú «Reportes» (Propietario sí, Vendedor no); `/reports` → 404 al Vendedor.
-- Títulos: «Reparto de atención», «Volumen por día y canal», «Escalamientos por
-  motivo», «Tiempo a primera respuesta», «Salientes fallidas», «Entrega y lectura».
+- Títulos: «Reparto de atención», «Volumen por día y canal», «Pasadas a una persona,
+  por motivo», «Tiempo a primera respuesta», «Mensajes que no salieron», «Entrega y
+  lectura» (032: antes «Escalamientos por motivo» y «Salientes fallidas»).
 - KPIs `data-testid`: `kpi-active` (mismo número que la API), `kpi-ai-only`,
   `kpi-escalations`, `kpi-ai-p50`, `kpi-failed`.
 - `[data-testid="manual-reply-pauses"]` dice «Pausas por respuesta manual: N».
 - `[data-testid="approximate-notice"]` visible; tabla
-  `[aria-label="Escalamientos por motivo"]` con la nota de B.
+  `[aria-label="Pasadas a una persona, por motivo"]` con la nota de B.
 - `[role=group][aria-label="Rango del reporte"]` → «90 días» pone `range=90d`
   en la URL y `svg[data-testid="volume-chart"]` queda con `data-days="90"`.

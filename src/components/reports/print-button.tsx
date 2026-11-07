@@ -42,20 +42,31 @@ export function PrintButton() {
     window.setTimeout(restore, 1000);
   }
 
+  // 032 — Deshabilitado, el motivo se lee junto al botón (nada de `title`).
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={print}
-      // Sin respuesta del servidor el PDF saldría con los esqueletos de carga.
-      disabled={!meta}
-      title={meta ? undefined : "Espera a que cargue el reporte"}
-      className="shrink-0 print:hidden"
-      data-testid="report-print"
-    >
-      <FileDown className="h-4 w-4" aria-hidden="true" />
-      Descargar PDF
-    </Button>
+    <div className="flex shrink-0 flex-col items-end gap-1 print:hidden">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={print}
+        // Sin respuesta del servidor el PDF saldría con los esqueletos de carga.
+        disabled={!meta}
+        aria-describedby={meta ? undefined : "report-print-reason"}
+        data-testid="report-print"
+      >
+        <FileDown className="h-4 w-4" aria-hidden="true" />
+        Descargar PDF
+      </Button>
+      {!meta && (
+        <p
+          id="report-print-reason"
+          data-testid="report-print-reason"
+          className="max-w-[11rem] text-right text-[11px] leading-tight text-muted-foreground"
+        >
+          Se activa cuando el reporte termina de cargar.
+        </p>
+      )}
+    </div>
   );
 }

@@ -52,17 +52,20 @@ export function coverImage(product: Pick<CatalogProductDto, "files">): CatalogFi
   return images.find((f) => f.variantId === null) ?? images[0];
 }
 
+/** Grupo de archivos que no son de una sola variante. */
+export const SHARED_FILES_LABEL = "Para todas las variantes";
+
 export type FileGroup = {
-  /** null = compartidos por todas las variantes. */
+  /** null = para todas las variantes. */
   variantId: string | null;
   label: string;
   files: CatalogFileDto[];
 };
 
 /**
- * Archivos agrupados para el detalle: primero "Compartidos" (siempre, aunque
+ * Archivos agrupados para el detalle: primero "Para todas las variantes" (siempre, aunque
  * esté vacío) y luego uno por variante, en el orden de las variantes. Un
- * archivo cuya variante ya no viene en la lista cae en "Compartidos".
+ * archivo cuya variante ya no viene en la lista cae en ese primer grupo.
  */
 export function groupFiles(
   product: Pick<CatalogProductDto, "files" | "variants">
@@ -74,7 +77,7 @@ export function groupFiles(
     (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1)
   );
   return [
-    { variantId: null, label: "Compartidos", files: shared },
+    { variantId: null, label: SHARED_FILES_LABEL, files: shared },
     ...variants.map((v) => ({
       variantId: v.id,
       label: v.name,

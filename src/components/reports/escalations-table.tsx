@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Info, PhoneOff } from "lucide-react";
+import { History, PhoneOff } from "lucide-react";
 import { barPercent } from "./chart";
 import {
   formatCount,
@@ -29,14 +29,14 @@ export function EscalationsTable({
 
       {data.byReason.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          El agente no escaló ninguna conversación en este rango.
+          La IA no pasó ninguna conversación al equipo en este rango.
         </p>
       ) : (
-        <table className="w-full text-sm" aria-label="Escalamientos por motivo">
+        <table className="w-full text-sm" aria-label="Pasadas a una persona, por motivo">
           <thead className="sr-only">
             <tr>
               <th scope="col">Motivo</th>
-              <th scope="col">Escalamientos</th>
+              <th scope="col">Veces</th>
               <th scope="col">Porcentaje del total</th>
               <th scope="col">Notas de muestra</th>
             </tr>
@@ -89,24 +89,21 @@ export function EscalationsTable({
       )}
 
       <p
-        className="flex items-center gap-2 border-t pt-3 text-sm text-muted-foreground"
+        className="flex items-start gap-2 border-t pt-3 text-sm text-muted-foreground"
         data-testid="manual-reply-pauses"
       >
-        <PhoneOff className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span>
-          Pausas por respuesta manual:{" "}
-          <span className="font-semibold text-foreground tabular-nums">
-            {formatCount(data.manualReplyPauses)}
+        <PhoneOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0">
+          <span className="block">
+            Pausas por respuesta manual:{" "}
+            <span className="font-semibold text-foreground tabular-nums">
+              {formatCount(data.manualReplyPauses)}
+            </span>
           </span>
-        </span>
-        <span
-          className="text-text-4"
-          title="Veces que alguien respondió desde la app del teléfono y la IA se pausó sola. No es un escalamiento del agente."
-        >
-          <Info className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="sr-only">
-            Veces que alguien respondió desde la app del teléfono y la IA se
-            pausó sola. No es un escalamiento del agente.
+          {/* 032 — La explicación, visible (antes iba en un ⓘ con `title`). */}
+          <span className="block text-xs">
+            Veces que alguien contestó desde la app del teléfono y la IA se pausó sola. No es que
+            la IA haya pasado el chat.
           </span>
         </span>
       </p>
@@ -157,13 +154,13 @@ function ApproximateNotice({
       data-testid="approximate-notice"
       className="flex items-start gap-2 rounded-md border border-info-soft bg-info-tint px-3 py-2 text-xs text-info-text"
     >
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <History className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span>
-        Datos aproximados: este rango incluye escalamientos anteriores al
-        registro histórico
-        {since ? ` (exacto desde el ${formatDateTime(since, timezone)})` : ""}.
-        De esa época solo se conoce el último escalamiento de cada
-        conversación, así que el conteo puede quedarse corto.
+        Datos aproximados: este rango incluye fechas de antes de que el CRM guardara cada vez
+        que la IA pasa un chat
+        {since ? ` (exacto desde el ${formatDateTime(since, timezone)})` : ""}. De esa época
+        solo se sabe la última vez de cada conversación, así que el conteo puede quedarse
+        corto.
       </span>
     </p>
   );

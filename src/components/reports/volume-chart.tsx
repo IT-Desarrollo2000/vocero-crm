@@ -39,7 +39,7 @@ export function VolumeChart({
   const y = (v: number) => PAD.top + plotH - (v / max) * plotH;
 
   const total = series.inbound + series.outbound;
-  const summary = `Volumen de mensajes por día: ${series.days.length} días, ${formatCount(total)} mensajes (${formatCount(series.inbound)} entrantes, ${formatCount(series.outbound)} salientes)`;
+  const summary = `Volumen de mensajes por día: ${series.days.length} días, ${formatCount(total)} mensajes (${formatCount(series.inbound)} recibidos, ${formatCount(series.outbound)} enviados)`;
 
   return (
     <figure className="m-0">
@@ -59,7 +59,7 @@ export function VolumeChart({
           ))
         )}
         <span className="ml-auto tabular-nums">
-          {formatCount(series.inbound)} entrantes · {formatCount(series.outbound)} salientes
+          {formatCount(series.inbound)} recibidos · {formatCount(series.outbound)} enviados
         </span>
       </div>
 
@@ -104,7 +104,7 @@ export function VolumeChart({
             const tooltip = [
               `${formatDayLong(d.day)}: ${formatCount(d.total)} mensajes`,
               ...segments.map((s) => `${s.label}: ${formatCount(s.value)}`),
-              `${formatCount(d.inbound)} entrantes · ${formatCount(d.outbound)} salientes`,
+              `${formatCount(d.inbound)} recibidos · ${formatCount(d.outbound)} enviados`,
             ].join("\n");
             return (
               <g key={d.day} data-testid="volume-day" data-day={d.day}>
@@ -158,33 +158,36 @@ export function VolumeChart({
         </svg>
       </div>
 
-      <table className="sr-only">
-        <caption>Mensajes por día y canal</caption>
-        <thead>
-          <tr>
-            <th scope="col">Día</th>
-            {series.channels.map((c) => (
-              <th key={c} scope="col">
-                {CHANNEL_LABEL[c]}
-              </th>
-            ))}
-            <th scope="col">Entrantes</th>
-            <th scope="col">Salientes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {series.days.map((d) => (
-            <tr key={d.day}>
-              <th scope="row">{formatDayLong(d.day)}</th>
+      {/* 032 — Una <table> crece con su contenido aunque sea sr-only: el div de 1 px la recorta (si no, desborda la página a lo ancho). */}
+      <div className="sr-only">
+        <table>
+          <caption>Mensajes por día y canal</caption>
+          <thead>
+            <tr>
+              <th scope="col">Día</th>
               {series.channels.map((c) => (
-                <td key={c}>{formatCount(d.byChannel[c])}</td>
+                <th key={c} scope="col">
+                  {CHANNEL_LABEL[c]}
+                </th>
               ))}
-              <td>{formatCount(d.inbound)}</td>
-              <td>{formatCount(d.outbound)}</td>
+              <th scope="col">Recibidos</th>
+              <th scope="col">Enviados</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {series.days.map((d) => (
+              <tr key={d.day}>
+                <th scope="row">{formatDayLong(d.day)}</th>
+                {series.channels.map((c) => (
+                  <td key={c}>{formatCount(d.byChannel[c])}</td>
+                ))}
+                <td>{formatCount(d.inbound)}</td>
+                <td>{formatCount(d.outbound)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

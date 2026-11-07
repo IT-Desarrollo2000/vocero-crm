@@ -246,12 +246,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "catalogo",
     antetitulo: "Productos",
     titulo: "Quiero mandarle un producto",
-    resumen: "Fotos y fichas desde el Catálogo.",
+    resumen: "Fotos y fichas desde el Catálogo, o con su atajo.",
     intro:
-      "El **Catálogo** guarda las fotos y fichas de los productos para que las mandes sin buscarlas en tu computadora.",
+      "El **Catálogo** guarda las fotos y fichas de los productos para que las mandes sin buscarlas en tu computadora. Se mandan desde el chat del cliente; «Catálogo» en el menú sirve para ver los productos y copiar su atajo.",
     bloques: [
       {
         tipo: "pasos",
+        titulo: "Desde el chat",
         items: [
           "En el chat haz clic en el botón «Catálogo», junto a «Adjuntar».",
           "Busca por «Nombre o código» o elige una categoría.",
@@ -260,25 +261,39 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        tipo: "pasos",
+        titulo: "Con su atajo",
+        items: [
+          "En el menú, abre «Catálogo». Arriba dice «Para mandarle un producto a un cliente:» y cada producto trae sus atajos, por ejemplo `/fotos_sal-014` (sus fotos) o `/ficha_sal-014` (su ficha).",
+          "Haz clic en «Copiar» junto al atajo; el botón dice «Copiado».",
+          "En el chat del cliente, pégalo y elígelo en la lista que aparece: se agregan solas sus fotos o su ficha. Revisa y envía.",
+        ],
+      },
+      {
         tipo: "parrafo",
         tono: "nota",
         titulo: "Atajo",
         texto:
-          "Algunas respuestas rápidas ya traen los archivos de un producto; al elegirlas con **/** se agregan solos.",
+          "Los atajos son respuestas rápidas: también puedes escribirlos empezando con **/**, sin pasar por «Catálogo».",
       },
       {
         tipo: "lista",
         tono: "siNo",
         titulo: "¿Y si…?",
         items: [
-          "«El catálogo está vacío.»: pídele al propietario que suba los productos.",
+          "Un producto dice «Pausado: no se puede mandar»: el propietario lo pausó (por ejemplo, porque se agotó) y no aparece en «Catálogo» dentro del chat ni en sus atajos. Ofrécele otro parecido; si el cliente lo quiere, pregúntale al propietario cuándo vuelve.",
+          "Dice «Sin fotos todavía: pídele al propietario que las suba.» o «Sin ficha PDF»: a ese producto le falta algo. Pídele al propietario que lo suba y, mientras, manda lo que sí tiene.",
+          "Dice «Sin atajo todavía»: mándalo desde «Catálogo» en el chat.",
+          "Sale «No se pudo copiar: escribe … en el chat.»: tu navegador no dejó copiar; escribe el atajo tal cual.",
+          "«Todavía no hay productos» o «El catálogo está vacío.»: pídele al propietario que suba los productos.",
+          "Un archivo dice «No se puede mandar por aquí: …»: ese canal no acepta ese tipo de archivo; elige otro.",
           "Un archivo dice «No compatible · no se envía»: ese canal no acepta ese tipo de archivo; quítalo.",
           "Máximo 10 archivos por envío.",
           "Si ya tenías un archivo de «Adjuntar», quítalo para usar el catálogo (no se mezclan).",
         ],
       },
     ],
-    captura: ["catalogo.png"],
+    captura: ["catalogo.png", "catalogo-atajos.png"],
   },
   {
     id: "mis-chats",

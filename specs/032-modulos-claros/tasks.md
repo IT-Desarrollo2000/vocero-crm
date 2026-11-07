@@ -38,10 +38,32 @@
   solo con cambios aditivos de B3: `e2e-ayuda` (tema nuevo) y
   `ayuda-capturas` (siembra y captura de Contactos, `/contacts` en la
   revisión).
-- [ ] B5 Merge, deploy y verificación en vivo
+- [x] B5 Merge, deploy y verificación en vivo — EN PROD 4fdbaac (6-nov,
+  deploy gczapwxmrwb5aw3uzpre88fc, healthy, sin migración; reversa 581362a)
 
 ## Fase C — Catálogo + Reportes
-- [ ] C1 `catalog-readiness.ts` + UI Catálogo (vendedor y propietario)
-- [ ] C2 Reportes sin ⓘ, «Lo que toca hoy», textos llanos, Ventas vacía
-- [ ] C3 Ayuda (Catálogo) + capturas
-- [ ] C4 E2E + regresión (catalogo, metricas, selftest) + deploy
+- [x] C1 `catalog-readiness.ts` + UI Catálogo (vendedor y propietario) — 8e72aba
+- [x] C2 Reportes sin ⓘ, «Lo que toca hoy», textos llanos, Ventas vacía —
+  8e72aba + ajustes de C4: «N personas esperan respuesta» lleva a la vista de
+  la Bandeja donde están (Buzón si la mayoría está sin tomar, si no «Equipo»,
+  siempre «Por atender»); sin datos del periodo anterior no se compara
+  («nuevo vs. …»), como en el diseño; «A 1 nadie le ha respondido»; las
+  tablas `sr-only` de los gráficos (Agente, Ventas) desbordaban la página a lo
+  ancho: van dentro de un div `sr-only` que las recorta
+- [x] C3 Ayuda (Catálogo) + capturas — tema `catalogo` al día («Desde el
+  chat» y «Con su atajo»: «Para mandarle un producto a un cliente:»,
+  «Copiar»/«Copiado», «Pausado: no se puede mandar», «Sin fotos todavía:
+  pídele al propietario…», «Sin atajo todavía», «No se pudo copiar…», «No se
+  puede mandar por aquí: …»), sin rótulos del Propietario ni Reportes;
+  `catalogo.png` rehecha y `catalogo-atajos.png` nueva (vendedora, como el
+  diseño); `help-topics`, `e2e-ayuda` (normal y `--off`), `us-ayuda.md`,
+  `contenido.md`. CA-2 heredado: el panel «Catálogo» de la Bandeja ya no
+  explica con `title` por qué un archivo no sale (texto visible completo)
+- [x] C4 E2E + regresión — `e2e-modulos-c` 229/229 (`us-modulos-c.md`) con el
+  código final. Regresión verde con el código final: catalogo 125/125,
+  metricas 83, leads-externos 121/121, recordatorios 75/75, ayuda 127/127 +
+  `--off` 25/25, responsive 54, roles 116/116, adjuntos-ui 39/39, modulos-a
+  81/81, modulos-b 100/100, selftest 651/651. Revisión claro/oscuro 1366/390
+  de /catalog (dos roles) y /reports (seis pestañas) + impresión del Resumen.
+  Gate verde (185 archivos, 2546 tests)
+- [ ] C5 Merge, deploy y verificación en vivo

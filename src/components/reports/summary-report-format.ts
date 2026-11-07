@@ -8,11 +8,12 @@
 import type {
   BookingCountsDto,
   ReportRangeDto,
+  SalesSummaryDto,
   SummaryAdOriginRowDto,
   SummaryOriginFiguresDto,
   SummaryReportDto,
 } from "@/lib/reports";
-import { formatCount, formatDuration, formatPercent, ratio } from "./format";
+import { formatCount, formatPercent, ratio, waitInWords } from "./format";
 import { formatWonAmount } from "./ads-report-format";
 
 /** Bloques que un 200 de `/api/reports/summary` debe traer. */
@@ -134,6 +135,11 @@ export type Highlight = {
   agentLink?: boolean;
   /** 024 — enlace «ver Vendedores» (solo en pantalla). */
   sellersLink?: boolean;
+  /**
+   * 032 — Solo en papel: en pantalla lo dice «Lo que toca hoy» (con enlace),
+   * que no se imprime.
+   */
+  printOnly?: boolean;
 };
 
 /** «3 leads» / «1 lead». */
@@ -175,31 +181,13 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
       out.push({
         key: "external",
         text: `${leadsText(pending)} del formulario y FastApp ${pending === 1 ? "sigue" : "siguen"} sin contactar (${parts.join(", ")}).`,
+        printOnly: true,
       });
     }
   }
 
-  // La IA sale de M4 de Agente (por sesión); el asesor, de `advisorFirstReply`:
-  // M4 solo mide al humano cuando respondió ANTES que la IA, y con la IA
-  // activa eso casi nunca pasa — para dirección engañaría.
-  {
-    const parts: string[] = [];
-    const ai = report.responseTimes.ok ? report.responseTimes.data.ai : null;
-    if (ai && ai.sessions > 0) parts.push(`IA ${formatDuration(ai.p50Seconds)}`);
-    const adv = att?.advisorFirstReply;
-    if (adv && adv.persons > 0) {
-      parts.push(
-        `un asesor atendió en ${formatDuration(adv.p50Seconds)} (mediana, ${adv.persons === 1 ? "1 persona" : `${formatCount(adv.persons)} personas`})`
-      );
-    }
-    if (parts.length) {
-      out.push({
-        key: "response",
-        text: `Primera respuesta (mediana): ${parts.join(" · ")}.`,
-        agentLink: true,
-      });
-    }
-  }
+  // 032 — Los tiempos de respuesta ya no van aquí: tienen su propia sección
+  // en palabras («Qué tan rápido contestan», `responseSpeedLines`).
 
   if (att && att.outbound > 0) {
     const o = att.outboundByOrigin;
@@ -220,6 +208,7 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
     out.push({
       key: "pending",
       text: `${t === 1 ? "1 persona espera" : `${formatCount(t)} personas esperan`} respuesta al generar el reporte.`,
+      printOnly: true,
     });
   }
 
@@ -227,15 +216,11 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
   // `TEAM_PENDING_MIN` y él tiene `TEAM_PENDING_SHARE` o más.
   {
     const top = teamPendingHighlight(report);
-    if (top) out.push({ key: "team-pending", text: top, sellersLink: true });
+    if (top) out.push({ key: "team-pending", text: top, sellersLink: true, printOnly: true });
   }
 
   if (report.sales.ok && report.sales.data.won > 0) {
-    const s = report.sales.data;
-    out.push({
-      key: "sales",
-      text: `${s.won === 1 ? "1 venta" : `${formatCount(s.won)} ventas`} por ${formatWonAmount(s.wonAmount)}${s.closeRate !== null ? ` (cierre ${formatPercent(s.closeRate)})` : ""}.`,
-    });
+    out.push({ key: "sales", text: salesHighlightText(report.sales.data) });
   }
   // 024 — Citas del periodo (solo con AGENDA y si hubo alguna).
   if (report.agendaEnabled && report.bookings?.ok && report.bookings.data.total > 0) {
@@ -261,4 +246,143 @@ export function teamPendingHighlight(report: SummaryReportDto): string | null {
 /** «Citas del periodo: 6 agendadas · 3 realizadas · asistencia 75 %.» */
 export function bookingsPeriodText(b: BookingCountsDto): string {
   return `Citas del periodo: ${formatCount(b.total)} ${b.total === 1 ? "agendada" : "agendadas"} · ${formatCount(b.realizada)} ${b.realizada === 1 ? "realizada" : "realizadas"} · asistencia ${formatPercent(b.rate)}.`;
+}
+
+/**
+ * 032 — «2 ventas por $3,000.00: de 4 tratos cerrados, ganaste 2.» Sin
+ * «tasa de cierre»: la proporción se dice con los dos números.
+ */
+export function salesHighlightText(s: SalesSummaryDto): string {
+  const ventas = s.won === 1 ? "1 venta" : `${formatCount(s.won)} ventas`;
+  const closed = s.won + s.lost;
+  const tail =
+    closed === 0
+      ? ""
+      : closed === 1
+        ? ": de 1 trato cerrado, lo ganaste"
+        : s.won === closed
+          ? `: ganaste los ${formatCount(closed)} tratos que se cerraron`
+          : `: de ${formatCount(closed)} tratos cerrados, ganaste ${formatCount(s.won)}`;
+  return `${ventas} por ${formatWonAmount(s.wonAmount)}${tail}.`;
+}
+
+/** 032 — Una tarjeta de «Lo que toca hoy»: cifra, qué significa y a dónde ir. */
+export type TodayAction = {
+  key: "pending" | "team-pending" | "external" | "without-amount" | "to-mark";
+  count: number;
+  text: string;
+  linkLabel: string;
+  /** Ruta; `sellers` = Reportes → Vendedores con el rango actual. */
+  href: string | "sellers";
+};
+
+/**
+ * 032 — A qué vista de la Bandeja lleva «N personas esperan respuesta». El
+ * Propietario abre por defecto el Buzón (sin tomar): si la mayoría de los
+ * pendientes ya son de un vendedor, ahí no se verían, así que va a «Equipo».
+ * Siempre en «Por atender». Sin el bloque Equipo, la vista de siempre.
+ */
+function pendingInboxHref(report: SummaryReportDto, total: number): string {
+  if (!report.team.ok) return "/inbox?filter=human";
+  const unassigned = report.team.data.unassigned.pending;
+  return unassigned >= total - unassigned
+    ? "/inbox?scope=inbox&filter=human"
+    : "/inbox?scope=team&filter=human";
+}
+
+/**
+ * 032 — «Lo que toca hoy»: lo que alguien puede resolver ya, armado SOLO
+ * con los bloques que el Resumen ya trae (sin consultas nuevas). Un bloque
+ * caído no inventa tarjetas; sin nada pendiente, la lista sale vacía.
+ */
+export function summaryTodayActions(report: SummaryReportDto): TodayAction[] {
+  const out: TodayAction[] = [];
+  if (report.pending.ok && report.pending.data.total > 0) {
+    const t = report.pending.data.total;
+    out.push({
+      key: "pending",
+      count: t,
+      text: t === 1 ? "persona espera respuesta" : "personas esperan respuesta",
+      linkLabel: "Ir a la Bandeja",
+      href: pendingInboxHref(report, t),
+    });
+  }
+  const top = report.team.ok ? report.team.data.topPending : null;
+  if (top && top.pending > 0) {
+    out.push({
+      key: "team-pending",
+      count: top.pending,
+      text: `sin responder de ${top.name}`,
+      linkLabel: "Ver Vendedores",
+      href: "sellers",
+    });
+  }
+  if (report.external.ok) {
+    const n = report.external.data.rows.reduce((a, r) => a + r.notContacted, 0);
+    if (n > 0) {
+      out.push({
+        key: "external",
+        count: n,
+        text: `del formulario y FastApp ${n === 1 ? "nadie lo ha contactado" : "nadie los ha contactado"}`,
+        linkLabel: "Escríbeles desde la Bandeja",
+        href: "/inbox?filter=human",
+      });
+    }
+  }
+  if (report.sales.ok && report.sales.data.wonAmount.wonWithoutAmount > 0) {
+    const n = report.sales.data.wonAmount.wonWithoutAmount;
+    out.push({
+      key: "without-amount",
+      count: n,
+      text: n === 1 ? "venta sin monto: no suma al total" : "ventas sin monto: no suman al total",
+      linkLabel: "Captúralo en Seguimiento",
+      href: "/pipeline",
+    });
+  }
+  if (report.agendaEnabled && report.bookings?.ok && report.bookings.data.pendingToMark > 0) {
+    const n = report.bookings.data.pendingToMark;
+    out.push({
+      key: "to-mark",
+      count: n,
+      text:
+        n === 1
+          ? "cita ya pasó y nadie marcó si vino"
+          : "citas ya pasaron y nadie marcó si vinieron",
+      linkLabel: "Márcalas en Citas",
+      href: "/bookings",
+    });
+  }
+  return out;
+}
+
+/** 032 — Una línea de «Qué tan rápido contestan». */
+export type ResponseSpeedLine = { key: "ai" | "team"; who: string; text: string };
+
+/**
+ * 032 — Tiempos de respuesta en palabras (sin «mediana» ni «p90»). La IA sale
+ * de M4 de Agente (por sesión); el equipo, de `advisorFirstReply`: desde el
+ * primer mensaje del rango hasta que una persona del equipo le escribe,
+ * aunque antes haya contestado la IA. Un bloque caído o sin datos no
+ * aparece.
+ */
+export function responseSpeedLines(report: SummaryReportDto): ResponseSpeedLine[] {
+  const out: ResponseSpeedLine[] = [];
+  const ai = report.responseTimes.ok ? report.responseTimes.data.ai : null;
+  if (ai && ai.sessions > 0) {
+    const w = waitInWords(ai.p50Seconds, ai.p90Seconds);
+    if (w) out.push({ key: "ai", who: "La IA", text: `contestó ${w}.` });
+  }
+  const adv = report.attention.ok ? report.attention.data.advisorFirstReply : null;
+  if (adv && adv.persons > 0) {
+    const w = waitInWords(adv.p50Seconds, adv.p90Seconds);
+    const personas = adv.persons === 1 ? "1 persona" : `${formatCount(adv.persons)} personas`;
+    if (w) {
+      out.push({
+        key: "team",
+        who: "Tu equipo",
+        text: `atendió ${w}, contando desde el primer mensaje del cliente aunque antes contestara la IA (${personas}).`,
+      });
+    }
+  }
+  return out;
 }

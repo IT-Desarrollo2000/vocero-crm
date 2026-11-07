@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  BookingCountsDto,
   ReportRangeDto,
   SalesReportDto,
   SalesSourceRowDto,
@@ -30,8 +31,11 @@ import {
   nowInZone,
   originTotals,
   rateDetail,
+  responseSpeedLines,
+  salesHighlightText,
   showExternalOrigins,
   summaryHighlights,
+  summaryTodayActions,
 } from "@/components/reports/summary-report-format";
 
 const RANGE: ReportRangeDto = {
@@ -332,15 +336,18 @@ describe("021 — Resumen: cifras", () => {
       "50 % de los leads del rango llegaron por un anuncio (6 de 12); 2 por el sitio web y 1 por FastApp."
     );
     expect(byKey.external?.text).toBe("2 leads del formulario y FastApp siguen sin contactar (2 del sitio web).");
-    // El asesor sale de advisorFirstReply (17 min), NO de M4 (10 min).
-    expect(byKey.response?.text).toBe(
-      "Primera respuesta (mediana): IA 4 s · un asesor atendió en 17 min (mediana, 4 personas)."
-    );
-    expect(byKey.response?.agentLink).toBe(true);
+    // 032 — Los tiempos ya no van en la lectura rápida: tienen su sección
+    // en palabras (`responseSpeedLines`, abajo).
+    expect(byKey.response).toBeUndefined();
     expect(byKey.outbound?.text).toContain("20 de la IA, 8 de asesores y 2 plantillas");
     expect(byKey.handoff?.text).toContain("3 conversaciones pasaron");
     expect(byKey.pending?.text).toContain("2 personas esperan");
+    // 032 — En pantalla, pendientes y externos los dice «Lo que toca hoy».
+    expect(byKey.pending?.printOnly).toBe(true);
+    expect(byKey.external?.printOnly).toBe(true);
+    expect(byKey.ads?.printOnly).toBeUndefined();
     expect(byKey.sales?.text).toContain("2 ventas");
+    expect(byKey.sales?.text).toBe("2 ventas por $1,500.00: de 4 tratos cerrados, ganaste 2.");
 
     const caido = summaryHighlights(
       summaryReport({
@@ -358,12 +365,90 @@ describe("021 — Resumen: cifras", () => {
       summaryReport({ external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app", { received: 1, notContacted: 1 })] } } })
     ).find((x) => x.key === "external");
     expect(unoSolo?.text).toBe("1 lead del formulario y FastApp sigue sin contactar (1 de FastApp).");
+  });
 
-    const soloAsesor = summaryHighlights(
+  it("032: tiempos de respuesta en palabras, sin «mediana» ni «p90»", () => {
+    const lines = responseSpeedLines(summaryReport());
+    expect(lines.map((l) => l.key)).toEqual(["ai", "team"]);
+    expect(lines[0]?.text).toBe(
+      "contestó la mitad en menos de 4 segundos; casi siempre (9 de cada 10) en menos de 10 segundos."
+    );
+    // El equipo sale de advisorFirstReply (17 min), NO de M4 (10 min).
+    expect(lines[1]?.text).toBe(
+      "atendió la mitad en menos de 17 minutos; casi siempre (9 de cada 10) en menos de 1 hora, contando desde el primer mensaje del cliente aunque antes contestara la IA (4 personas)."
+    );
+    for (const l of lines) expect(l.text).not.toMatch(/mediana|p90/i);
+    // Un bloque caído no inventa la línea.
+    const soloEquipo = responseSpeedLines(
       summaryReport({ responseTimes: { ok: false, error: "unavailable" } })
-    ).find((x) => x.key === "response");
-    expect(soloAsesor?.text).toBe(
-      "Primera respuesta (mediana): un asesor atendió en 17 min (mediana, 4 personas)."
+    );
+    expect(soloEquipo.map((l) => l.key)).toEqual(["team"]);
+  });
+
+  it("032: «Lo que toca hoy» desde los bloques, con su enlace", () => {
+    const base = summaryReport();
+    const items = summaryTodayActions(base);
+    expect(items.map((x) => [x.key, x.count, x.href])).toEqual([
+      // 1 de los 2 pendientes está sin tomar: el Buzón (lo que abre el Propietario).
+      ["pending", 2, "/inbox?scope=inbox&filter=human"],
+      ["team-pending", 1, "sellers"],
+      ["external", 2, "/inbox?filter=human"],
+    ]);
+    // Si la mayoría ya es de un vendedor, el Buzón no los mostraría: «Equipo».
+    const deVendedores = summaryTodayActions(
+      summaryReport({
+        pending: { ok: true, data: { total: 3, rows: [] } },
+        team: base.team.ok
+          ? { ok: true, data: { ...base.team.data, unassigned: { ...base.team.data.unassigned, pending: 1 } } }
+          : base.team,
+      })
+    );
+    expect(deVendedores.find((x) => x.key === "pending")?.href).toBe("/inbox?scope=team&filter=human");
+    // Sin el bloque Equipo, la vista de siempre.
+    const sinEquipo = summaryTodayActions(summaryReport({ team: { ok: false, error: "timeout" } }));
+    expect(sinEquipo.find((x) => x.key === "pending")?.href).toBe("/inbox?filter=human");
+    expect(items[1]?.text).toBe("sin responder de Ana");
+    expect(items[1]?.linkLabel).toBe("Ver Vendedores");
+
+    // Ventas sin monto → Seguimiento; citas sin marcar → Citas (solo con AGENDA).
+    const bookings: BookingCountsDto = {
+      total: 3, scheduled: 2, realizada: 1, noShow: 0, cancelada: 0, rate: 1, pendingToMark: 2,
+    };
+    const more = summaryTodayActions(
+      summaryReport({
+        sales: { ok: true, data: salesSummary({ won: 1, wonAmount: money(0, { wonWithoutAmount: 1 }) }) },
+        agendaEnabled: true,
+        bookings: { ok: true, data: bookings },
+      })
+    );
+    expect(more.find((x) => x.key === "without-amount")).toMatchObject({
+      count: 1,
+      text: "venta sin monto: no suma al total",
+      href: "/pipeline",
+    });
+    expect(more.find((x) => x.key === "to-mark")).toMatchObject({ count: 2, href: "/bookings" });
+    const sinAgenda = summaryTodayActions(
+      summaryReport({ agendaEnabled: false, bookings: { ok: true, data: bookings } })
+    );
+    expect(sinAgenda.some((x) => x.key === "to-mark")).toBe(false);
+
+    // Bloques caídos y nada pendiente → lista vacía, sin tarjetas inventadas.
+    const nada = summaryTodayActions(
+      summaryReport({
+        pending: { ok: false, error: "timeout" },
+        team: { ok: false, error: "timeout" },
+        external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app")] } },
+      })
+    );
+    expect(nada).toEqual([]);
+  });
+
+  it("032: ventas en la lectura rápida sin «cierre %»", () => {
+    expect(salesHighlightText(salesSummary({ won: 1, lost: 0, wonAmount: money(1890000) }))).toBe(
+      "1 venta por $18,900.00: de 1 trato cerrado, lo ganaste."
+    );
+    expect(salesHighlightText(salesSummary({ won: 3, lost: 0, wonAmount: money(300000) }))).toBe(
+      "3 ventas por $3,000.00: ganaste los 3 tratos que se cerraron."
     );
   });
 

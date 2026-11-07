@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CATALOG_LIMITS,
+  SHORTCUT_CODE_MAX,
   type CatalogCategoryDto,
   type CatalogProductDto,
   type CatalogVariantDto,
@@ -15,7 +16,10 @@ import {
 import { AttributesEditor, CatalogDialog, Field } from "./catalog-dialog";
 import { cleanAttributes, responseError, sendJson, type AttributeRow } from "./catalog-view";
 
-const CODE_HINT = "Opcional. 1 a 32 letras, números, - o _. Único entre productos y variantes.";
+/** 032 — En palabras llanas: para qué sirve el código y qué admite. */
+const PRODUCT_CODE_HINT = `Opcional. Con él se buscan y se crean sus atajos del chat (como /fotos_t03); para eso, de hasta ${SHORTCUT_CODE_MAX} caracteres. Solo letras, números, guion y guion bajo, sin repetir el de otro producto.`;
+const VARIANT_CODE_HINT =
+  "Opcional. Solo letras, números, guion y guion bajo, sin repetir el de otro producto o variante.";
 
 function validCode(code: string): boolean {
   return !code.trim() || CATALOG_LIMITS.codePattern.test(code.trim());
@@ -102,7 +106,7 @@ export function ProductDialog({
           />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field id="cp-code" label="Código" hint={CODE_HINT}>
+          <Field id="cp-code" label="Código" hint={PRODUCT_CODE_HINT}>
             <Input
               id="cp-code"
               value={code}
@@ -145,7 +149,7 @@ export function ProductDialog({
           />
         </Field>
         <AttributesEditor rows={rows} onChange={setRows} />
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
           <input
             type="checkbox"
             checked={active}
@@ -153,8 +157,8 @@ export function ProductDialog({
             className="accent-primary"
           />
           Activo
-          <span className="text-xs text-text-3">
-            (inactivo: atenuado aquí y fuera del compositor y los atajos)
+          <span className="basis-full pl-6 text-xs text-text-2">
+            Si lo desmarcas queda pausado: no aparece en «Catálogo» dentro del chat ni en sus atajos (por ejemplo, si se agotó).
           </span>
         </label>
         {error && (
@@ -175,7 +179,7 @@ export function ProductDialog({
   );
 }
 
-/** Alta / edición de una variante (solo Propietario). Sin precio = hereda. */
+/** Alta / edición de una variante (solo Propietario). Sin precio = usa el del producto. */
 export function VariantDialog({
   product,
   variant,
@@ -246,7 +250,7 @@ export function VariantDialog({
           />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field id="cv-code" label="Código" hint={CODE_HINT}>
+          <Field id="cv-code" label="Código" hint={VARIANT_CODE_HINT}>
             <Input
               id="cv-code"
               value={code}
@@ -259,8 +263,8 @@ export function VariantDialog({
             label="Precio"
             hint={
               product.price
-                ? `Vacío = hereda el del producto (${product.price}).`
-                : "Vacío = hereda el del producto."
+                ? `Si lo dejas vacío, usa el del producto (${product.price}).`
+                : "Si lo dejas vacío, usa el del producto."
             }
           >
             <Input
@@ -272,14 +276,17 @@ export function VariantDialog({
           </Field>
         </div>
         <AttributesEditor rows={rows} onChange={setRows} />
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
           <input
             type="checkbox"
             checked={active}
             onChange={(e) => setActive(e.target.checked)}
             className="accent-primary"
           />
-          Activo
+          Activa
+          <span className="basis-full pl-6 text-xs text-text-2">
+            Si la desmarcas queda pausada: no aparece en el chat.
+          </span>
         </label>
         {error && (
           <p className="text-sm text-danger-text" role="alert">

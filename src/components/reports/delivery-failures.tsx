@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { splitSendError } from "@/lib/meta/send-errors";
 import { CHANNEL_LABEL } from "@/lib/channels";
 import { formatCount, formatPercent, ratio } from "./format";
 import type { DeliveryDto, FailuresDto } from "./types";
@@ -6,8 +6,8 @@ import type { DeliveryDto, FailuresDto } from "./types";
 /** Nombre visible del origen de un saliente (`message.origin`). */
 export const ORIGIN_LABEL: Record<string, string> = {
   ai: "IA",
-  operator: "Operador",
-  manual: "Desde el teléfono",
+  operator: "Equipo (desde el CRM)",
+  manual: "Equipo (desde el teléfono)",
   template: "Plantilla",
 };
 
@@ -16,7 +16,7 @@ export function FailuresBreakdown({ data }: { data: FailuresDto }) {
   if (data.total === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No hubo mensajes salientes en este rango.
+        Ni la IA ni el equipo mandaron mensajes en este rango.
       </p>
     );
   }
@@ -27,12 +27,12 @@ export function FailuresBreakdown({ data }: { data: FailuresDto }) {
           {formatPercent(data.rate)}
         </span>{" "}
         <span className="text-muted-foreground">
-          fallidas · {formatCount(data.failed)} de {formatCount(data.total)} salientes
+          no salieron · {formatCount(data.failed)} de {formatCount(data.total)} mensajes enviados
         </span>
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <SliceTable
-          caption="Fallidas por canal"
+          caption="Por canal"
           head="Canal"
           rows={data.byChannel.map((r) => ({
             key: r.channel,
@@ -42,7 +42,7 @@ export function FailuresBreakdown({ data }: { data: FailuresDto }) {
           }))}
         />
         <SliceTable
-          caption="Fallidas por origen"
+          caption="Por quién lo mandó"
           head="Origen"
           rows={data.byOrigin.map((r) => ({
             key: r.origin,
@@ -55,17 +55,32 @@ export function FailuresBreakdown({ data }: { data: FailuresDto }) {
       {data.topErrors.length > 0 && (
         <div>
           <p className="mb-1 text-xs font-medium text-muted-foreground">
-            Errores más frecuentes
+            Por qué no salieron
           </p>
-          <ul className="space-y-1 text-xs" aria-label="Errores más frecuentes">
-            {data.topErrors.map((e) => (
-              <li key={e.error} className="flex items-start justify-between gap-3">
-                <span className="min-w-0 break-words text-text-2">{e.error}</span>
-                <span className="shrink-0 font-medium tabular-nums">
-                  {formatCount(e.count)}
-                </span>
-              </li>
-            ))}
+          <ul className="space-y-1 text-xs" aria-label="Por qué no salieron">
+            {data.topErrors.map((e) => {
+              // 032 — Frase entendible primero; el código de Meta, aparte y chico.
+              const view = splitSendError(e.error);
+              const secondary = [
+                view.detail ? `Meta dice: «${view.detail}»` : null,
+                view.code !== null ? `código Meta ${view.code}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <li key={e.error} className="flex items-start justify-between gap-3">
+                  <span className="min-w-0 break-words">
+                    <span className="block text-text-2">{view.text}</span>
+                    {secondary && (
+                      <span className="block text-[11px] text-text-3">{secondary}</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {formatCount(e.count)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -90,9 +105,9 @@ function SliceTable({
       <thead className="sr-only">
         <tr>
           <th scope="col">{head}</th>
-          <th scope="col">Fallidas</th>
-          <th scope="col">Salientes</th>
-          <th scope="col">Porcentaje fallidas</th>
+          <th scope="col">No salieron</th>
+          <th scope="col">Enviados</th>
+          <th scope="col">Porcentaje que no salió</th>
         </tr>
       </thead>
       <tbody>
@@ -116,7 +131,7 @@ function SliceTable({
 }
 
 const READ_HELP =
-  "Cota inferior: un cliente que apagó las confirmaciones de lectura nunca aparece como «leído».";
+  "Pueden ser más: si un cliente apagó las confirmaciones de lectura (las palomitas azules), nunca aparece como «leído».";
 
 /** M7 — Entrega y lectura, solo de los canales que confirman entrega. */
 export function DeliveryRates({ data }: { data: DeliveryDto }) {
@@ -141,19 +156,15 @@ export function DeliveryRates({ data }: { data: DeliveryDto }) {
           </dd>
         </div>
         <div>
-          <dt className="flex items-center gap-1 text-xs text-muted-foreground">
-            Leídos
-            <span title={READ_HELP} className="text-text-4">
-              <Info className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="sr-only">{READ_HELP}</span>
-            </span>
-          </dt>
+          <dt className="text-xs text-muted-foreground">Leídos</dt>
           <dd className="text-2xl font-semibold tabular-nums" data-testid="read-rate">
             {formatPercent(data.readRate)}
           </dd>
           <dd className="text-xs text-muted-foreground tabular-nums">
             {formatCount(data.read)} de {formatCount(data.delivered + data.read)} entregados
           </dd>
+          {/* 032 — Antes en un ⓘ con `title`: ahora a la vista. */}
+          <dd className="mt-1 text-xs text-text-3">{READ_HELP}</dd>
         </div>
       </dl>
       <p className="text-xs text-muted-foreground">

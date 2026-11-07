@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { tzLabel } from "@/lib/tz-label";
 import { cn } from "@/lib/utils";
 import {
   MAX_RANGE_DAYS,
@@ -40,6 +41,8 @@ export function RangePicker({
   const [from, setFrom] = useState(value.preset === "custom" ? value.from : "");
   const [to, setTo] = useState(value.preset === "custom" ? value.to : "");
   const [error, setError] = useState<string | null>(null);
+  // 032 — «hora de Ciudad de México», nunca el identificador IANA.
+  const zone = tzLabel(timezone);
 
   // Al abrir «Personalizado» sin fechas propias se precargan las del rango
   // en pantalla: lo usual es mover un extremo, no escribir los dos.
@@ -109,14 +112,12 @@ export function RangePicker({
           </button>
         </div>
         <p
-          className="flex items-center gap-1 text-xs text-muted-foreground"
-          aria-label={
-            timezone ? `Zona horaria del reporte: ${timezone}` : "Zona horaria del reporte"
-          }
+          className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+          aria-label={zone ? `Zona horaria del reporte: ${zone}` : "Zona horaria del reporte"}
         >
-          <Globe className="h-3.5 w-3.5" aria-hidden="true" />
+          <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {resolved && <span>{formatDayRange(resolved.from, resolved.to)} ·</span>}
-          <span>{timezone ?? "…"}</span>
+          <span>{zone ?? "…"}</span>
         </p>
       </div>
 

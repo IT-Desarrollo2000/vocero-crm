@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Clock, Inbox } from "lucide-react";
 import { MiniaturaDeAnuncio } from "@/components/anuncio-origen";
 import { Button } from "@/components/ui/button";
+import { tzLabel } from "@/lib/tz-label";
 import type {
   AdRowDto,
   AdsReportDto,
@@ -120,13 +121,17 @@ export function AdsReportClient() {
       )}
 
       {!loading && empty && (
-        <p
+        <div
           role="status"
-          className="flex items-center gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
+          className="flex items-start gap-2 rounded-lg border bg-subtle px-4 py-3 text-sm text-muted-foreground"
         >
-          <Inbox className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Aún no llegaron conversaciones ni leads en este rango.
-        </p>
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="min-w-0">
+            Aún no llegaron conversaciones ni leads en este rango. Cuando alguien escriba desde un
+            anuncio de Facebook o Instagram, aquí verás de cuál vino: el anuncio tiene que llevar
+            al chat (botón «Enviar mensaje»). Mientras, prueba con un rango más largo.
+          </p>
+        </div>
       )}
 
       {!loading && sinMonto > 0 && (
@@ -201,7 +206,7 @@ export function AdsReportClient() {
 
           {range && (
             <p className="text-xs text-text-3">
-              {ADS_REPORT_HELP.amount} Excluye el Laboratorio. Días en {range.tz}.
+              {ADS_REPORT_HELP.amount} Excluye el Laboratorio. Días en {tzLabel(range.tz) ?? range.tz}.
             </p>
           )}
         </>
@@ -243,7 +248,7 @@ function Kpis({
         testId="kpi-ads-conversations"
         value={d ? formatCount(d.conversations) : "—"}
         detail={d ? changeDetail(d.conversations, prev?.conversations, prev) : undefined}
-        help={ADS_REPORT_HELP.conversations}
+        help="Chats que empezaron en estas fechas."
         loading={loading}
         unavailable={unavailable}
       />
@@ -252,7 +257,7 @@ function Kpis({
         testId="kpi-ads-share"
         value={d ? formatPercent(d.adShare) : "—"}
         detail={d ? `${formatCount(d.adConversations)} conversaciones` : undefined}
-        help={`Conversaciones nuevas cuya fuente es «Anuncio». ${ADS_REPORT_HELP.source}`}
+        help="De esos chats, los que llegaron por un anuncio de Facebook o Instagram."
         loading={loading}
         unavailable={unavailable}
       />
@@ -261,7 +266,7 @@ function Kpis({
         testId="kpi-ads-leads"
         value={d ? formatCount(d.adLeads) : "—"}
         detail={d ? changeDetail(d.adLeads, prev?.adLeads, prev) : undefined}
-        help={ADS_REPORT_HELP.leads}
+        help="Contactos que llegaron por primera vez desde un anuncio en estas fechas."
         loading={loading}
         unavailable={unavailable}
       />
@@ -274,7 +279,7 @@ function Kpis({
             ? `${formatPercent(d.adLeads > 0 ? d.adWon / d.adLeads : null)} de cierre`
             : undefined
         }
-        help={ADS_REPORT_HELP.won}
+        help="De esos contactos, los que hoy están en la etapa ganada de Seguimiento."
         loading={loading}
         unavailable={unavailable}
       />
@@ -288,7 +293,7 @@ function Kpis({
               changeDetail(d.adWonAmount.amountCents, prev?.adWonAmount.amountCents, prev))
             : undefined
         }
-        help={ADS_REPORT_HELP.amount}
+        help="Lo que compraron esos clientes, sumado. Una venta sin monto cuenta pero no suma."
         loading={loading}
         unavailable={unavailable}
       />

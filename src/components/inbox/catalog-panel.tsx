@@ -273,11 +273,12 @@ export function CatalogPanel({
                     const c = fileCompatibility(f, outboundFiles);
                     return (
                       <li key={f.id}>
+                        {/* 032 (CA-2) — Sin `title`: el motivo de que un archivo
+                            no salga por este canal se lee completo en la fila. */}
                         <label
-                          title={c.ok ? f.fileName : c.reason}
                           className={cn(
                             "flex items-center gap-2.5 rounded-md px-2 py-1.5",
-                            c.ok ? "cursor-pointer hover:bg-subtle" : "opacity-50"
+                            c.ok ? "cursor-pointer hover:bg-subtle" : "cursor-not-allowed"
                           )}
                         >
                           <input
@@ -293,16 +294,35 @@ export function CatalogPanel({
                               src={f.url}
                               alt=""
                               loading="lazy"
-                              className="h-9 w-9 shrink-0 rounded object-cover"
+                              className={cn("h-9 w-9 shrink-0 rounded object-cover", !c.ok && "opacity-50")}
                             />
                           ) : (
-                            <FileText className="h-6 w-6 shrink-0 text-brand" strokeWidth={1.5} />
+                            <FileText
+                              className={cn("h-6 w-6 shrink-0", c.ok ? "text-brand" : "text-text-3")}
+                              strokeWidth={1.5}
+                            />
                           )}
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm">{f.fileName}</span>
-                            <span className="block truncate text-[11px] text-text-3">
-                              {c.ok ? formatBytes(f.size) : c.reason}
+                            <span
+                              className={cn(
+                                "block break-words text-sm",
+                                !c.ok && "text-text-3"
+                              )}
+                            >
+                              {f.fileName}
                             </span>
+                            {c.ok ? (
+                              <span className="block truncate text-[11px] text-text-3">
+                                {formatBytes(f.size)}
+                              </span>
+                            ) : (
+                              <span
+                                data-testid="catalog-file-reason"
+                                className="block break-words text-[11px] leading-snug text-warning-text"
+                              >
+                                No se puede mandar por aquí: {c.reason}
+                              </span>
+                            )}
                           </span>
                         </label>
                       </li>

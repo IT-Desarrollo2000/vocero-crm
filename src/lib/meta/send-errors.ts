@@ -57,3 +57,38 @@ export function describeSendError(
   const base = known || detail?.trim() || "Meta rechazó el envío";
   return code != null ? `${base} (Meta ${code})` : base;
 }
+
+/** 032 — La frase de un código conocido de Meta, o null si el CRM no lo traduce. */
+export function knownSendError(code: number | null | undefined): string | null {
+  return code != null ? (DESCRIPTIONS[code] ?? null) : null;
+}
+
+/**
+ * 032 — Un error guardado en `message.error` → frase entendible + código
+ * aparte. Llegan de dos formas: ya traducido por `describeSendError`
+ * («… (Meta 131047)») o crudo de la Graph API («(#131047) Re-engagement
+ * message»). Con código conocido manda la frase del CRM; con código
+ * desconocido, una frase genérica y el texto de Meta queda como detalle.
+ */
+export function splitSendError(raw: string): {
+  text: string;
+  code: number | null;
+  detail: string | null;
+} {
+  const trimmed = raw.trim();
+  const suffix = /\s*\(Meta (\d+)\)\s*$/.exec(trimmed);
+  const hash = /\(#(\d+)\)/.exec(trimmed);
+  const codeStr = suffix?.[1] ?? hash?.[1];
+  const code = codeStr ? Number(codeStr) : null;
+  const known = knownSendError(code);
+  if (known) return { text: known, code, detail: null };
+  if (code === null) return { text: trimmed || "Meta rechazó el envío", code: null, detail: null };
+  const body = (suffix ? trimmed.slice(0, suffix.index) : trimmed)
+    .replace(/\(#\d+\)\s*/, "")
+    .trim();
+  return {
+    text: "Meta no dejó enviar el mensaje por un motivo que el CRM aún no traduce.",
+    code,
+    detail: body || null,
+  };
+}

@@ -16,7 +16,10 @@
  *      032: `#seguimiento` en las dos pasadas (sin hablar de citas en la
  *      `--off`) y los rótulos nuevos de Seguimiento y Citas. Fase B:
  *      `#contactos` en las dos pasadas, tras `#seguimiento`, con sus rótulos
- *      y su «¿Y en Instagram y Messenger?» solo con esos canales
+ *      y su «¿Y en Instagram y Messenger?» solo con esos canales. Fase C:
+ *      `#catalogo` en las dos pasadas con los rótulos de la Bandeja y de
+ *      «Catálogo» («Copiar», «Pausado: no se puede mandar»…), sin rótulos del
+ *      Propietario, y ninguna mención de Reportes en la guía
  *   f) pantallas (como vendedora): ventana abierta (barra de tiempo, menú
  *      «Adjuntar», `accept` de «Documento»), ventana cerrada sin plantillas y
  *      con una plantilla de 2 espacios (prellenado, motivo, envío con los dos
@@ -253,7 +256,36 @@ async function offPass() {
   const cont = page.locator("#contactos");
   ok("#contactos sigue con la agenda apagada", (await cont.count()) === 1);
   ok("…sin «¿Y en …?» de canales", !((await cont.innerText().catch(() => "")) ?? "").includes("¿Y en "));
+  // 032 fase C — Catálogo no depende de ningún módulo.
+  await catalogTopicChecks(page);
   await ctx.close();
+}
+
+/**
+ * 032 fase C — `#catalogo` con los rótulos de hoy (Bandeja y «Catálogo» del
+ * menú), sin lo que solo ve el Propietario ni Reportes. En las dos pasadas.
+ */
+async function catalogTopicChecks(page) {
+  const cat = page.locator("#catalogo");
+  ok("hay tema del catálogo (#catalogo)", (await cat.count()) === 1);
+  const text = (await cat.innerText().catch(() => "")) ?? "";
+  for (const label of [
+    "Desde el chat",
+    "Con su atajo",
+    "Para mandarle un producto a un cliente:",
+    "Copiar",
+    "Copiado",
+    "Pausado: no se puede mandar",
+    "pídele al propietario",
+    "Sin atajo todavía",
+    "No se pudo copiar",
+    "No se puede mandar por aquí",
+  ]) {
+    ok(`#catalogo cita «${label}»`, text.includes(label));
+  }
+  ok("#catalogo no trae rótulos del Propietario («Le falta», «Listo para mandar», «Crear atajos»)", !/Le falta|Listo para mandar|Crear atajos/.test(text));
+  const all = (await page.locator("main").innerText().catch(() => "")) ?? "";
+  ok("la guía no menciona Reportes", !/Reportes|reporte/.test(all), (all.match(/.{0,40}[Rr]eporte.{0,40}/) ?? [""])[0]);
 }
 
 // ── a)–c) regreso tras el login ─────────────────────────────────────────
@@ -377,6 +409,8 @@ async function helpPageChecks() {
     ok(`#contactos cita «${label}»`, contText.includes(label));
   }
   ok("#contactos ya no dice «Ver archivados»", !contText.includes("Ver archivados"));
+  // 032 fase C — Catálogo al día.
+  await catalogTopicChecks(page);
   await ctx.close();
 }
 
