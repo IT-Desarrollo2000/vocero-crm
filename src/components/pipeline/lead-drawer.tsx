@@ -20,6 +20,7 @@ import type { FichaFieldDef, FichaMeta } from "@/lib/ficha-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { amountHeading } from "@/lib/pipeline-card";
+import { FollowUpHistory } from "@/components/follow-ups/follow-up-history";
 import { PriorityPicker } from "./priority-picker";
 import type { BoardLead } from "./pipeline-client";
 
@@ -182,6 +183,12 @@ export function LeadDrawer({
               </p>
             )}
           </section>
+
+          {/* 035: «Recordarme» y el historial de recordatorios de este cliente. */}
+          <FollowUpHistory
+            contact={{ id: lead.contact.id, name: lead.contact.name }}
+            conversationId={lead.conversationId}
+          />
 
           {/* 020: de dónde llegó (solo si vino de un anuncio o publicación). */}
           {anuncio && (

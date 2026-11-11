@@ -24,6 +24,7 @@ import { stageColorByName } from "@/lib/stage-colors";
 import { takeChat } from "@/lib/take-chat";
 import { NewContactDialog } from "./new-contact-dialog";
 import { StartConversation } from "./start-conversation";
+import { RemindDialog } from "@/components/follow-ups/remind-dialog";
 
 /** Contactos por página del directorio ("Cargar más" pide otros tantos). */
 const PAGE_SIZE = PAGE_DEFAULT_LIMIT;
@@ -39,7 +40,9 @@ const SEGMENT_LABEL: Record<Segment, string> = {
 /** Lo que pasó con la última acción de la lista (archivar, editar). */
 type Notice =
   | { kind: "archived" | "restored"; id: string; name: string }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  /** 035: confirmación simple (se va sola, sin «Deshacer»). */
+  | { kind: "info"; text: string };
 
 /** Cuánto se queda a la vista el aviso «Archivaste a X · Deshacer». */
 const NOTICE_MS = 10_000;
@@ -64,7 +67,12 @@ async function errorMessage(res: Response | null): Promise<string | null> {
   return data?.error?.message ?? null;
 }
 
-export function ContactsClient() {
+export function ContactsClient({
+  initialQuery = "",
+}: {
+  /** 035: `/contacts?q=…` (p. ej. «Escribir primero» desde Pendientes). */
+  initialQuery?: string;
+} = {}) {
   const router = useRouter();
   const me = useViewer();
   const [contacts, setContacts] = useState<ContactDto[]>([]);
@@ -85,7 +93,7 @@ export function ContactsClient() {
   // respuesta tardía no debe pisar ni mezclarse con la lista nueva.
   const requestId = useRef(0);
   const loadedCount = useRef(0);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [stage, setStage] = useState("all");
   const { stages: pipelineStages } = useStages();
   const stages = pipelineStages.map((s) => s.name);
@@ -93,6 +101,8 @@ export function ContactsClient() {
   const [editing, setEditing] = useState<ContactDto | null>(null);
   const [creando, setCreando] = useState(false);
   const [escribiendo, setEscribiendo] = useState<ContactDto | null>(null);
+  // 035: «Recordarme» desde la fila.
+  const [recordando, setRecordando] = useState<ContactDto | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [takingId, setTakingId] = useState<string | null>(null);
@@ -392,6 +402,7 @@ export function ContactsClient() {
                 stages={pipelineStages}
                 busy={busyId === c.id}
                 onEdit={() => setEditing(c)}
+                onRemind={() => setRecordando(c)}
                 taking={takingId === c.id}
                 onWriteFirst={() => setEscribiendo(c)}
                 onTake={(conversationId) => void tomar(c, conversationId)}
@@ -463,6 +474,15 @@ export function ContactsClient() {
         </div>
       )}
 
+      {recordando && (
+        <RemindDialog
+          contact={{ id: recordando.id, name: recordando.name }}
+          conversationId={recordando.conversation?.id ?? null}
+          onClose={() => setRecordando(null)}
+          onSaved={() => setNotice({ kind: "info", text: `Recordatorio de ${recordando.name} guardado.` })}
+        />
+      )}
+
       {creando && (
         <NewContactDialog
           onClose={() => setCreando(false)}
@@ -500,6 +520,7 @@ function ContactRow({
   busy,
   taking,
   onEdit,
+  onRemind,
   onWriteFirst,
   onTake,
   onToggleArchive,
@@ -512,6 +533,7 @@ function ContactRow({
   busy: boolean;
   taking: boolean;
   onEdit: () => void;
+  onRemind: () => void;
   onWriteFirst: () => void;
   onTake: (conversationId: string) => void;
   onToggleArchive: () => void;
@@ -580,6 +602,14 @@ function ContactRow({
             onTake={onTake}
           />
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Recordarme de ${c.name}`}
+          onClick={onRemind}
+        >
+          Recordarme
+        </Button>
         <Button variant="ghost" size="sm" onClick={onEdit}>
           Editar
         </Button>
@@ -671,6 +701,16 @@ function NoticeBar({
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+    );
+  }
+  if (notice.kind === "info") {
+    return (
+      <div
+        role="status"
+        className="mb-3 flex max-w-full items-center gap-x-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background sm:w-fit"
+      >
+        <p className="min-w-0">{notice.text}</p>
       </div>
     );
   }

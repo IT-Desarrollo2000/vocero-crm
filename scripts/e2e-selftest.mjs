@@ -1200,6 +1200,8 @@ async function main() {
   await bandejaAlcanceChecks();
   // 034: AL FINAL — da de alta una Vendedora; deja la Ayuda sin material.
   await ayudaMaterialChecks();
+  // 035: AL FINAL — da de alta dos Vendedoras; sus recordatorios no tocan nada previo.
+  await pendientesChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -4126,6 +4128,79 @@ async function ayudaMaterialChecks() {
     "034: al quitar todo, /ayuda vuelve a como estaba",
     ((await api("/api/training")).json?.assets ?? []).length === 0 && !despues.includes('data-testid="training-box"') && !despues.includes("Con video")
   );
+}
+
+/* ============================================================
+ * 035 — Recordatorios y Pendientes (por API; el recorrido con navegador
+ * —«Recordarme» en el chat y en Contactos, grupos, posponer, «Hecho» con
+ * repetición, Sin contacto con fechas sembradas, Sin respuesta, «Ver los N»,
+ * el número rojo, 390 px— es scripts/e2e-pendientes.mjs). Aquí: crear,
+ * listar, el contador, «Hecho» que repite, posponer, que otra Vendedora no
+ * ve ni toca lo ajeno (404) y que Pendientes responde.
+ * ============================================================ */
+async function pendientesChecks() {
+  console.log("\n== 035: Recordatorios y Pendientes ==");
+  const SUF = String(Date.now()).slice(-7);
+  const vend = async (n) => {
+    const email = `vend.pend${n}.${SUF}@vocero.test`;
+    const password = "password-vend-pend-123";
+    const alta = await api("/api/settings/team", {
+      method: "POST",
+      body: JSON.stringify({ name: `Vendedora Pend ${n}`, email, password }),
+    });
+    const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: BASE },
+      body: JSON.stringify({ email, password }),
+    });
+    const c = (login.headers.getSetCookie?.() ?? []).map((x) => x.split(";")[0]).join("; ");
+    ok(`035 (setup) alta e inicio de sesión de la vendedora ${n}`, alta.res.ok && login.ok && !!c, `${alta.res.status} ${login.status}`);
+    return (path, opts = {}) =>
+      fetch(`${BASE}${path}`, {
+        ...opts,
+        headers: { "content-type": "application/json", origin: BASE, cookie: c, ...(opts.headers ?? {}) },
+      }).then(async (res) => ({ res, json: await res.clone().json().catch(() => null) }));
+  };
+  const v1 = await vend(1);
+  const v2 = await vend(2);
+  const ct = await v1("/api/contacts", {
+    method: "POST",
+    body: JSON.stringify({ name: `Cliente Pend ${SUF}`, phone: `52155${SUF}9` }),
+  });
+  const contactId = ct.json?.contact?.id;
+  ok("035 (setup) la vendedora da de alta un contacto", !!contactId, `${ct.res.status}`);
+  const ayer = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+  const crear = await v1("/api/follow-ups", {
+    method: "POST",
+    body: JSON.stringify({ contactId, day: ayer, time: "10:00", reason: "servicio", note: "Garantía", repeatMonths: 6 }),
+  });
+  const fu = crear.json?.followUp;
+  ok("035: POST /api/follow-ups → 201 con motivo, repetir y sin chat", crear.res.status === 201 && fu?.repeatMonths === 6 && fu?.conversationId === null, `${crear.res.status} ${JSON.stringify(crear.json)}`);
+  const malo = await v1("/api/follow-ups", { method: "POST", body: JSON.stringify({ contactId, day: "2026-13-01", time: "10:00", reason: "servicio" }) });
+  ok("035: fecha inválida → 422", malo.res.status === 422);
+  const cuenta = await v1("/api/follow-ups/count");
+  ok("035: el contador cuenta el vencido (1)", cuenta.json?.overdue === 1, JSON.stringify(cuenta.json));
+  const ajenaLista = await v2("/api/follow-ups");
+  ok("035: la otra vendedora no lo ve", (ajenaLista.json?.followUps ?? []).every((f) => f.id !== fu?.id));
+  const ajenaToca = await v2(`/api/follow-ups/${fu?.id}`, { method: "PATCH", body: JSON.stringify({ action: "postpone", preset: "1h" }) });
+  ok("035: la otra vendedora tocándolo → 404", ajenaToca.res.status === 404, String(ajenaToca.res.status));
+  const delDueno = await api(`/api/follow-ups?userId=${fu?.user?.id}`);
+  ok("035: el Propietario lo ve con el filtro por vendedora", (delDueno.json?.followUps ?? []).some((f) => f.id === fu?.id));
+  const pospone = await v1(`/api/follow-ups/${fu?.id}`, { method: "PATCH", body: JSON.stringify({ action: "postpone", preset: "tomorrow" }) });
+  ok("035: posponer «mañana» lo saca de vencidos", pospone.res.ok && Date.parse(pospone.json?.followUp?.dueAt) > Date.now(), JSON.stringify(pospone.json));
+  const hecho = await v1(`/api/follow-ups/${fu?.id}`, { method: "PATCH", body: JSON.stringify({ action: "done", note: "Quedó contenta" }) });
+  ok(
+    "035: «Hecho» con nota cierra y crea el siguiente a 6 meses",
+    hecho.res.ok && hecho.json?.followUp?.doneNote === "Quedó contenta" && hecho.json?.next?.repeatMonths === 6 &&
+      Date.parse(hecho.json.next.dueAt) - Date.parse(hecho.json.followUp.dueAt) > 170 * 86_400_000,
+    JSON.stringify(hecho.json)
+  );
+  const pend = await v1("/api/follow-ups/pending?days=30&replyDays=3");
+  ok("035: GET /api/follow-ups/pending → 200 con los dos recuadros", pend.res.ok && Array.isArray(pend.json?.noContact?.rows) && Array.isArray(pend.json?.noReply?.rows));
+  const pendMal = await v1("/api/follow-ups/pending?days=45");
+  ok("035: días fuera del catálogo → 422", pendMal.res.status === 422);
+  const vista = await v1("/pipeline?vista=pendientes");
+  ok("035: /pipeline?vista=pendientes responde", vista.res.status === 200);
 }
 
 async function bandejaAlcanceChecks() {

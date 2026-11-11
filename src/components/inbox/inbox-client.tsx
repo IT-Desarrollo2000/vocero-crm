@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  AlarmClock,
   Archive,
   ArchiveRestore,
   CalendarPlus,
@@ -43,6 +44,7 @@ import {
 } from "./list-state";
 import { SCOPE_LABEL } from "./scope-tabs";
 import { BookingDialog } from "@/components/bookings/booking-dialog";
+import { RemindDialog } from "@/components/follow-ups/remind-dialog";
 import { WhoAnswersStrip } from "./who-answers-strip";
 import { InboxSummary } from "./inbox-summary";
 import { summaryItems } from "@/lib/inbox-summary";
@@ -192,6 +194,8 @@ export function InboxClient({
   // (`GET /api/calendar/types`) al abrirse, no en cada carga de la Bandeja;
   // los vendedores del Propietario son el equipo que ya se cargó arriba.
   const [bookingOpen, setBookingOpen] = useState(false);
+  // 035 — «Recordarme» desde el hilo (sin bandera: es del núcleo).
+  const [remindOpen, setRemindOpen] = useState(false);
   const bookingSellers = useMemo(
     () => (owner && team ? team.map((t) => ({ id: t.userId, name: t.name })) : undefined),
     [owner, team]
@@ -962,6 +966,22 @@ export function InboxClient({
                   {selected.archivedAt != null ? "Desarchivar" : "Archivar"}
                 </span>
               </button>
+              {/* 035: recordatorio interno para volver a escribirle. Un
+                  escalón por debajo de Agendar, como Archivar. */}
+              <button
+                type="button"
+                data-testid="inbox-remind"
+                onClick={() => setRemindOpen(true)}
+                aria-label="Recordarme"
+                className="flex shrink-0 items-center gap-1.5 rounded-sm border bg-background px-1.5 py-1.5 text-[12.5px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:px-2.5"
+              >
+                <AlarmClock className="h-4 w-4" strokeWidth={1.7} />
+                {/* Con el panel de detalles abierto el hilo es angosto: solo el
+                    ícono (el nombre del cliente no debe quedar en «Laur…»). */}
+                <span className={panelOpen ? "max-2xl:sr-only" : "max-md:sr-only"}>
+                  Recordarme
+                </span>
+              </button>
               {/* 023: agendar una cita para este contacto (solo con la
                   agenda encendida). 023b: sólido con el acento de la marca —
                   es la acción que ventas no debe pasar por alto. */}
@@ -1137,6 +1157,16 @@ export function InboxClient({
             setBookingOpen(false);
             setNotice(`Cita agendada para ${label}`);
           }}
+        />
+      )}
+
+      {remindOpen && selected && (
+        <RemindDialog
+          key={selected.id}
+          contact={{ id: selected.contact.id, name: selected.contact.name }}
+          conversationId={selected.id}
+          onClose={() => setRemindOpen(false)}
+          onSaved={() => setNotice(`Recordatorio de ${selected.contact.name} guardado.`)}
         />
       )}
 

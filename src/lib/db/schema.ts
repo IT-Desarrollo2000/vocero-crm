@@ -15,6 +15,11 @@ import {
   BOOKING_REMINDER_SKIP_REASONS,
   BOOKING_REMINDER_STATUSES,
 } from "../reminders";
+import {
+  FOLLOW_UP_REASONS,
+  FOLLOW_UP_SOURCES,
+  FOLLOW_UP_STATUSES,
+} from "../follow-ups";
 import type { ProductAttribute } from "../catalog";
 import type { AgentActionRecord } from "../agent-action";
 import { FORMALITIES } from "../formality";
@@ -1893,6 +1898,70 @@ export const trainingAsset = pgTable(
     check(
       "training_asset_help_image_topic_ck",
       sql`${t.kind} <> 'help_image' OR ${t.topicId} IS NOT NULL`
+    ),
+  ]
+);
+
+/**
+ * 035 — Recordatorios INTERNOS del vendedor («Recordarme»; Seguimiento ›
+ * Pendientes). No confundir con `booking_reminder` (los automáticos de cita
+ * al cliente): esto nunca sale del CRM.
+ *
+ * El dueño es quien lo crea (`user_id`); el Vendedor solo ve los suyos y el
+ * Propietario todos. `due_at` es un instante UTC, como `booking.scheduled_at`;
+ * la hora de pared (zona del negocio) se resuelve al capturar y al mostrar.
+ * Repetir crea el siguiente al marcar «Hecho» (`src/server/follow-ups/store.ts`).
+ */
+export const followUp = pgTable(
+  "follow_up",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contact.id, { onDelete: "cascade" }),
+    /** Desde dónde se creó; NULL si fue desde Contactos sin chat. */
+    conversationId: text("conversation_id").references(() => conversation.id, {
+      onDelete: "set null",
+    }),
+    /** Dueño del recordatorio (quien lo creó). */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    dueAt: timestamp("due_at").notNull(),
+    reason: text("reason", { enum: FOLLOW_UP_REASONS }).notNull(),
+    note: text("note"),
+    /** NULL = no se repite; 3, 6 o 12 meses. */
+    repeatMonths: integer("repeat_months"),
+    status: text("status", { enum: FOLLOW_UP_STATUSES }).notNull().default("open"),
+    doneAt: timestamp("done_at"),
+    /** «¿Qué pasó?» al marcarlo hecho; queda en el historial del cliente. */
+    doneNote: text("done_note"),
+    createdFrom: text("created_from", { enum: FOLLOW_UP_SOURCES })
+      .notNull()
+      .default("manual"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    // Pendientes y el número rojo del menú: los abiertos de un usuario por hora.
+    index("follow_up_org_user_status_due_idx").on(
+      t.organizationId,
+      t.userId,
+      t.status,
+      t.dueAt
+    ),
+    // Diálogo, cajón del trato y «ya tiene recordatorio» en Sin contacto.
+    index("follow_up_org_contact_status_idx").on(
+      t.organizationId,
+      t.contactId,
+      t.status
+    ),
+    check(
+      "follow_up_repeat_months_ck",
+      sql`${t.repeatMonths} IS NULL OR ${t.repeatMonths} IN (3, 6, 12)`
     ),
   ]
 );

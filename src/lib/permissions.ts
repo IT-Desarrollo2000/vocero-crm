@@ -101,6 +101,15 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PATCH /api/pipeline/stages/[id]": "owner",
   "DELETE /api/pipeline/stages/[id]": "owner",
 
+  // ── Recordatorios internos del vendedor (035) ──────────────────────────
+  // Cada quien los suyos (404 a uno ajeno para el Vendedor); el Propietario
+  // ve todos con el filtro «Vendedor» y puede cerrarlos o posponerlos.
+  "GET /api/follow-ups": "any*",
+  "POST /api/follow-ups": "any*",
+  "PATCH /api/follow-ups/[id]": "any*",
+  "GET /api/follow-ups/count": "any*",
+  "GET /api/follow-ups/pending": "any*",
+
   // ── Agenda ─────────────────────────────────────────────────────────────
   // 023: el Vendedor ve sus citas, las que creó y las sin asignar (404 a las
   // ajenas); `assignedUserId` al crear y la acción `assign` son del
