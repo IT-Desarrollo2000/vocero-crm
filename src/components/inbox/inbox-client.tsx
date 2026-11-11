@@ -49,6 +49,7 @@ import { summaryItems } from "@/lib/inbox-summary";
 import { takeOverAssigns, whoAnswers } from "@/lib/who-answers";
 import { displayFirstName } from "@/lib/template-fill";
 import { OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
+import { lastTemplateSent } from "@/lib/template-sent";
 
 /** 09: avisos de asignación (no bloqueantes; el E2E los busca por texto). */
 const NOTICE_LOST = "Esta conversación ahora la atiende otro vendedor.";
@@ -115,6 +116,10 @@ export function InboxClient({
    */
   const [selectedDto, setSelectedDto] = useState<ConversationDto | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
+  // 033: para qué conversación es `messages` (null = aún cargando). Sin
+  // esto, al abrir un chat con plantilla ya enviada se verían un instante los
+  // pasos antes de la tarjeta, justo cuando alguien podría reenviarla.
+  const [messagesFor, setMessagesFor] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingOut[]>([]);
   // Arranca cerrado: en pantallas angostas el panel de detalles es un cajón
   // ENCIMA del hilo, así que abrirlo por defecto taparía la conversación. El
@@ -360,9 +365,16 @@ export function InboxClient({
         closeLost(conversationId, false);
         return;
       }
-      if (!res?.ok) return;
+      if (!res?.ok) {
+        // Sin hilo no hay tarjeta: se degrada a los pasos (como antes de 033).
+        if (selectedIdRef.current === conversationId) setMessagesFor(conversationId);
+        return;
+      }
       const data = (await res.json()) as { messages: MessageDto[] };
-      if (selectedIdRef.current === conversationId) setMessages(data.messages);
+      if (selectedIdRef.current === conversationId) {
+        setMessages(data.messages);
+        setMessagesFor(conversationId);
+      }
     },
     [closeLost]
   );
@@ -391,6 +403,7 @@ export function InboxClient({
       setSelectedId(id);
       setSelectedDto(dto ?? itemsRef.current?.find((c) => c.id === id) ?? null);
       setMessages([]);
+      setMessagesFor(null);
       void refetchMessages(id);
       void markRead(id);
     },
@@ -606,6 +619,12 @@ export function InboxClient({
       })),
     ];
   }, [messages, pending, selectedId]);
+
+  // 033: tarjeta «Plantilla enviada» — del hilo confirmado por el servidor.
+  const lastTemplate = useMemo(
+    () => (selectedId ? lastTemplateSent(messages, selectedId) : null),
+    [messages, selectedId]
+  );
 
   /**
    * El compositor NO espera a que esto termine: limpia su campo al instante y
@@ -1048,6 +1067,8 @@ export function InboxClient({
               onNotVisible={() => closeLost(selected.id, false)}
               onSend={sendText}
               aiPrompt={aiPrompt}
+              lastTemplate={lastTemplate}
+              threadReady={messagesFor === selected.id}
               onSent={() => {
                 if (selectedIdRef.current)
                   void refetchMessages(selectedIdRef.current);

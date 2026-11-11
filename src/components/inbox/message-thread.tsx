@@ -22,7 +22,7 @@ import {
 import type { MessageDto, MessageMediaDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { LEAD_INTAKE_TYPE, parseLeadCard } from "@/lib/lead-intake";
-import { formatBytes, mediaLabel } from "./helpers";
+import { bubbleTime, formatBytes, mediaLabel } from "./helpers";
 
 /**
  * 011 — Tarjeta de un lead externo (formulario web / FastApp). No es un
@@ -346,14 +346,6 @@ function dayLabel(iso: string): string {
   if (d.toDateString() === today.toDateString()) return "Hoy";
   if (d.toDateString() === yesterday.toDateString()) return "Ayer";
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "long" });
-}
-
-function bubbleTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("es-MX", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
 }
 
 /** 018: cada cuánto se vuelve a pedir el hilo mientras un adjunto descarga. */

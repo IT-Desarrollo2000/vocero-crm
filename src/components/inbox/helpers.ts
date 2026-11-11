@@ -194,6 +194,15 @@ export function formatTime(iso: string | null): string {
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
 }
 
+/** Hora de la burbuja (24 h). 033: la tarjeta «Plantilla enviada» la reutiliza. */
+export function bubbleTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("es-MX", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export function formatRemaining(ms: number): string {
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);

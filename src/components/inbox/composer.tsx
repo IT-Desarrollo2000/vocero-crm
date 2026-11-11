@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useViewer } from "@/components/viewer-context";
 import { formatBytes } from "./helpers";
 import { ChannelClosedNotice, TemplateSender } from "./template-sender";
+import type { LastTemplate } from "@/lib/template-sent";
 import { AttachMenu } from "./attach-menu";
 import { acceptsOfficeDocs, attachKinds, type AttachKind } from "@/lib/attach-kinds";
 import { replyWindowBar } from "@/lib/reply-window";
@@ -115,6 +116,8 @@ export function Composer({
   onSent,
   onNotVisible,
   aiPrompt = null,
+  lastTemplate = null,
+  threadReady = true,
 }: {
   conversation: ConversationDto;
   onSend: (text: string) => Promise<string | null>;
@@ -126,6 +129,10 @@ export function Composer({
    * primer carácter se pregunta si se pausa. null = no preguntar.
    */
   aiPrompt?: AiPrompt | null;
+  /** 033 — Última del hilo si es una plantilla saliente (tarjeta «enviada»). */
+  lastTemplate?: LastTemplate | null;
+  /** 033 — ¿Ya llegó el hilo de ESTA conversación? Solo cuenta en modo plantilla. */
+  threadReady?: boolean;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -593,6 +600,8 @@ export function Composer({
         <TemplateSender
           conversationId={conversation.id}
           contactName={conversation.contact.name}
+          lastTemplate={lastTemplate}
+          threadReady={threadReady}
           onSent={onSent}
         />
       </div>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Aviso de plantilla repetida</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; min-height: 800px">
+    <header style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #ecedf0; flex-wrap: wrap">
+      <div style="width: 36px; height: 36px; border-radius: 50%; background: #8a7a6a; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px">CR</div>
+      <div style="display: flex; flex-direction: column; min-width: 0">
+        <strong style="font-size: 15px">Carlos Ruiz</strong>
+        <span style="font-size: 12px; color: #56565e">+52 55 0000 0012</span>
+      </div>
+      <span style="flex: 1 1 auto"></span>
+      <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 7px 12px; min-height: 36px">Devolver al buzón</button>
+      <button type="button" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 7px 12px; min-height: 36px">Agendar</button>
+    </header>
+
+    <section aria-label="Conversación" style="flex: 0 0 auto; background: #f6f7f8; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px">
+      <div style="align-self: flex-end; max-width: 60%; background: #f2f5f8; color: #33414f; border: 1px solid #dcebe8; border-radius: 12px 12px 4px 12px; padding: 9px 12px">
+        <p style="margin: 0">Hola Carlos, ¿pudiste revisar la cotización del Bingo? Si tienes dudas, con gusto te ayudo.</p>
+        <p style="margin: 4px 0 0; font-size: 11px; color: #56565e; text-align: right">Plantilla · 3:37 p. m. · Entregada</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="retomar-titulo" style="flex: 1 1 auto; border-top: 1px solid #ecedf0; background: #ffffff; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px">
+      <p id="retomar-titulo" style="margin: 0; font-size: 14px; font-weight: 600">Enviar otra plantilla a Carlos</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px">
+        <div style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+          <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+            <legend style="display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; padding: 0"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{accent}}; color: #ffffff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center">1</span>Elige el mensaje</legend>
+            <label style="display: flex; gap: 10px; align-items: flex-start; border: 1px solid #ecedf0; border-radius: 8px; padding: 10px 12px">
+              <input type="radio" name="tpl" style="margin-top: 3px">
+              <span style="display: flex; flex-direction: column; gap: 2px"><strong style="font-size: 14px">Invitacion prueba manejo</strong><span style="font-size: 12.5px; color: #56565e">“Hola ___, ¿te gustaría venir a una prueba de manejo esta semana?…”</span></span>
+            </label>
+            <label style="display: flex; gap: 10px; align-items: flex-start; border: 1px solid {{accent}}; background: #f2f8f6; border-radius: 8px; padding: 10px 12px">
+              <input type="radio" name="tpl" checked style="margin-top: 3px">
+              <span style="display: flex; flex-direction: column; gap: 2px"><strong style="font-size: 14px">Seguimiento cotizacion</strong><span style="font-size: 12.5px; color: #56565e">“Hola ___, ¿pudiste revisar la cotización del ___? Si tienes dudas, con gusto te ayudo.”</span></span>
+            </label>
+          </fieldset>
+          <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+            <legend style="display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; padding: 0"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{accent}}; color: #ffffff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center">2</span>Completa los espacios</legend>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap">
+              <label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #56565e">Espacio 1 · va en “Hola ___,”<input type="text" value="Carlos" style="font: inherit; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 8px 10px"></label>
+              <label style="flex: 1 1 160px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #56565e">Espacio 2 · va en “…la cotización del ___”<input type="text" value="Bingo" style="font: inherit; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 8px 10px"></label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+          <p style="margin: 0; display: flex; align-items: center; gap: 8px; font-weight: 600"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{accent}}; color: #ffffff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center">3</span>Revisa y envía</p>
+          <div style="background: #f6f7f8; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+            <p style="margin: 0; font-size: 12px; color: #56565e">Así le va a llegar a Carlos:</p>
+            <p style="margin: 0 0 0 auto; max-width: 92%; background: #f2f5f8; color: #33414f; border: 1px solid #dcebe8; border-radius: 12px 12px 4px 12px; padding: 9px 12px; font-size: 14px">Hola <strong>Carlos</strong>, ¿pudiste revisar la cotización del <strong>Bingo</strong>? Si tienes dudas, con gusto te ayudo.</p>
+          </div>
+
+          <div role="alert" style="border: 1px solid #e6d8bd; background: #faf7f0; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; gap: 10px; align-items: flex-start">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7a5d2c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px"><path d="M12 3 2.5 20h19L12 3z"></path><path d="M12 10v4.5"></path><path d="M12 17.5v.01"></path></svg>
+              <div style="display: flex; flex-direction: column; gap: 2px">
+                <p style="margin: 0; font-weight: 600; color: #7a5d2c">Ya le enviaste este mensaje a Carlos hace 2 min.</p>
+                <p style="margin: 0; font-size: 13px; color: #3f3f46">Si lo mandas otra vez, le llegará repetido. Mientras Carlos no conteste, no hace falta reenviarlo.</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+              <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 8px 14px; min-height: 40px">Cancelar</button>
+              <button type="button" style="font: inherit; font-size: 13px; font-weight: 600; border: 1px solid #9a7340; background: #ffffff; color: #7a5d2c; border-radius: 8px; padding: 8px 14px; min-height: 40px">Enviar de todos modos</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>
