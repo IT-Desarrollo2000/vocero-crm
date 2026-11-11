@@ -96,6 +96,7 @@ const config: Config = {
         },
         overlay: "var(--overlay)",
         knob: "var(--knob)",
+        video: "var(--video-bg)",
       },
       borderRadius: {
         sm: "var(--radius-sm)",

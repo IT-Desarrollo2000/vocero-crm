@@ -67,6 +67,8 @@
     /* Superficies auxiliares */
     --overlay: rgba(0, 0, 0, 0.6);
     --knob: #ffffff;
+    /* 034 — Fondo del reproductor de video de la Ayuda (barras y espera). */
+    --video-bg: #24302e;
 
     /* 028 — Calendario de Citas. --cal-off: horas fuera del horario del
        negocio (un paso más que --bg-subtle, que casi no se separa de --bg).
@@ -145,6 +147,7 @@
 
     --overlay: rgba(0, 0, 0, 0.72);
     --knob: #d9dae1;
+    --video-bg: #050607;
 
     /* 028 — Calendario: en oscuro lo no hábil va un paso MÁS oscuro que --bg
        (--bg-subtle apenas se distingue); los tipos, más claros para leerse. */

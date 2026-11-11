@@ -42,7 +42,9 @@ export function SettingsNav({
           key={t.href}
           href={t.href}
           className={cn(
-            "block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            // En columna (sm+) una etiqueta larga («Material de capacitación»)
+            // parte en dos renglones en vez de salirse de la columna.
+            "block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors sm:whitespace-normal",
             pathname.startsWith(t.href)
               ? "bg-brand-tint text-brand-text"
               : "text-muted-foreground hover:bg-accent hover:text-foreground"

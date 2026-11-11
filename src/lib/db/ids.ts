@@ -51,6 +51,8 @@ const prefixes = {
   intakeSettings: "intk",
   // 023 — agenda presencial
   appointmentType: "apt",
+  // 034 — material de capacitación de la Ayuda
+  trainingAsset: "tra",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

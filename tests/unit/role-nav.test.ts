@@ -73,6 +73,7 @@ describe("settingsTabsFor", () => {
       "/settings/quick-replies",
       "/settings/inbox",
       "/settings/team",
+      "/settings/capacitacion",
       "/settings/account",
     ]);
   });
@@ -95,6 +96,7 @@ describe("settingsTabsFor", () => {
       "/settings/quick-replies",
       "/settings/inbox",
       "/settings/team",
+      "/settings/capacitacion",
       "/settings/calendar",
       "/settings/ads",
       "/settings/account",

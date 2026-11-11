@@ -24,6 +24,8 @@ const BUSINESS_TABS: SettingsTab[] = [
   // 022 — Archivo de conversaciones inactivas (auto y limpieza masiva).
   { href: "/settings/inbox", label: "Bandeja" },
   { href: "/settings/team", label: "Equipo" },
+  // 034 — Lo que el equipo ve en Ayuda (núcleo, sin bandera).
+  { href: "/settings/capacitacion", label: "Material de capacitación" },
 ];
 
 /** 017 — Los canales extra solo aparecen si están en CHANNELS. */

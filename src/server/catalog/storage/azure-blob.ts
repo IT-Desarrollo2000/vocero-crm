@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { assertCatalogKey, type CatalogStorage, StorageError } from "./types";
+import { assertStorageKey, type CatalogStorage, StorageError } from "./types";
 
 /**
  * 019 — Conector opcional: almacenamiento del catálogo en Azure Blob (ADR-003).
@@ -8,7 +8,8 @@ import { assertCatalogKey, type CatalogStorage, StorageError } from "./types";
  * `node:crypto`). El SDK oficial arrastra decenas de dependencias para usar
  * Put/Get/Delete Blob y Get Container Properties; la firma son ~40 líneas y
  * quedan cubiertas por vectores fijos y por la suite de contrato contra
- * Azurite.
+ * Azurite. 034 suma Get Blob Properties (HEAD, para `stat`) y Get Blob con
+ * `Range` (para `getRange`, 206): el material de capacitación de la Ayuda.
  *
  * Seguridad (Principio I): la `AccountKey` y la cabecera `Authorization`
  * jamás salen en un mensaje de error ni en un log. El CUERPO de una respuesta
@@ -22,6 +23,15 @@ export const AZURE_API_VERSION = "2021-08-06";
 
 const PUT_GET_TIMEOUT_MS = 30_000;
 const TEST_TIMEOUT_MS = 10_000;
+
+/**
+ * 034 — Un MP4 de capacitación (≤ 100 MB) no sube en 30 s con un enlace
+ * normal: el PUT suma 1 s por MB sobre la base, topado a 10 min. Las fotos
+ * del catálogo siguen en ~30 s.
+ */
+export function putTimeoutMs(bytes: number): number {
+  return Math.min(PUT_GET_TIMEOUT_MS + Math.ceil(bytes / (1024 * 1024)) * 1000, 600_000);
+}
 
 export type AzureConnection = {
   accountName: string;
@@ -281,7 +291,7 @@ export function createAzureBlobCatalogStorage(config: AzureBlobConfig): CatalogS
   }
 
   function ready(key?: string): { conn: AzureConnection; container: string } {
-    if (key !== undefined) assertCatalogKey(key);
+    if (key !== undefined) assertStorageKey(key);
     if (!resolved) throw configError!;
     return resolved;
   }
@@ -300,7 +310,7 @@ export function createAzureBlobCatalogStorage(config: AzureBlobConfig): CatalogS
           "x-ms-blob-type": "BlockBlob",
           "content-type": mimeType || "application/octet-stream",
         },
-        timeoutMs: PUT_GET_TIMEOUT_MS,
+        timeoutMs: putTimeoutMs(data.length),
       });
       if (!res.ok) throw await failure("put", res);
       await res.body?.cancel().catch(() => {});
@@ -319,6 +329,50 @@ export function createAzureBlobCatalogStorage(config: AzureBlobConfig): CatalogS
         return Buffer.from(await res.arrayBuffer());
       } catch {
         console.error("[catalog/azure-blob] get: la descarga se cortó");
+        throw new StorageError("unavailable", "Azure Blob cortó la descarga del archivo");
+      }
+    },
+
+    async stat(key) {
+      const { conn, container } = ready(key);
+      // Get Blob Properties: HEAD no trae cuerpo; el 404 trae `x-ms-error-code`.
+      const res = await azureRequest(conn, {
+        method: "HEAD",
+        container,
+        blob: key,
+        timeoutMs: PUT_GET_TIMEOUT_MS,
+      });
+      if (!res.ok) throw await failure("stat", res);
+      await res.body?.cancel().catch(() => {});
+      const size = Number(res.headers.get("content-length") ?? "");
+      if (!Number.isSafeInteger(size) || size < 0) {
+        console.error("[catalog/azure-blob] stat: respuesta sin content-length");
+        throw new StorageError("unavailable", "Azure Blob no dijo el tamaño del archivo");
+      }
+      return { size };
+    },
+
+    async getRange(key, start, end) {
+      const { conn, container } = ready(key);
+      // `Range` estándar (no `x-ms-range`): va en el string-to-sign.
+      const res = await azureRequest(conn, {
+        method: "GET",
+        container,
+        blob: key,
+        headers: { range: `bytes=${start}-${end}` },
+        timeoutMs: PUT_GET_TIMEOUT_MS,
+      });
+      if (!res.ok) throw await failure("getRange", res);
+      if (res.status !== 206) {
+        // Un 200 sería el blob ENTERO: no se entrega como si fuera el rango.
+        await res.body?.cancel().catch(() => {});
+        console.error(`[catalog/azure-blob] getRange: HTTP ${res.status} en vez de 206`);
+        throw new StorageError("unavailable", "Azure Blob no respetó el rango pedido");
+      }
+      try {
+        return Buffer.from(await res.arrayBuffer());
+      } catch {
+        console.error("[catalog/azure-blob] getRange: la descarga se cortó");
         throw new StorageError("unavailable", "Azure Blob cortó la descarga del archivo");
       }
     },

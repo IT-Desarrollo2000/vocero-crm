@@ -26,6 +26,9 @@ import {
   type HelpBlock,
 } from "@/lib/help/topics";
 import { HelpText } from "@/components/help/help-text";
+import { TopicMedia, TrainingBox } from "@/components/help/training-media";
+import { trainingFileUrl, type TrainingAssetDto } from "@/lib/training";
+import { listTrainingAssets } from "@/server/training/store";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Ayuda" };
@@ -92,6 +95,27 @@ export default async function AyudaPage() {
     channels: enabledChannels(),
   });
 
+  // 034 — Material de capacitación del negocio. Sin filas (o si la consulta
+  // falla) la guía se ve exactamente como siempre.
+  const assets = await listTrainingAssets(session.organizationId).catch((err: unknown) => {
+    console.error("[ayuda] no se pudo leer el material de capacitación", err);
+    return [] as TrainingAssetDto[];
+  });
+  const documents = assets.filter((a) => a.kind === "document");
+  const videos = assets.filter((a) => a.kind === "video");
+  const topicTitles = Object.fromEntries(topics.map((t) => [t.id, brand(t.titulo)]));
+  /** El primer video (por orden) de cada tema VISIBLE. */
+  const videoByTopic = new Map<string, TrainingAssetDto>();
+  for (const v of videos) {
+    if (v.topicId && topicTitles[v.topicId] && !videoByTopic.has(v.topicId)) {
+      videoByTopic.set(v.topicId, v);
+    }
+  }
+  const imageByTopic = new Map(
+    assets.filter((a) => a.kind === "help_image" && a.topicId).map((a) => [a.topicId!, a])
+  );
+  const hasTraining = documents.length > 0 || videos.length > 0;
+
   return (
     <div className="h-full overflow-y-auto scroll-smooth">
       <div className="mx-auto max-w-[920px] space-y-9 px-4 pb-16 pt-6 sm:px-8 sm:pt-10">
@@ -104,7 +128,14 @@ export default async function AyudaPage() {
           </p>
         </header>
 
-        <nav aria-label="Temas de la guía">
+        {hasTraining && (
+          <TrainingBox documents={documents} videos={videos} topicTitles={topicTitles} />
+        )}
+
+        <nav aria-label="Temas de la guía" className="space-y-3">
+          {hasTraining && (
+            <h2 className="text-[17px] font-semibold text-foreground">¿Qué te está pasando?</h2>
+          )}
           <ul className="grid gap-3 sm:grid-cols-2">
             {topics.map((t) => {
               const Icon = TOPIC_ICON[t.id] ?? MessageSquareText;
@@ -126,9 +157,23 @@ export default async function AyudaPage() {
                       <Icon className="h-5 w-5" strokeWidth={1.7} />
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <strong className="text-[15px] font-semibold leading-snug text-foreground">
-                        {brand(t.titulo)}
-                      </strong>
+                      {videoByTopic.has(t.id) ? (
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <strong className="text-[15px] font-semibold leading-snug text-foreground">
+                            {brand(t.titulo)}
+                          </strong>
+                          <span
+                            data-testid="topic-has-video"
+                            className="rounded-full bg-brand-soft px-2 py-px text-[11.5px] font-semibold text-brand-text"
+                          >
+                            Con video
+                          </span>
+                        </span>
+                      ) : (
+                        <strong className="text-[15px] font-semibold leading-snug text-foreground">
+                          {brand(t.titulo)}
+                        </strong>
+                      )}
                       <span className="text-sm leading-snug text-text-2">
                         {brand(t.resumen)}
                       </span>
@@ -144,6 +189,44 @@ export default async function AyudaPage() {
           const captures = existingCaptures(t.captura);
           const main = t.bloques.filter((b) => b.tono !== "siNo");
           const siNo = t.bloques.filter((b) => b.tono === "siNo");
+          const own = imageByTopic.get(t.id);
+          const video = videoByTopic.get(t.id);
+          // La imagen del negocio reemplaza TODA la figura de ejemplo del tema.
+          const imagePanel = own ? (
+            <figure className="space-y-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- material privado servido con sesión; sus dimensiones pueden faltar */}
+              <img
+                src={trainingFileUrl(own.id)}
+                alt={`Captura de pantalla: ${brand(t.titulo)}`}
+                width={own.width ?? undefined}
+                height={own.height ?? undefined}
+                loading="lazy"
+                data-testid="topic-own-image"
+                className="h-auto max-w-full rounded-lg border"
+              />
+              <figcaption className="text-[13px] text-text-2">Así se ve en tu pantalla.</figcaption>
+            </figure>
+          ) : captures.length > 0 ? (
+            <figure className="space-y-2">
+              {captures.map((c) => (
+                <Image
+                  key={c.file}
+                  src={`/ayuda/${c.file}`}
+                  alt={`Captura de pantalla: ${brand(t.titulo)}`}
+                  width={c.width}
+                  height={c.height}
+                  // Las PNG ya salen al tamaño final: sin optimizador, la
+                  // imagen Docker no necesita `sharp`.
+                  unoptimized
+                  // A su tamaño real (nunca estirada), topada al ancho.
+                  className="h-auto max-w-full rounded-lg border"
+                />
+              ))}
+              <figcaption className="text-[13px] text-text-2">
+                Así se ve en tu pantalla.
+              </figcaption>
+            </figure>
+          ) : null;
           return (
             <article
               key={t.id}
@@ -175,26 +258,10 @@ export default async function AyudaPage() {
                 <Block key={j} block={b} brand={brand} />
               ))}
 
-              {captures.length > 0 && (
-                <figure className="space-y-2">
-                  {captures.map((c) => (
-                    <Image
-                      key={c.file}
-                      src={`/ayuda/${c.file}`}
-                      alt={`Captura de pantalla: ${brand(t.titulo)}`}
-                      width={c.width}
-                      height={c.height}
-                      // Las PNG ya salen al tamaño final: sin optimizador, la
-                      // imagen Docker no necesita `sharp`.
-                      unoptimized
-                      // A su tamaño real (nunca estirada), topada al ancho.
-                      className="h-auto max-w-full rounded-lg border"
-                    />
-                  ))}
-                  <figcaption className="text-[13px] text-text-2">
-                    Así se ve en tu pantalla.
-                  </figcaption>
-                </figure>
+              {video ? (
+                <TopicMedia topicId={t.id} video={video} imagePanel={imagePanel} />
+              ) : (
+                imagePanel
               )}
 
               {siNo.map((b, j) => (

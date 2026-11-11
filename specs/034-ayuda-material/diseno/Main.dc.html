@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ayuda con capacitación</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 2000px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 32px 48px">
+    <div style="max-width: 1080px; display: flex; flex-direction: column; gap: 26px">
+      <header style="display: flex; flex-direction: column; gap: 6px">
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700">Guía rápida de Mueblería Demo</h1>
+        <p style="margin: 0; color: #3f3f46; max-width: 640px">Todo para atender a tus clientes por WhatsApp sin complicarte. Elige lo que te está pasando y sigue los pasos.</p>
+      </header>
+
+      <section aria-labelledby="cap-titulo" style="border: 1px solid #dcebe8; background: #f2f8f6; border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <h2 id="cap-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Capacitación del equipo</h2>
+            <p style="margin: 0; color: #3f3f46; font-size: 13.5px">La presentación y los 7 videos completos, en orden. Cada video también aparece en su tema de la guía.</p>
+          </div>
+          <a href="#" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; background: {{accent}}; color: #ffffff; text-decoration: none; border-radius: 8px; padding: 10px 14px; min-height: 44px; box-sizing: border-box">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"></path><path d="m7 10 5 5 5-5"></path><path d="M5 20h14"></path></svg>
+            Presentación (PDF · 3.4 MB)
+          </a>
+          <a href="#" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; background: #ffffff; color: #1a1a1e; border: 1px solid #c9d6d3; text-decoration: none; border-radius: 8px; padding: 10px 14px; min-height: 44px; box-sizing: border-box">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"></path><path d="m7 10 5 5 5-5"></path><path d="M5 20h14"></path></svg>
+            Hoja de bolsillo (PDF · 0.2 MB)
+          </a>
+        </div>
+        <ol style="margin: 0; padding: 0; list-style: none; display: flex; gap: 8px; flex-wrap: wrap">
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>1 · La Bandeja <span style="color: #56565e">1:49</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>2 · 24 horas y plantillas <span style="color: #56565e">1:37</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>3 · Seguimiento <span style="color: #56565e">1:36</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>4 · Citas <span style="color: #56565e">1:33</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>5 · Contactos <span style="color: #56565e">1:40</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>6 · Catálogo <span style="color: #56565e">1:38</span></button></li>
+          <li><button type="button" style="font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>7 · Si algo falla <span style="color: #56565e">1:31</span></button></li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="temas-titulo" style="display: flex; flex-direction: column; gap: 10px">
+        <h2 id="temas-titulo" style="margin: 0; font-size: 17px; font-weight: 600">¿Qué te está pasando? <span style="font-weight: 400; color: #56565e; font-size: 13.5px">· los 10 temas de siempre</span></h2>
+        <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px">
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>Ya no puedo escribirle al cliente</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">Pasaron 24 horas: retómalo con una plantilla.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><strong>Siempre escribo lo mismo</strong><span style="font-size: 13px; color: #56565e">Usa respuestas rápidas con la diagonal /.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><strong>Quiero mandar un documento o foto</strong><span style="font-size: 13px; color: #56565e">Qué se puede mandar y qué hacer si no se deja.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>Quiero mandarle un producto</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">Fotos y fichas desde el Catálogo, o con su atajo.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>¿Qué chats me tocan?</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">Mis chats, Buzón y quién está esperando.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>¿En qué va cada cliente?</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">El tablero: qué te toca y el siguiente paso de cada cliente.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>Quiero escribirle a un contacto</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">Cada contacto te dice cómo va su chat y qué puedes hacer hoy.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><strong>¿Cuándo contesta la IA y cuándo yo?</strong><span style="font-size: 13px; color: #56565e">Cómo tomar un chat sin que respondan los dos.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>El cliente quiere una cita</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">Agéndala desde el chat y luego marca cómo le fue.</span></a></li>
+          <li><a href="#" style="display: flex; flex-direction: column; gap: 3px; border: 1px solid #ecedf0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #1a1a1e"><span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>¿Cuánto tiempo tengo para responder?</strong><span style="font-size: 11.5px; font-weight: 600; color: #2b4a46; background: #dcebe8; border-radius: 999px; padding: 1px 8px">Con video</span></span><span style="font-size: 13px; color: #56565e">La regla de las 24 horas de WhatsApp.</span></a></li>
+        </ul>
+      </section>
+
+      <article aria-labelledby="tema-plantillas" style="border-top: 1px solid #ecedf0; padding-top: 22px; display: flex; flex-wrap: wrap; gap: 24px">
+        <div style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #2b4a46">Retomar un chat</p>
+          <h2 id="tema-plantillas" style="margin: 0; font-size: 21px; font-weight: 700">Ya no puedo escribirle al cliente</h2>
+          <p style="margin: 0; color: #3f3f46">WhatsApp solo deja escribir libremente durante las 24 horas siguientes al último mensaje del cliente. Después, la única forma de escribirle es con una <strong>plantilla</strong>: un mensaje que WhatsApp ya aprobó. No es una falla: es una regla de WhatsApp.</p>
+          <p style="margin: 0; font-weight: 600">Pasos:</p>
+          <ol style="margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; color: #1a1a1e">
+            <li>Abre el chat. Donde estaba la caja de texto verás «Para escribirle a …, usa un mensaje aprobado».</li>
+            <li>En «Elige el mensaje» marca el que mejor quede (por ejemplo, un seguimiento de cotización).</li>
+            <li>En «Completa los espacios» llena cada espacio. Si el mensaje empieza con un saludo, el nombre del cliente ya viene puesto: revisa que esté bien.</li>
+            <li>Revisa en «Revisa y envía» cómo le va a llegar y haz clic en «Enviar plantilla». Cuando te conteste, ya puedes escribir normal.</li>
+          </ol>
+          <div style="border: 1px solid #e6d8bd; background: #faf7f0; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+            <p style="margin: 0; font-weight: 600; color: #7a5d2c">¿Y si…?</p>
+            <p style="margin: 0; font-size: 13.5px"><strong>No aparece ningún mensaje para elegir:</strong> verás «Todavía no puedes retomar este chat». Pídele al propietario que cree una plantilla.</p>
+            <p style="margin: 0; font-size: 13.5px"><strong>No se activa «Enviar plantilla»:</strong> te falta llenar un espacio; abajo del botón dice cuál.</p>
+          </div>
+        </div>
+
+        <figure style="flex: 1 1 420px; min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 10px">
+          <div role="tablist" aria-label="Ver como" style="display: inline-flex; align-self: flex-start; border: 1px solid #e0e1e6; border-radius: 9px; padding: 3px; gap: 3px; background: #f6f7f8">
+            <button type="button" role="tab" aria-selected="false" style="font: inherit; font-size: 13px; border: 0; background: transparent; color: #3f3f46; border-radius: 7px; padding: 7px 14px; min-height: 36px">Imagen</button>
+            <button type="button" role="tab" aria-selected="true" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; background: #ffffff; color: #1a1a1e; border-radius: 7px; padding: 7px 14px; min-height: 36px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); display: inline-flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="{{accent}}"><path d="M8 5v14l11-7z"></path></svg>Video · 1:37</button>
+          </div>
+          <div style="position: relative; aspect-ratio: 16 / 9; background: #24302e; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center">
+            <span style="width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="#24302e"><path d="M8 5v14l11-7z"></path></svg></span>
+            <p style="position: absolute; left: 12px; top: 10px; margin: 0; font-size: 11.5px; color: #c9d6d3">[Video 2 · Las 24 horas y las plantillas]</p>
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: rgba(0,0,0,0.45); display: flex; align-items: center; gap: 10px; padding: 0 12px">
+              <span style="flex: 1 1 auto; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.35)"></span>
+              <span style="font-size: 11.5px; color: #ffffff">0:00 / 1:37</span>
+            </div>
+          </div>
+          <figcaption style="font-size: 12.5px; color: #56565e">El video se reproduce aquí mismo, al lado de los pasos. «Imagen» regresa a la captura de siempre.</figcaption>
+        </figure>
+      </article>
+
+      <article aria-labelledby="tema-rapidas" style="border-top: 1px solid #ecedf0; padding-top: 22px; display: flex; flex-wrap: wrap; gap: 24px">
+        <div style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #2b4a46">Respuestas rápidas</p>
+          <h2 id="tema-rapidas" style="margin: 0; font-size: 21px; font-weight: 700">Siempre escribo lo mismo</h2>
+          <p style="margin: 0; color: #3f3f46">Las respuestas rápidas te ahorran escribir lo de siempre: escribe la diagonal / en la caja de texto y elige una.</p>
+          <p style="margin: 0; font-size: 13px; color: #56565e">[Pasos y «¿Y si…?» tal como están hoy]</p>
+        </div>
+        <figure style="flex: 1 1 420px; min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 10px">
+          <div style="aspect-ratio: 16 / 9; background: #f6f7f8; border: 1px solid #ecedf0; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #56565e; font-size: 13px">[La captura de siempre]</div>
+          <figcaption style="font-size: 12.5px; color: #56565e">Un tema sin video se queda igual que hoy: sin pestañas, solo su imagen.</figcaption>
+        </figure>
+      </article>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":2000}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

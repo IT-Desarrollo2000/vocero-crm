@@ -1198,6 +1198,8 @@ async function main() {
   // 027: AL FINAL — da de alta un Vendedor y mueve una conversación propia
   // entre alcances (la deja en el Buzón, como llegó).
   await bandejaAlcanceChecks();
+  // 034: AL FINAL — da de alta una Vendedora; deja la Ayuda sin material.
+  await ayudaMaterialChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -4026,6 +4028,106 @@ async function asignacionChecks() {
  * (pestañas, aviso "ahora está en…", recordatorio del Buzón, móvil) la
  * conduce scripts/e2e-bandeja-alcance.mjs.
  * ============================================================ */
+/* ============================================================
+ * 034 — Ayuda con material de capacitación (por API; el recorrido con
+ * navegador —Ajustes, descarga, «Imagen | Video», diálogo— es
+ * scripts/e2e-ayuda-material.mjs). Sube PDF, video e imagen como
+ * Propietario, la Vendedora los lee (sin rastro del almacenamiento) y los
+ * pide por rangos, la firma manda sobre la extensión, la Vendedora no
+ * administra, y al quitar todo la Ayuda vuelve a como estaba.
+ * ============================================================ */
+async function ayudaMaterialChecks() {
+  console.log("\n== 034: Ayuda con material de capacitación ==");
+  const { readFileSync } = await import("node:fs");
+  const fix = (f) => readFileSync(`tests/fixtures/capacitacion/${f}`);
+  const PDF = fix("documento.pdf");
+  const MP4 = fix("video-1s.mp4");
+  const PNG = fix("imagen-tema.png");
+  const SUF = String(Date.now()).slice(-7);
+
+  // Sesión propia de la Vendedora (el `cookie` global es del dueño).
+  const email = `vend.material.${SUF}@vocero.test`;
+  const password = "password-vend-material-123";
+  const alta = await api("/api/settings/team", {
+    method: "POST",
+    body: JSON.stringify({ name: "Vendedora Material", email, password }),
+  });
+  ok("034 (setup) alta de la vendedora", alta.res.ok, `${alta.res.status} ${JSON.stringify(alta.json)}`);
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email, password }),
+  });
+  const sellerCookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  ok("034 (setup) la vendedora inicia sesión", login.ok && !!sellerCookie, String(login.status));
+  // Multipart sin `content-type` (lo pone fetch con su boundary).
+  const subir = (who, fields, file, name, type) => {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) form.set(k, String(v));
+    form.set("file", new Blob([file], { type }), name);
+    return fetch(`${BASE}/api/training`, {
+      method: "POST",
+      headers: { origin: BASE, cookie: who === "seller" ? sellerCookie : cookie },
+      body: form,
+    }).then(async (res) => ({ res, json: await res.clone().json().catch(() => null) }));
+  };
+  const vend = (path, headers = {}) =>
+    fetch(`${BASE}${path}`, { headers: { origin: BASE, cookie: sellerCookie, ...headers } });
+  const ayudaHtml = async () => (await (await vend("/ayuda")).text());
+
+  for (const a of (await api("/api/training")).json?.assets ?? []) {
+    await api(`/api/training/${a.id}`, { method: "DELETE" });
+  }
+  const antes = await ayudaHtml();
+  ok("034: sin material, /ayuda sin recuadro ni «Con video»", !antes.includes('data-testid="training-box"') && !antes.includes("Con video"));
+
+  const doc = await subir("owner", { kind: "document", title: "Presentación" }, PDF, "presentacion.pdf", "application/pdf");
+  const vid = await subir("owner", { kind: "video", topicId: "plantillas", durationSeconds: 1 }, MP4, "video.mp4", "video/mp4");
+  const img = await subir("owner", { kind: "help_image", topicId: "plantillas", width: 64, height: 40 }, PNG, "captura.png", "image/png");
+  ok(
+    "034: el Propietario sube PDF, video e imagen → 201",
+    doc.res.status === 201 && vid.res.status === 201 && img.res.status === 201,
+    [doc, vid, img].map((r) => `${r.res.status} ${JSON.stringify(r.json?.error ?? "")}`).join(" | ")
+  );
+  const lista = await vend("/api/training");
+  const listaJson = await lista.json().catch(() => null);
+  ok(
+    "034: GET /api/training (vendedora) → 3 materiales, sin storage_key ni proveedor",
+    lista.status === 200 && listaJson?.assets?.length === 3 && !/storage|azure|capacitacion\//i.test(JSON.stringify(listaJson)),
+    JSON.stringify(listaJson)?.slice(0, 200)
+  );
+  const html = await ayudaHtml();
+  ok("034: /ayuda (vendedora) con «Capacitación del equipo» y «Con video»", html.includes("Capacitación del equipo") && html.includes("Con video"));
+
+  const vidId = vid.json?.asset?.id;
+  const r206 = await vend(`/api/training/${vidId}/file`, { range: "bytes=0-99" });
+  ok(
+    "034: Range bytes=0-99 → 206 con Content-Range y Accept-Ranges",
+    r206.status === 206 && r206.headers.get("content-range") === `bytes 0-99/${MP4.length}` && r206.headers.get("accept-ranges") === "bytes" && (await r206.arrayBuffer()).byteLength === 100,
+    `${r206.status} ${r206.headers.get("content-range")}`
+  );
+  const r416 = await vend(`/api/training/${vidId}/file`, { range: `bytes=${MP4.length}-` });
+  ok("034: rango fuera de límites → 416", r416.status === 416, String(r416.status));
+  const pdfRes = await vend(`/api/training/${doc.json?.asset?.id}/file`);
+  ok(
+    "034: el PDF se descarga como «Presentación.pdf» con Cache-Control private",
+    (pdfRes.headers.get("content-disposition") ?? "").startsWith('attachment; filename="Presentacion.pdf"') && (pdfRes.headers.get("cache-control") ?? "").startsWith("private"),
+    pdfRes.headers.get("content-disposition")
+  );
+
+  const falso = await subir("owner", { kind: "video" }, PNG, "falso.mp4", "video/mp4");
+  ok("034: un PNG renombrado a .mp4 → 415 unsupported_type", falso.res.status === 415 && falso.json?.error?.code === "unsupported_type", `${falso.res.status} ${JSON.stringify(falso.json)}`);
+  const ajena = await subir("seller", { kind: "document" }, PDF, "x.pdf", "application/pdf");
+  ok("034: la vendedora no sube (403)", ajena.res.status === 403, String(ajena.res.status));
+
+  for (const r of [doc, vid, img]) await api(`/api/training/${r.json?.asset?.id}`, { method: "DELETE" });
+  const despues = await ayudaHtml();
+  ok(
+    "034: al quitar todo, /ayuda vuelve a como estaba",
+    ((await api("/api/training")).json?.assets ?? []).length === 0 && !despues.includes('data-testid="training-box"') && !despues.includes("Con video")
+  );
+}
+
 async function bandejaAlcanceChecks() {
   console.log("\n== 027: Bandeja por alcance — Buzón · Mis chats · Equipo ==");
   const SUF = String(Date.now()).slice(-7);
