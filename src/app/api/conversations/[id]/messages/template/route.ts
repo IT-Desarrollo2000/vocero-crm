@@ -17,6 +17,8 @@ const bodySchema = z.object({
   /** Valores de {{1}}..{{n}} en orden. `variable` sigue vivo por compatibilidad. */
   variables: z.array(z.string().trim().max(500)).max(10).optional(),
   variable: z.string().trim().max(500).optional(),
+  /** 033: confirmar el reenvío tras el aviso de duplicado. */
+  force: z.boolean().optional(),
 });
 
 export const POST = withAuth(async (session, req: Request, ctx: Params) => {
@@ -40,6 +42,8 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       variables:
         body.data.variables ??
         (body.data.variable === undefined ? undefined : [body.data.variable]),
+      // 033: envío humano → candado contra la misma plantilla repetida.
+      guardDuplicates: body.data.force !== true,
     });
     return Response.json({ messageId: result.messageId });
   } catch (err) {

@@ -22,6 +22,8 @@ type Params = { params: Promise<{ id: string }> };
 const bodySchema = z.object({
   templateId: z.string().min(1),
   variables: z.array(z.string().trim().max(500)).max(10).optional(),
+  /** 033: confirmar el reenvío tras el aviso de duplicado. */
+  force: z.boolean().optional(),
 });
 
 /**
@@ -110,6 +112,8 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       conversationId: conversation.id,
       templateId: body.data.templateId,
       variables: body.data.variables,
+      // 033: envío humano → candado contra la misma plantilla repetida.
+      guardDuplicates: body.data.force !== true,
     });
     return Response.json({
       messageId: result.messageId,

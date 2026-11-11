@@ -1,10 +1,17 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gte, ne } from "drizzle-orm";
 import {
   countVariables,
   renderBody,
   validateBodyVariables,
 } from "@/lib/templates";
 import { getDb, schema } from "@/lib/db";
+import { displayFirstName } from "@/lib/template-fill";
+import {
+  duplicateMessage,
+  minutesSince,
+  TEMPLATE_DUPLICATE_CODE,
+  TEMPLATE_DUPLICATE_WINDOW_MIN,
+} from "@/lib/template-sent";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
 import { scoped } from "@/lib/db/tenant";
@@ -28,7 +35,8 @@ export class TemplateError extends Error {
     | "invalid"
     | "not_found"
     | "meta_error"
-    | "meta_unavailable";
+    | "meta_unavailable"
+    | typeof TEMPLATE_DUPLICATE_CODE;
 
   constructor(code: TemplateError["code"], message: string) {
     super(message);
@@ -44,6 +52,8 @@ const TEMPLATE_ERROR_STATUS: Record<TemplateError["code"], number> = {
   not_found: 404,
   meta_error: 422,
   meta_unavailable: 503,
+  // 033: la misma plantilla acaba de salir; el formulario pide confirmar.
+  template_recently_sent: 409,
 };
 
 export function templateErrorStatus(err: TemplateError): number {
@@ -51,6 +61,7 @@ export function templateErrorStatus(err: TemplateError): number {
 }
 
 export { countVariables, renderBody, validateBodyVariables };
+export { TEMPLATE_DUPLICATE_WINDOW_MIN };
 
 type TemplateRow = typeof schema.template.$inferSelect;
 
@@ -271,6 +282,39 @@ export async function applyTemplateStatusEvent(
     );
 }
 
+/**
+ * 033 — ¿Ya salió este mismo texto de plantilla a la conversación hace poco?
+ * Cuenta solo salientes de origen `template` que no fallaron, dentro de
+ * `TEMPLATE_DUPLICATE_WINDOW_MIN`. Devuelve cuándo salió el más reciente.
+ */
+export async function findRecentDuplicate(input: {
+  organizationId: string;
+  conversationId: string;
+  text: string;
+  now?: Date;
+}): Promise<{ createdAt: Date } | null> {
+  const now = input.now ?? new Date();
+  const since = new Date(now.getTime() - TEMPLATE_DUPLICATE_WINDOW_MIN * 60_000);
+  const rows = await getDb()
+    .select({ createdAt: schema.message.createdAt })
+    .from(schema.message)
+    .where(
+      scoped(
+        schema.message.organizationId,
+        input.organizationId,
+        eq(schema.message.conversationId, input.conversationId),
+        eq(schema.message.direction, "out"),
+        eq(schema.message.origin, "template"),
+        ne(schema.message.status, "failed"),
+        eq(schema.message.text, input.text),
+        gte(schema.message.createdAt, since)
+      )
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 /** Envía una plantilla APROBADA a una conversación (ventana cerrada, FR-051). */
 export async function sendTemplate(input: {
   organizationId: string;
@@ -283,6 +327,13 @@ export async function sendTemplate(input: {
    * los recordatorios de cita.
    */
   attends?: boolean;
+  /**
+   * 033 — Candado contra el doble clic: si el mismo texto salió hace menos
+   * de `TEMPLATE_DUPLICATE_WINDOW_MIN`, lanza `template_recently_sent` sin
+   * tocar Meta. Solo lo piden las rutas humanas (Bandeja y «Escribir
+   * primero») sin `force`; los automáticos (recordatorios) no lo pasan.
+   */
+  guardDuplicates?: boolean;
 }): Promise<{ messageId: string }> {
   const startedAt = new Date();
   const db = getDb();
@@ -371,6 +422,25 @@ export async function sendTemplate(input: {
     );
   }
 
+  const text = renderBody(template.body, values);
+  if (input.guardDuplicates) {
+    const previous = await findRecentDuplicate({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      text,
+      now: startedAt,
+    });
+    if (previous) {
+      throw new TemplateError(
+        TEMPLATE_DUPLICATE_CODE,
+        duplicateMessage(
+          displayFirstName(row.contact.name),
+          minutesSince(previous.createdAt, startedAt)
+        )
+      );
+    }
+  }
+
   const waMessageId = await callGraphSend(creds, {
     messaging_product: "whatsapp",
     to: templateRecipient,
@@ -400,7 +470,7 @@ export async function sendTemplate(input: {
       waMessageId,
       direction: "out",
       type: "template",
-      text: renderBody(template.body, values),
+      text,
       status: "pending",
       origin: "template",
     })

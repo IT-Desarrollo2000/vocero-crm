@@ -2593,6 +2593,19 @@ async function leadsExternos021bChecks(SUF, inbound) {
     body: JSON.stringify({ templateId: tpl?.id }),
   });
   ok("021b (setup) el asesor manda la plantilla a e2", envio.res.ok, `${envio.res.status} ${JSON.stringify(envio.json)}`);
+  // 033: la misma plantilla otra vez en < 10 min → 409 con aviso (el
+  // recorrido completo, tarjeta incluida, es scripts/e2e-plantilla-enviada.mjs).
+  const repetida = await api(`/api/conversations/${c2}/messages/template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId: tpl?.id }),
+  });
+  ok(
+    "033: la misma plantilla repetida → 409 template_recently_sent «Ya le enviaste este mensaje…»",
+    repetida.res.status === 409 &&
+      repetida.json?.error?.code === "template_recently_sent" &&
+      /^Ya le enviaste este mensaje a .+ hace (menos de 1|\d+) min\.$/.test(repetida.json?.error?.message ?? ""),
+    `${repetida.res.status} ${JSON.stringify(repetida.json)}`
+  );
 
   // Ganan e1 (sitio web) y e2 (FastApp).
   let board = null;

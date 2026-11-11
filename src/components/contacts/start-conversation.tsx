@@ -4,6 +4,8 @@ import { displayFirstName } from "@/lib/template-fill";
 import {
   NoTemplatesNotice,
   TemplateSteps,
+  templateSendFailure,
+  type TemplateSendOptions,
   type TemplateSendResult,
 } from "@/components/inbox/template-sender";
 
@@ -31,21 +33,23 @@ export function StartConversation({
 
   async function send(
     templateId: string,
-    variables: string[] | undefined
+    variables: string[] | undefined,
+    options?: TemplateSendOptions
   ): Promise<TemplateSendResult> {
     const res = await fetch(`/api/contacts/${contactId}/start-conversation`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ templateId, variables }),
+      body: JSON.stringify({ templateId, variables, ...(options?.force ? { force: true } : {}) }),
     }).catch(() => null);
     if (!res) return { ok: false, message: "Sin conexión con el servidor. Intenta de nuevo." };
     const data = (await res.json().catch(() => null)) as
-      | { error?: { message?: string }; conversationId?: string }
+      | { error?: { code?: string; message?: string }; conversationId?: string }
       | null;
     if (!res.ok) {
       // El fallo de Meta se explica aquí mismo (plantilla en pausa, número
-      // que no la recibe, ventana abierta, chat de otro vendedor…).
-      return { ok: false, message: data?.error?.message ?? "No se pudo enviar el mensaje" };
+      // que no la recibe, ventana abierta, chat de otro vendedor…). 033: si
+      // el mismo mensaje acaba de salir, el formulario pide confirmar.
+      return templateSendFailure(data, "No se pudo enviar el mensaje");
     }
     return { ok: true, conversationId: data?.conversationId };
   }

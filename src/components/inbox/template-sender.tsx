@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Clock3, MessageSquareText, RotateCcw } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  Clock3,
+  MessageSquareText,
+  RotateCcw,
+} from "lucide-react";
 import type { TemplateDto } from "@/lib/types";
 import { countVariables } from "@/lib/templates";
 import {
@@ -15,6 +22,13 @@ import {
   variableContext,
 } from "@/lib/template-fill";
 import { CHANNEL_LABEL, type Channel } from "@/lib/channels";
+import {
+  matchTemplateByText,
+  TEMPLATE_DUPLICATE_CODE,
+  templateStatusLabel,
+  type LastTemplate,
+} from "@/lib/template-sent";
+import { bubbleTime } from "./helpers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useViewer } from "@/components/viewer-context";
@@ -97,6 +111,154 @@ function ReopenNote({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * 033 — El servidor frenó la plantilla porque el mismo mensaje acaba de
+ * salir: en lugar del botón de envío, el porqué y la decisión.
+ */
+function DuplicateWarning({
+  message,
+  name,
+  sending,
+  onForce,
+  onCancel,
+}: {
+  message: string;
+  name: string | null;
+  sending: boolean;
+  onForce: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      data-testid="template-duplicate-warning"
+      className="space-y-2.5 rounded-md border border-warning-soft bg-warning-tint px-3 py-2.5"
+    >
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle
+          aria-hidden
+          className="mt-0.5 h-4 w-4 shrink-0 text-warning-text"
+          strokeWidth={1.8}
+        />
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-[13.5px] font-semibold text-warning-text">{message}</p>
+          <p className="text-[13px] text-text-2">
+            Si lo mandas otra vez, le llegará repetido. Mientras {name ?? "el cliente"} no
+            conteste, no hace falta reenviarlo.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={sending}>
+          Cancelar
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onForce}
+          disabled={sending}
+          className="border-warning text-warning-text hover:bg-warning-tint hover:text-warning-text"
+        >
+          {sending ? "Enviando…" : "Enviar de todos modos"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Cierra la frase con punto si no trae ya «.», «!» o «?». */
+function withPeriod(text: string): string {
+  const t = text.trim();
+  return /[.!?…]$/.test(t) ? t : `${t}.`;
+}
+
+/** 033 — El último envío no salió: va arriba de los pasos para reintentar. */
+function LastSendFailedNotice({
+  last,
+  name,
+}: {
+  last: LastTemplate;
+  name: string | null;
+}) {
+  return (
+    <div
+      role="alert"
+      data-testid="template-last-failed"
+      className="flex items-start gap-2.5 rounded-md border border-danger-soft bg-danger-tint px-3 py-2.5"
+    >
+      <AlertCircle
+        aria-hidden
+        className="mt-0.5 h-4 w-4 shrink-0 text-danger-text"
+        strokeWidth={1.8}
+      />
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-[13.5px] font-semibold text-danger-text">
+          La plantilla de las {bubbleTime(last.createdAt)} no le llegó a{" "}
+          {name ?? "este cliente"}.
+        </p>
+        <p className="text-[13px] text-text-2">
+          {withPeriod(last.error ?? "WhatsApp no la aceptó.")} Revísala abajo y vuelve a enviarla.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 033 — En lugar de los pasos, una vez que la plantilla salió: a quién, a
+ * qué hora y cómo va su entrega. Se deriva del hilo, así que sigue al
+ * recargar y la ve cualquiera que abra el chat.
+ */
+function TemplateSentCard({
+  last,
+  name,
+  templateLabel,
+  onAnother,
+}: {
+  last: LastTemplate;
+  name: string | null;
+  /** Nombre legible de la plantilla, si se reconoce por el texto. */
+  templateLabel: string | null;
+  onAnother: () => void;
+}) {
+  return (
+    <section
+      aria-labelledby="plantilla-enviada-titulo"
+      data-testid="template-sent-card"
+      data-status={last.status}
+      className="flex flex-wrap items-center gap-3 rounded-[10px] border border-brand-soft bg-brand-tint px-4 py-3.5"
+    >
+      <span
+        aria-hidden
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-brand-fg"
+      >
+        <Check className="h-[18px] w-[18px]" strokeWidth={2.4} />
+      </span>
+      <div className="min-w-0 flex-1 basis-[260px] space-y-1">
+        <h2 id="plantilla-enviada-titulo" className="text-[15px] font-semibold leading-snug">
+          Plantilla enviada a {name ?? "este cliente"} · {bubbleTime(last.createdAt)}
+        </h2>
+        <p className="flex flex-wrap items-center gap-2 text-[13.5px] text-text-2">
+          {templateLabel && <span className="min-w-0 break-words">«{templateLabel}»</span>}
+          <span
+            data-testid="template-sent-status"
+            className="inline-flex items-center rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand-text"
+          >
+            {templateStatusLabel(last.status)}
+          </span>
+        </p>
+        <p className="text-[13.5px] text-text-2">
+          Cuando {name ?? "el cliente"} te conteste, podrás escribirle normal. No hace
+          falta enviarla otra vez.
+        </p>
+      </div>
+      <Button variant="outline" size="sm" onClick={onAnother}>
+        Enviar otra plantilla
+      </Button>
+    </section>
+  );
+}
+
+/**
  * 031 — Instagram/Messenger pasados 7 días (`replyMode: "closed"`): no hay
  * plantillas, solo esperar a que el cliente vuelva a escribir.
  */
@@ -123,10 +285,29 @@ export function ChannelClosedNotice({
   );
 }
 
-/** Resultado de mandar la plantilla: el motivo, si no salió. */
+/**
+ * Resultado de mandar la plantilla: el motivo, si no salió. 033: `duplicate`
+ * = el servidor la frenó porque el mismo mensaje acaba de salir (se confirma
+ * con `force`).
+ */
 export type TemplateSendResult =
   | { ok: true; conversationId?: string }
-  | { ok: false; message: string };
+  | { ok: false; duplicate?: false; message: string }
+  | { ok: false; duplicate: true; message: string };
+
+/** Opciones del envío: `force` confirma el reenvío tras el aviso de duplicado. */
+export type TemplateSendOptions = { force?: boolean };
+
+/** Respuesta de error de las rutas de plantilla → resultado del formulario. */
+export function templateSendFailure(
+  data: { error?: { code?: string; message?: string } } | null,
+  fallback: string
+): TemplateSendResult {
+  const message = data?.error?.message ?? fallback;
+  return data?.error?.code === TEMPLATE_DUPLICATE_CODE
+    ? { ok: false, duplicate: true, message }
+    : { ok: false, message };
+}
 
 /**
  * 031/032 — Los tres pasos de la plantilla: elige el mensaje, completa los
@@ -144,6 +325,7 @@ export function TemplateSteps({
   emptyState,
   submitLabel,
   testId,
+  notice,
   send: sendTemplate,
   onSent,
 }: {
@@ -159,7 +341,13 @@ export function TemplateSteps({
   emptyState: React.ReactNode;
   submitLabel: string;
   testId?: string;
-  send: (templateId: string, variables: string[] | undefined) => Promise<TemplateSendResult>;
+  /** 033: aviso arriba de los pasos (el último envío falló). */
+  notice?: React.ReactNode;
+  send: (
+    templateId: string,
+    variables: string[] | undefined,
+    options?: TemplateSendOptions
+  ) => Promise<TemplateSendResult>;
   onSent: (conversationId: string | undefined) => void;
 }) {
   const name = displayFirstName(contactName);
@@ -171,11 +359,14 @@ export function TemplateSteps({
   const [prefilled, setPrefilled] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 033: el servidor la frenó por repetida; el texto viene de él.
+  const [duplicate, setDuplicate] = useState<string | null>(null);
 
   const choose = useCallback(
     (t: TemplateDto | null) => {
       setSelectedId(t?.id ?? "");
       setError(null);
+      setDuplicate(null);
       if (!t) {
         setVariables([]);
         setPrefilled(null);
@@ -261,16 +452,25 @@ export function TemplateSteps({
   const showPrefillNote = prefilled !== null && values[0] === prefilled;
   const blockedId = `${idPrefix}-blocked-reason`;
 
-  async function send() {
+  async function send(force = false) {
     if (!selected || sending || blockedReason) return;
     setSending(true);
     setError(null);
-    const result = await sendTemplate(selected.id, variableCount > 0 ? values : undefined);
+    const result = await sendTemplate(
+      selected.id,
+      variableCount > 0 ? values : undefined,
+      force ? { force: true } : undefined
+    );
     setSending(false);
     if (!result.ok) {
-      setError(result.message);
+      if (result.duplicate) setDuplicate(result.message);
+      else {
+        setDuplicate(null);
+        setError(result.message);
+      }
       return;
     }
+    setDuplicate(null);
     choose(templates && templates.length === 1 ? (templates[0] ?? null) : null);
     onSent(result.conversationId);
   }
@@ -278,6 +478,7 @@ export function TemplateSteps({
   return (
     <section aria-labelledby={headingId} data-testid={testId} className="space-y-4">
       {header}
+      {notice}
 
       <div className="flex flex-wrap gap-4">
         <div className="min-w-0 flex-1 basis-[340px] space-y-4">
@@ -341,13 +542,15 @@ export function TemplateSteps({
                         id={`${idPrefix}-variable-${n}`}
                         value={value}
                         aria-invalid={empty && missing === n ? true : undefined}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          // Otro texto ya no es el mismo mensaje repetido.
+                          setDuplicate(null);
                           setVariables(() => {
                             const next = [...values];
                             next[i] = e.target.value;
                             return next;
-                          })
-                        }
+                          });
+                        }}
                         placeholder={n === 1 ? "p. ej. el nombre del cliente" : "Escribe aquí"}
                         className={cn(
                           "text-foreground",
@@ -407,15 +610,25 @@ export function TemplateSteps({
               {error}
             </p>
           )}
-          <Button
-            className="w-full"
-            onClick={() => void send()}
-            disabled={sending || blockedReason !== null}
-            aria-describedby={blockedReason ? blockedId : undefined}
-          >
-            {sending ? "Enviando…" : submitLabel}
-          </Button>
-          {blockedReason && (
+          {duplicate ? (
+            <DuplicateWarning
+              message={duplicate}
+              name={name}
+              sending={sending}
+              onForce={() => void send(true)}
+              onCancel={() => setDuplicate(null)}
+            />
+          ) : (
+            <Button
+              className="w-full"
+              onClick={() => void send()}
+              disabled={sending || blockedReason !== null}
+              aria-describedby={blockedReason ? blockedId : undefined}
+            >
+              {sending ? "Enviando…" : submitLabel}
+            </Button>
+          )}
+          {blockedReason && !duplicate && (
             <p id={blockedId} className="text-[12.5px] text-warning-text">
               {blockedReason}
             </p>
@@ -505,34 +718,111 @@ export function NoTemplatesNotice({
 /**
  * Ventana de 24 h cerrada en WhatsApp (FR-005/FR-051). 031: en tres pasos
  * (`TemplateSteps`); sin plantillas aprobadas, qué sigue según el rol.
+ * 033: si la última del hilo es una plantilla que salió, la tarjeta
+ * «Plantilla enviada» ocupa su lugar; si falló, los pasos con el aviso.
  */
 export function TemplateSender({
   conversationId,
   contactName,
+  lastTemplate = null,
+  threadReady = true,
   onSent,
 }: {
   conversationId: string;
   contactName: string;
+  /**
+   * 033 — ¿Ya llegó el hilo de esta conversación? Mientras no, ni tarjeta ni
+   * pasos: el encabezado y «Cargando…» (los pasos un instante antes de la
+   * tarjeta invitarían a reenviar).
+   */
+  threadReady?: boolean;
+  /** 033: el último mensaje del hilo, si es una plantilla saliente. */
+  lastTemplate?: LastTemplate | null;
   onSent: () => void;
 }) {
   const name = displayFirstName(contactName);
-  const headerTitle = `Para escribirle a ${name ?? "este cliente"}, usa un mensaje aprobado`;
+  // «Enviar otra plantilla»: local a este chat (el Composer va con `key` por
+  // conversación). Se cierra solo cuando llega una plantilla nueva.
+  const [anotherFor, setAnotherFor] = useState<string | null>(null);
+  const [label, setLabel] = useState<string | null>(null);
+  const sentOk = lastTemplate !== null && lastTemplate.status !== "failed";
+  const showCard = sentOk && anotherFor !== lastTemplate.id;
+  const another = sentOk && !showCard;
+  const lastText = sentOk ? lastTemplate.text : null;
+
+  // Nombre de la plantilla para la tarjeta, reconocido por el texto. Si no
+  // se reconoce, la tarjeta lo omite.
+  useEffect(() => {
+    if (!lastText) return;
+    let cancelled = false;
+    fetch("/api/templates")
+      .then((r) => (r.ok ? (r.json() as Promise<{ templates?: TemplateDto[] }>) : null))
+      .then((d) => {
+        if (cancelled || !d?.templates) return;
+        const hit = matchTemplateByText(lastText, d.templates);
+        setLabel(hit ? (templateLabels(d.templates).get(hit.id) ?? null) : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [lastText]);
+
+  const closedIntro = (
+    <>
+      Pasaron más de 24 horas desde su último mensaje, y WhatsApp solo deja retomar
+      con una plantilla. Cuando {name ?? "el cliente"} te conteste, podrás escribir
+      normal otra vez.
+    </>
+  );
+
+  if (!threadReady) {
+    return (
+      <section aria-labelledby="retomar-titulo" className="space-y-3" aria-busy="true">
+        <ClosedHeader
+          id="retomar-titulo"
+          title={`Para escribirle a ${name ?? "este cliente"}, usa un mensaje aprobado`}
+        >
+          {closedIntro}
+        </ClosedHeader>
+        <p role="status" data-testid="template-thread-loading" className="text-[13px] text-text-3">
+          Cargando…
+        </p>
+      </section>
+    );
+  }
+
+  if (showCard && lastTemplate) {
+    return (
+      <TemplateSentCard
+        last={lastTemplate}
+        name={name}
+        templateLabel={label}
+        onAnother={() => setAnotherFor(lastTemplate.id)}
+      />
+    );
+  }
+
+  const headerTitle = another
+    ? `Enviar otra plantilla a ${name ?? "este cliente"}`
+    : `Para escribirle a ${name ?? "este cliente"}, usa un mensaje aprobado`;
 
   async function send(
     templateId: string,
-    variables: string[] | undefined
+    variables: string[] | undefined,
+    options?: TemplateSendOptions
   ): Promise<TemplateSendResult> {
     const res = await fetch(`/api/conversations/${conversationId}/messages/template`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ templateId, variables }),
+      body: JSON.stringify({ templateId, variables, ...(options?.force ? { force: true } : {}) }),
     }).catch(() => null);
     if (!res) return { ok: false, message: "Sin conexión con el servidor. Intenta de nuevo." };
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
+        error?: { code?: string; message?: string };
       } | null;
-      return { ok: false, message: data?.error?.message ?? "No se pudo enviar la plantilla" };
+      return templateSendFailure(data, "No se pudo enviar la plantilla");
     }
     return { ok: true };
   }
@@ -546,10 +836,13 @@ export function TemplateSender({
       submitLabel="Enviar plantilla"
       header={
         <ClosedHeader id="retomar-titulo" title={headerTitle}>
-          Pasaron más de 24 horas desde su último mensaje, y WhatsApp solo deja
-          retomar con una plantilla. Cuando {name ?? "el cliente"} te conteste, podrás
-          escribir normal otra vez.
+          {closedIntro}
         </ClosedHeader>
+      }
+      notice={
+        lastTemplate?.status === "failed" ? (
+          <LastSendFailedNotice last={lastTemplate} name={name} />
+        ) : undefined
       }
       emptyState={
         <NoTemplatesNotice
@@ -559,6 +852,8 @@ export function TemplateSender({
         />
       }
       send={send}
+      // La tarjeta vuelve sola: la plantilla nueva (llega por el refetch)
+      // trae otro id que `anotherFor`.
       onSent={() => onSent()}
     />
   );
