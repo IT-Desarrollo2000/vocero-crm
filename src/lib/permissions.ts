@@ -75,6 +75,15 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "PATCH /api/catalog/files/[id]": "owner",
   "DELETE /api/catalog/files/[id]": "owner",
 
+  // ── Material de capacitación de la Ayuda (034) ─────────────────────────
+  // Lo ve todo el equipo en /ayuda; lo sube y ordena solo el Propietario.
+  "GET /api/training": "any",
+  "POST /api/training": "owner",
+  "PATCH /api/training/[id]": "owner",
+  "DELETE /api/training/[id]": "owner",
+  "POST /api/training/reorder": "owner",
+  "GET /api/training/[id]/file": "any",
+
   // ── Contactos ──────────────────────────────────────────────────────────
   "GET /api/contacts": "any",
   "POST /api/contacts": "any",

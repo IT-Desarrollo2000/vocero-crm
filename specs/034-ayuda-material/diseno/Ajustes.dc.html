@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Material de capacitación (propietario)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 1000px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Reportes</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 32px 40px">
+    <div style="max-width: 960px; display: flex; flex-direction: column; gap: 22px">
+      <header style="display: flex; flex-direction: column; gap: 6px">
+        <p style="margin: 0; font-size: 13px; color: #56565e"><a href="#">Ajustes</a> › Material de capacitación</p>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">Material de capacitación</h1>
+        <p style="margin: 0; color: #3f3f46; max-width: 680px">Lo que subas aquí lo ve todo tu equipo en <strong>Ayuda</strong>. Solo lo abren usuarios con sesión iniciada: no hay enlaces públicos.</p>
+      </header>
+
+      <section aria-labelledby="docs-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px">
+            <h2 id="docs-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Documentos para descargar</h2>
+            <p style="margin: 0; font-size: 13px; color: #56565e">PDF de hasta 25 MB. Salen como botones arriba de la Ayuda, en este orden.</p>
+          </div>
+          <button type="button" style="font: inherit; font-size: 13.5px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 9px 14px; min-height: 44px">Subir PDF</button>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #ecedf0; border-radius: 10px">
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid #ecedf0">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#56565e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"></path><path d="M14 3v4h4"></path></svg>
+            <label style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Nombre del botón<input type="text" value="Presentación" style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px"></label>
+            <span style="font-size: 13px; color: #56565e">Capacitacion-CRM.pdf · 3.4 MB</span>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Reemplazar</button>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #ecd4d2; background: #ffffff; color: #a2504c; border-radius: 8px; padding: 8px 12px; min-height: 40px">Quitar</button>
+          </li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#56565e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"></path><path d="M14 3v4h4"></path></svg>
+            <label style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Nombre del botón<input type="text" value="Hoja de bolsillo" style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px"></label>
+            <span style="font-size: 13px; color: #56565e">Hoja-de-bolsillo.pdf · 0.2 MB</span>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Reemplazar</button>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #ecd4d2; background: #ffffff; color: #a2504c; border-radius: 8px; padding: 8px 12px; min-height: 40px">Quitar</button>
+          </li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="videos-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px">
+            <h2 id="videos-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Videos</h2>
+            <p style="margin: 0; font-size: 13px; color: #56565e">MP4 de hasta 100 MB. Elige el tema de la Ayuda donde aparece su botón «Ver el video».</p>
+          </div>
+          <button type="button" style="font: inherit; font-size: 13.5px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 9px 14px; min-height: 44px">Subir video</button>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #ecedf0; border-radius: 10px">
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid #ecedf0">
+            <span style="flex: 0 0 auto; width: 72px; height: 40px; border-radius: 6px; background: #24302e; color: #ffffff; font-size: 11px; display: flex; align-items: center; justify-content: center">1:49</span>
+            <label style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Título<input type="text" value="La Bandeja y tomar un chat" style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px"></label>
+            <label style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Tema de la Ayuda<select style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px; background: #ffffff"><option>¿Qué chats me tocan?</option></select></label>
+            <span style="display: flex; gap: 4px">
+              <button type="button" aria-label="Subir de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↑</button>
+              <button type="button" aria-label="Bajar de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↓</button>
+            </span>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #ecd4d2; background: #ffffff; color: #a2504c; border-radius: 8px; padding: 8px 12px; min-height: 40px">Quitar</button>
+          </li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid #ecedf0">
+            <span style="flex: 0 0 auto; width: 72px; height: 40px; border-radius: 6px; background: #24302e; color: #ffffff; font-size: 11px; display: flex; align-items: center; justify-content: center">1:37</span>
+            <label style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Título<input type="text" value="Las 24 horas y las plantillas" style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px"></label>
+            <label style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Tema de la Ayuda<select style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px; background: #ffffff"><option>Ya no puedo escribirle al cliente</option></select></label>
+            <span style="display: flex; gap: 4px">
+              <button type="button" aria-label="Subir de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↑</button>
+              <button type="button" aria-label="Bajar de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↓</button>
+            </span>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #ecd4d2; background: #ffffff; color: #a2504c; border-radius: 8px; padding: 8px 12px; min-height: 40px">Quitar</button>
+          </li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px">
+            <span style="flex: 0 0 auto; width: 72px; height: 40px; border-radius: 6px; background: #24302e; color: #ffffff; font-size: 11px; display: flex; align-items: center; justify-content: center">1:31</span>
+            <label style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Título<input type="text" value="La Ayuda y si algo falla" style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px"></label>
+            <label style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #56565e">Tema de la Ayuda<select style="font: inherit; font-size: 14px; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px; background: #ffffff"><option>Ninguno: solo en la lista de videos</option></select></label>
+            <span style="display: flex; gap: 4px">
+              <button type="button" aria-label="Subir de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↑</button>
+              <button type="button" aria-label="Bajar de lugar" style="font: inherit; width: 40px; height: 40px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px">↓</button>
+            </span>
+            <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #ecd4d2; background: #ffffff; color: #a2504c; border-radius: 8px; padding: 8px 12px; min-height: 40px">Quitar</button>
+          </li>
+        </ul>
+        <p style="margin: 0; font-size: 12.5px; color: #56565e">+ 4 videos más (Seguimiento, Citas, Contactos, Catálogo)</p>
+      </section>
+
+      <section aria-labelledby="capturas-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h2 id="capturas-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Imágenes de la Ayuda</h2>
+          <p style="margin: 0; font-size: 13px; color: #56565e">Cada tema trae una imagen de ejemplo. Cámbiala por una de tu negocio para que tu equipo reconozca sus pantallas.</p>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px">
+          <li style="border: 1px solid #ecedf0; border-radius: 10px; padding: 10px; display: flex; gap: 10px; align-items: center">
+            <span style="flex: 0 0 auto; width: 88px; height: 56px; border-radius: 6px; background: #eef1f0; border: 1px solid #dcebe8; font-size: 10px; color: #2b4a46; display: flex; align-items: center; justify-content: center; text-align: center">[captura propia]</span>
+            <span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 13px">Ya no puedo escribirle al cliente</strong>
+              <span style="font-size: 12px; font-weight: 600; color: #2b4a46">Imagen de tu negocio</span>
+              <span style="display: flex; gap: 6px; flex-wrap: wrap"><button type="button" style="font: inherit; font-size: 12.5px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 36px">Cambiar</button><button type="button" style="font: inherit; font-size: 12.5px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 36px">Usar la de ejemplo</button></span>
+            </span>
+          </li>
+          <li style="border: 1px solid #ecedf0; border-radius: 10px; padding: 10px; display: flex; gap: 10px; align-items: center">
+            <span style="flex: 0 0 auto; width: 88px; height: 56px; border-radius: 6px; background: #f6f7f8; border: 1px dashed #c9cbd1; font-size: 10px; color: #56565e; display: flex; align-items: center; justify-content: center; text-align: center">[de ejemplo]</span>
+            <span style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+              <strong style="font-size: 13px">Siempre escribo lo mismo</strong>
+              <span style="font-size: 12px; color: #56565e">Imagen de ejemplo</span>
+              <span style="display: flex; gap: 6px; flex-wrap: wrap"><button type="button" style="font: inherit; font-size: 12.5px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 36px">Subir la tuya</button></span>
+            </span>
+          </li>
+        </ul>
+        <p style="margin: 0; font-size: 12.5px; color: #56565e">+ 11 imágenes más, una por tema</p>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

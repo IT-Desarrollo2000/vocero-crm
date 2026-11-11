@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ver un video de capacitación</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="position: relative; min-height: 1000px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Ayuda</a>
+  </nav>
+  <main style="flex: 999 1 560px; padding: 28px 32px">
+    <h1 style="margin: 0; font-size: 26px; font-weight: 700">Guía rápida de Mueblería Demo</h1>
+  </main>
+
+  <div style="position: absolute; inset: 0; background: rgba(20, 22, 24, 0.55); display: flex; align-items: center; justify-content: center; padding: 32px; box-sizing: border-box">
+    <section role="dialog" aria-modal="true" aria-labelledby="video-titulo" style="width: 100%; max-width: 920px; background: #ffffff; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.25)">
+      <header style="display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #ecedf0">
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <p style="margin: 0; font-size: 12px; color: #56565e">Video 2 de 7 · 1:37</p>
+          <h2 id="video-titulo" style="margin: 0; font-size: 17px; font-weight: 600">Las 24 horas y las plantillas</h2>
+        </div>
+        <button type="button" aria-label="Cerrar video" style="font: inherit; width: 44px; height: 44px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path></svg>
+        </button>
+      </header>
+
+      <div style="position: relative; aspect-ratio: 16 / 9; background: #24302e; display: flex; align-items: center; justify-content: center">
+        <span style="width: 64px; height: 64px; border-radius: 50%; background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="#24302e"><path d="M8 5v14l11-7z"></path></svg></span>
+        <p style="position: absolute; left: 16px; top: 12px; margin: 0; font-size: 12px; color: #c9d6d3">[El video con sus subtítulos, con los controles del navegador: pausa, adelantar, pantalla completa]</p>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: rgba(0,0,0,0.45); display: flex; align-items: center; gap: 12px; padding: 0 14px">
+          <span style="flex: 1 1 auto; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.35)"><span style="display: block; width: 32%; height: 4px; border-radius: 2px; background: #ffffff"></span></span>
+          <span style="font-size: 12px; color: #ffffff">0:31 / 1:37</span>
+        </div>
+      </div>
+
+      <footer style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px">
+        <a href="#" style="font-size: 13.5px; flex: 1 1 260px">En la guía: «Ya no puedo escribirle al cliente»</a>
+        <button type="button" style="font: inherit; font-size: 13.5px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 9px 14px; min-height: 44px">‹ 1 · La Bandeja y tomar un chat</button>
+        <button type="button" style="font: inherit; font-size: 13.5px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 9px 14px; min-height: 44px">3 · Seguimiento ›</button>
+      </footer>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

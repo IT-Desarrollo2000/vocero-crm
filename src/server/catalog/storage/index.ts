@@ -9,10 +9,12 @@ import { type CatalogStorage, StorageError } from "./types";
 
 export {
   assertCatalogKey,
+  assertStorageKey,
   catalogStorageKey,
   type CatalogStorage,
   StorageError,
   type StorageErrorCode,
+  trainingStorageKey,
 } from "./types";
 
 /**

@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getEnv } from "@/lib/env";
-import { assertCatalogKey, type CatalogStorage, StorageError } from "./types";
+import { assertStorageKey, type CatalogStorage, StorageError } from "./types";
 
 /**
  * 019 — Almacenamiento local del catálogo (default): `MEDIA_DIR/{org}/catalog/{fileId}`.
+ * 034: también `MEDIA_DIR/{org}/capacitacion/{assetId}` (material de la Ayuda).
  *
  * Comparte el volumen con la caché de adjuntos de 018, pero la purga de 30
  * días NO lo toca: purge.ts solo borra rutas de filas de `media_asset`.
@@ -19,7 +20,7 @@ export function createLocalCatalogStorage(rootDir?: string): CatalogStorage {
   const root = () => path.resolve(rootDir ?? getEnv().MEDIA_DIR);
 
   function fileFor(key: string): string {
-    assertCatalogKey(key);
+    assertStorageKey(key);
     const base = root();
     const file = path.resolve(base, ...key.split("/"));
     // Defensa en profundidad: la clave ya es segura, pero la ruta resuelta
@@ -62,6 +63,51 @@ export function createLocalCatalogStorage(rootDir?: string): CatalogStorage {
         }
         console.error("[catalog/local] get falló", (err as NodeJS.ErrnoException).code);
         throw unavailable("leer");
+      }
+    },
+
+    async stat(key) {
+      const file = fileFor(key);
+      let size: number | null;
+      try {
+        const st = await stat(file);
+        size = st.isFile() ? st.size : null;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new StorageError("not_found", "El archivo no existe en el almacenamiento");
+        }
+        console.error("[catalog/local] stat falló", (err as NodeJS.ErrnoException).code);
+        throw unavailable("leer");
+      }
+      if (size === null) {
+        throw new StorageError("not_found", "El archivo no existe en el almacenamiento");
+      }
+      return { size };
+    },
+
+    async getRange(key, start, end) {
+      const file = fileFor(key);
+      // Lectura parcial: un rango de un video de 100 MB no carga el archivo entero.
+      let handle: Awaited<ReturnType<typeof open>> | null = null;
+      try {
+        handle = await open(file, "r");
+        const length = Math.max(0, end - start + 1);
+        const buf = Buffer.alloc(length);
+        let read = 0;
+        while (read < length) {
+          const { bytesRead } = await handle.read(buf, read, length - read, start + read);
+          if (bytesRead === 0) break;
+          read += bytesRead;
+        }
+        return read === length ? buf : buf.subarray(0, read);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new StorageError("not_found", "El archivo no existe en el almacenamiento");
+        }
+        console.error("[catalog/local] getRange falló", (err as NodeJS.ErrnoException).code);
+        throw unavailable("leer");
+      } finally {
+        await handle?.close().catch(() => {});
       }
     },
 

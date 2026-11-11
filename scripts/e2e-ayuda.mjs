@@ -207,6 +207,9 @@ async function setupActors() {
   ok("id de la vendedora", !!sellerId, JSON.stringify(members.map((m) => m.email)));
   const brand = (await owner.api("/api/settings/branding")).json?.branding?.name ?? null;
   ok("nombre de la instancia", typeof brand === "string" && brand.length > 0, String(brand));
+  // Calienta la ruta del outbox: en `next dev` su primera compilación tarda
+  // varios segundos y no debe comerse la espera del check (h).
+  await outbox();
   return { sellerId, brand };
 }
 
@@ -490,10 +493,24 @@ async function screensChecks({ sellerId }) {
 
   console.log("\n== h) El compositor sigue enviando texto normal ==");
   const TEXT = `Sí, tenemos envío ${S}`;
-  await input.fill(TEXT);
+  // El botón «Enviar» habilitado tras escribir = compositor
+  // hidratado con el texto en su estado (un `fill` antes de hidratar se
+  // pierde). Si no, se reescribe: es idempotente mientras no se envíe.
+  const textSendBtn = page.getByRole("button", { name: "Enviar", exact: true });
+  await until(async () => {
+    await input.fill(TEXT);
+    return await textSendBtn.isEnabled();
+  }, 30000);
   await input.press("Enter");
-  const sent = await until(async () => (await outbox()).some((o) => o.body?.type === "text" && o.body?.text?.body === TEXT), 20000);
-  ok("el texto llega al outbox del wa-mock (type text)", sent);
+  // Con `next dev` frío, POST /messages compila la ruta (varios segundos con
+  // la máquina cargada): 20 s se quedaban cortos. Si vuelve a fallar, el log
+  // del server dice si el POST llegó (arnés) o no (app).
+  const sent = await until(async () => (await outbox()).some((o) => o.body?.type === "text" && o.body?.text?.body === TEXT), 45000);
+  ok(
+    "el texto llega al outbox del wa-mock (type text)",
+    sent,
+    sent ? "" : JSON.stringify({ campo: await input.inputValue().catch(() => "?"), ultimos: (await outbox()).slice(-2).map((o) => o.body?.text?.body ?? o.body?.type) })
+  );
 
   console.log("\n== f) Ventana cerrada sin plantillas ==");
   await page.goto(`${BASE}/inbox?contact=${closed?.contact?.id}`, { waitUntil: "load", timeout: 90000 });

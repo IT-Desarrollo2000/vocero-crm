@@ -1769,7 +1769,11 @@ export const productFile = pgTable(
     storageProvider: text("storage_provider", {
       enum: ["local", "azure-blob"],
     }).notNull(),
-    /** `{org}/catalog/{fileId}` (ver `catalogStorageKey`). */
+    /**
+     * `{org}/catalog/{fileId}` (ver `catalogStorageKey`). El almacenamiento
+     * valida `{org}/{espacio}/{id}`; 034 usa el espacio `capacitacion`
+     * (`training_asset`), nunca este.
+     */
     storageKey: text("storage_key").notNull(),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1839,3 +1843,56 @@ export const inboxSettings = pgTable("inbox_settings", {
   sellersCreateQuickReplies: boolean("sellers_create_quick_replies").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/* ============================================================
+ * 034 — Material de capacitación de la Ayuda (núcleo, sin bandera)
+ * ============================================================ */
+
+/**
+ * PDF, videos e imágenes propias de la Ayuda (`/ayuda`), subidos por el
+ * Propietario. Viven en el almacenamiento de la instancia (el del catálogo,
+ * ADR-003) bajo `{org}/capacitacion/{id}`: NUNCA en `public/` ni en el repo.
+ * `mime_type` sale de la FIRMA al subir. `topic_id` es un id de `HELP_TOPICS`
+ * (lo valida Zod, `src/lib/training.ts`): opcional en un video, obligatorio en
+ * una imagen de tema (CHECK) y una sola por tema (índice único parcial). Sin
+ * filas, la Ayuda se ve como siempre. La purga de 30 días no la toca.
+ */
+export const trainingAsset = pgTable(
+  "training_asset",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["document", "video", "help_image"] }).notNull(),
+    /** Nombre del botón (documento) o del video; en una imagen, no se muestra. */
+    title: text("title").notNull(),
+    topicId: text("topic_id"),
+    /** Orden dentro de su `kind` (documentos y videos). */
+    position: integer("position").notNull().default(0),
+    storageProvider: text("storage_provider", {
+      enum: ["local", "azure-blob"],
+    }).notNull(),
+    /** `{org}/capacitacion/{id}` (ver `trainingStorageKey`). */
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Video: la lee el navegador al subir; null si no pudo. */
+    durationSeconds: integer("duration_seconds"),
+    /** Imagen: tamaño natural leído por el navegador; null si no se supo. */
+    width: integer("width"),
+    height: integer("height"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("training_asset_org_kind_pos_idx").on(t.organizationId, t.kind, t.position),
+    uniqueIndex("training_asset_org_topic_image_uq")
+      .on(t.organizationId, t.topicId)
+      .where(sql`${t.kind} = 'help_image'`),
+    check(
+      "training_asset_help_image_topic_ck",
+      sql`${t.kind} <> 'help_image' OR ${t.topicId} IS NOT NULL`
+    ),
+  ]
+);

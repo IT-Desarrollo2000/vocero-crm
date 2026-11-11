@@ -204,6 +204,13 @@
       "when": 1792779713326,
       "tag": "0028_respuestas_equipo",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794428349854,
+      "tag": "0029_material_capacitacion",
+      "breakpoints": true
     }
   ]
 }
