@@ -81,7 +81,12 @@ const FILTERS: PipelineFilter[] = ["mine", "unassigned", "all"];
 /** Rebote de la recarga en vivo: una ráfaga de eventos = un solo pedido. */
 const LIVE_DEBOUNCE_MS = 800;
 
-export function PipelineClient() {
+export function PipelineClient({
+  viewSwitch,
+}: {
+  /** 035: selector «Tablero | Pendientes» (va en el encabezado). */
+  viewSwitch?: React.ReactNode;
+} = {}) {
   // Las etapas son del Propietario (dev-tasks/00, RF-00-07); mover tarjetas,
   // monto, prioridad y motivo de pérdida sí son de todos.
   const me = useViewer();
@@ -351,6 +356,7 @@ export function PipelineClient() {
             En qué va cada cliente. Arrastra la tarjeta a su nueva etapa, o ábrela y elige la etapa ahí.
           </p>
         </div>
+        {viewSwitch}
         {status === "ready" && (
           <div
             role="group"

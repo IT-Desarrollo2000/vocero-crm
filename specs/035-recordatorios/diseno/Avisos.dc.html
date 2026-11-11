@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Campana de avisos</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="position: relative; min-height: 1100px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600; flex: 1 1 auto">Mueblería Demo</span>
+      <button type="button" aria-label="Avisos: 3 sin leer" aria-expanded="true" style="position: relative; font: inherit; width: 36px; height: 36px; border: 1px solid #c9d6d3; background: #e8f0ee; border-radius: 8px; display: flex; align-items: center; justify-content: center">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2b4a46" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>
+        <span style="position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; border-radius: 8px; background: #a2504c; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 3px; box-sizing: border-box">3</span>
+      </button>
+    </div>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; background: #f6f7f8; display: flex; align-items: flex-start; justify-content: center; padding: 120px 24px">
+    <section aria-labelledby="hoy-titulo" style="width: 100%; max-width: 440px; background: #ffffff; border: 1px solid #ecedf0; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+      <h2 id="hoy-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Hola, Daniela</h2>
+      <p style="margin: 0; font-size: 13px; color: #56565e">Esto es lo que te toca ahora:</p>
+      <a href="#" style="display: flex; gap: 10px; align-items: center; border: 1px solid #ecd4d2; background: #faf1f0; border-radius: 9px; padding: 10px 12px; color: #1a1a1e; text-decoration: none"><strong style="width: 24px; text-align: center">3</strong><span style="display: flex; flex-direction: column"><strong style="font-size: 13.5px">3 clientes esperan respuesta en Mis chats</strong><span style="font-size: 12.5px; color: #3f3f46">Ábrelos en «Por atender» y respóndeles primero.</span></span></a>
+      <a href="#" style="display: flex; gap: 10px; align-items: center; border: 1px solid #c9d6d3; background: #f2f8f6; border-radius: 9px; padding: 10px 12px; color: #1a1a1e; text-decoration: none"><strong style="width: 24px; text-align: center">5</strong><span style="display: flex; flex-direction: column"><strong style="font-size: 13.5px">5 recordatorios para hoy (2 vencidos)</strong><span style="font-size: 12.5px; color: #3f3f46">Ábrelos en Seguimiento › Pendientes.</span></span></a>
+      <a href="#" style="display: flex; gap: 10px; align-items: center; border: 1px solid #ecedf0; border-radius: 9px; padding: 10px 12px; color: #1a1a1e; text-decoration: none"><strong style="width: 24px; text-align: center">4</strong><span style="display: flex; flex-direction: column"><strong style="font-size: 13.5px">4 chats en el Buzón sin tomar</strong><span style="font-size: 12.5px; color: #3f3f46">Toma uno para que quede a tu nombre.</span></span></a>
+    </section>
+  </main>
+
+  <section role="dialog" aria-labelledby="avisos-titulo" style="position: absolute; left: 150px; top: 58px; width: 400px; background: #ffffff; border: 1px solid #e0e1e6; border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,0.16); display: flex; flex-direction: column">
+    <header style="display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #ecedf0">
+      <h2 id="avisos-titulo" style="margin: 0; font-size: 15px; font-weight: 600; flex: 1 1 auto">Avisos</h2>
+      <button type="button" style="font: inherit; font-size: 12.5px; border: 0; background: transparent; color: #2b4a46; text-decoration: underline; padding: 6px; min-height: 32px">Marcar todo como leído</button>
+    </header>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+      <li style="display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #ecedf0; background: #faf1f0">
+        <span aria-hidden="true" style="flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #a2504c; margin-top: 6px"></span>
+        <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px">
+          <p style="margin: 0; font-size: 13.5px"><strong>Recordatorio vencido:</strong> Carlos Ruiz · Volver a contactar</p>
+          <p style="margin: 0; font-size: 12.5px; color: #3f3f46">«Quedó de decidir después de la quincena.» · Ayer, 10:00 a. m.</p>
+          <div style="display: flex; gap: 6px; margin-top: 4px"><button type="button" style="font: inherit; font-size: 12.5px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 34px">Contactar</button><button type="button" style="font: inherit; font-size: 12.5px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 34px">Posponer ▾</button></div>
+        </div>
+      </li>
+      <li style="display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #ecedf0; background: #f2f8f6">
+        <span aria-hidden="true" style="flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: {{accent}}; margin-top: 6px"></span>
+        <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px">
+          <p style="margin: 0; font-size: 13.5px"><strong>Hoy tienes 5 recordatorios</strong> (2 vencidos)</p>
+          <a href="#" style="font-size: 12.5px">Ver en Seguimiento › Pendientes</a>
+        </div>
+      </li>
+      <li style="display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #ecedf0; background: #f2f8f6">
+        <span aria-hidden="true" style="flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: {{accent}}; margin-top: 6px"></span>
+        <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px">
+          <p style="margin: 0; font-size: 13.5px"><strong>Te asignaron a Patricia Luna</strong></p>
+          <p style="margin: 0; font-size: 12.5px; color: #3f3f46">Alejandro Treviño la pasó a tu nombre · hace 20 min · <a href="#">Abrir chat</a></p>
+        </div>
+      </li>
+      <li style="display: flex; gap: 10px; padding: 12px 14px">
+        <span aria-hidden="true" style="flex: 0 0 auto; width: 8px; height: 8px; margin-top: 6px"></span>
+        <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px">
+          <p style="margin: 0; font-size: 13.5px; color: #3f3f46">Te asignaron la cita de Sofía Castro · mañana 12:00</p>
+          <p style="margin: 0; font-size: 12.5px; color: #56565e">Leído · ayer</p>
+        </div>
+      </li>
+    </ul>
+    <footer style="border-top: 1px solid #ecedf0; padding: 12px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #f8f8f9; border-radius: 0 0 12px 12px">
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46; flex: 1 1 200px">¿Quieres el aviso aunque estés en otra pestaña?</p>
+      <button type="button" style="font: inherit; font-size: 12.5px; font-weight: 600; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 34px">Activar avisos del navegador</button>
+    </footer>
+  </section>
+
+  <div role="status" style="position: absolute; right: 24px; bottom: 24px; width: 380px; background: #1a1a1e; color: #ffffff; border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,0.25); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; gap: 10px; align-items: flex-start">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b8d4cf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2"></path></svg>
+      <div style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px">
+        <p style="margin: 0; font-weight: 600">Recordatorio: Laura Gómez</p>
+        <p style="margin: 0; font-size: 13px; color: #d4d6db">Información solicitada · «Avisarle cuando llegue el comedor de 6 sillas en nogal.»</p>
+      </div>
+      <button type="button" aria-label="Cerrar aviso" style="font: inherit; width: 32px; height: 32px; border: 0; background: transparent; color: #ffffff; border-radius: 6px">×</button>
+    </div>
+    <div style="display: flex; gap: 6px; justify-content: flex-end">
+      <button type="button" style="font: inherit; font-size: 12.5px; border: 1px solid #4a4a52; background: transparent; color: #ffffff; border-radius: 7px; padding: 6px 10px; min-height: 34px">Posponer 1 h</button>
+      <button type="button" style="font: inherit; font-size: 12.5px; font-weight: 600; border: 0; background: #ffffff; color: #1a1a1e; border-radius: 7px; padding: 6px 10px; min-height: 34px">Contactar</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":1100}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

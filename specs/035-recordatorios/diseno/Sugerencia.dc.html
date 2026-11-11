@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Sugerir recordatorio al cerrar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 900px; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #f6f7f8; font-size: 14px; box-sizing: border-box; padding: 40px; display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start">
+
+  <section aria-labelledby="perdido-titulo" style="flex: 1 1 420px; max-width: 520px; display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-size: 13px; font-weight: 600; color: #56565e">En Seguimiento, al pasar a un cliente a «Perdido»</p>
+    <div style="background: #ffffff; border: 1px solid #ecedf0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #56565e">TRATO</p>
+        <h2 id="perdido-titulo" style="margin: 0; font-size: 17px; font-weight: 600">Héctor Ramírez</h2>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <p style="margin: 0; font-size: 13px; font-weight: 600">¿Por qué se perdió?</p>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <span style="font-size: 12.5px; border: 1px solid #e0e1e6; border-radius: 999px; padding: 5px 10px">Precio</span>
+          <span style="font-size: 12.5px; font-weight: 600; border: 1px solid {{accent}}; background: #e8f0ee; color: #2b4a46; border-radius: 999px; padding: 5px 10px">Compró en otro lado</span>
+          <span style="font-size: 12.5px; border: 1px solid #e0e1e6; border-radius: 999px; padding: 5px 10px">Ya no contestó</span>
+          <span style="font-size: 12.5px; border: 1px solid #e0e1e6; border-radius: 999px; padding: 5px 10px">Otro</span>
+        </div>
+      </div>
+
+      <div role="status" style="border: 1px solid #c9d6d3; background: #f2f8f6; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2b4a46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: 0 0 auto; margin-top: 1px"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2"></path></svg>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <p style="margin: 0; font-weight: 600">¿Te recuerdo volver a intentar con Héctor?</p>
+            <p style="margin: 0; font-size: 13px; color: #3f3f46">Muchos clientes perdidos regresan cuando cambia su situación.</p>
+          </div>
+        </div>
+        <div role="group" aria-label="Cuándo" style="display: flex; gap: 6px; flex-wrap: wrap; padding-left: 28px">
+          <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px">En 1 mes</button>
+          <button type="button" aria-pressed="true" style="font: inherit; font-size: 13px; font-weight: 600; border: 1px solid {{accent}}; background: #e8f0ee; color: #2b4a46; border-radius: 999px; padding: 6px 12px; min-height: 36px">En 3 meses</button>
+          <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; border: 1px solid #c9d6d3; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px">En 6 meses</button>
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap">
+          <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">No, gracias</button>
+          <button type="button" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Recordarme el 11 de febrero</button>
+        </div>
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 12.5px; color: #56565e">Se guarda con el motivo «Volver a contactar» y la nota «Perdido: Compró en otro lado».</p>
+  </section>
+
+  <section aria-labelledby="noasistio-titulo" style="flex: 1 1 420px; max-width: 520px; display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-size: 13px; font-weight: 600; color: #56565e">En Citas, al marcar «No asistió»</p>
+    <div style="background: #ffffff; border: 1px solid #ecedf0; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <h2 id="noasistio-titulo" style="margin: 0; font-size: 16px; font-weight: 600">¿Cómo le fue a Mónica Pérez?</h2>
+        <p style="margin: 0; font-size: 13px; color: #3f3f46">Ayer, 5:00 p. m. · Visita a la tienda</p>
+      </div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <span style="font-size: 13px; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 11px">Sí, llegó</span>
+        <span style="font-size: 13px; font-weight: 600; border: 1px solid #a2504c; background: #faf1f0; color: #a2504c; border-radius: 8px; padding: 7px 11px">No asistió ✓</span>
+        <span style="font-size: 13px; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 11px">Reprogramar</span>
+      </div>
+      <div role="status" style="border: 1px solid #c9d6d3; background: #f2f8f6; border-radius: 10px; padding: 12px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+        <p style="margin: 0; flex: 1 1 220px; font-size: 13.5px"><strong>¿Te recuerdo escribirle mañana?</strong> <span style="color: #3f3f46">Para reagendar con calma.</span></p>
+        <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Otro día…</button>
+        <button type="button" style="font: inherit; font-size: 13px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Sí, mañana 10:00</button>
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 12.5px; color: #56565e">Se guarda con el motivo «Cita» y la nota «No asistió a su visita del 10 nov». Si no contestan, la sugerencia desaparece sola.</p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

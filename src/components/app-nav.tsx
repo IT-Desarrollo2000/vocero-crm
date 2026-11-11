@@ -27,6 +27,7 @@ import { signOut } from "@/lib/auth/client";
 import { roleLabel, type Role } from "@/lib/roles";
 import { filterNavForRole } from "@/components/nav-items";
 import { useUnreadCount } from "@/components/alerts-provider";
+import { useOverdueCount } from "@/components/follow-ups/use-overdue-count";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
 
@@ -35,13 +36,15 @@ type NavItem = {
   label: string;
   icon: typeof Inbox;
   badge?: boolean;
+  /** 035: número rojo de recordatorios vencidos (solo «Seguimiento»). */
+  overdueBadge?: boolean;
   /** Solo Propietario (dev-tasks/00, RF-00-05): el Vendedor no lo ve. */
   ownerOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
-  { href: "/pipeline", label: "Seguimiento", icon: Kanban },
+  { href: "/pipeline", label: "Seguimiento", icon: Kanban, overdueBadge: true },
   { href: "/contacts", label: "Contactos", icon: Users },
   // 019: el catálogo lo consulta todo el equipo; editarlo es del Propietario.
   { href: "/catalog", label: "Catálogo", icon: Package },
@@ -98,6 +101,8 @@ export function AppNav({
   // petición de `/counts` por evento y por pestaña. El 401 → /login lo
   // atiende el indicador.
   const unread = useUnreadCount() ?? 0;
+  // 035: los recordatorios propios vencidos, en rojo junto a «Seguimiento».
+  const overdue = useOverdueCount();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   function toggleCollapsed() {
@@ -187,13 +192,20 @@ export function AppNav({
           const active =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
           const pending = item.badge && unread > 0;
+          const late = item.overdueBadge && overdue > 0;
           return (
             <Link
               key={item.href}
               href={item.href}
               // El nombre accesible no depende de la etiqueta visible: contraído
               // solo queda el icono.
-              aria-label={pending ? `${item.label} (${unread} sin leer)` : item.label}
+              aria-label={
+                pending
+                  ? `${item.label} (${unread} sin leer)`
+                  : late
+                    ? `${item.label} (${overdue} ${overdue === 1 ? "recordatorio vencido" : "recordatorios vencidos"})`
+                    : item.label
+              }
               title={collapsed ? item.label : undefined}
               className={cn(
                 "relative flex items-center gap-[11px] rounded-sm px-2.5 py-2.5 text-sm font-medium transition-colors lg:py-2",
@@ -224,6 +236,18 @@ export function AppNav({
                   )}
                 >
                   {unread}
+                </span>
+              )}
+              {late && (
+                <span
+                  data-testid="nav-overdue"
+                  className={cn(
+                    "flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1.5 text-[10.5px] font-bold text-destructive-foreground",
+                    collapsed &&
+                      "lg:absolute lg:right-1 lg:top-0.5 lg:h-4 lg:min-w-4 lg:px-1 lg:text-[9.5px]"
+                  )}
+                >
+                  {overdue}
                 </span>
               )}
             </Link>

@@ -53,6 +53,8 @@ const prefixes = {
   appointmentType: "apt",
   // 034 — material de capacitación de la Ayuda
   trainingAsset: "tra",
+  // 035 — recordatorios internos del vendedor (no los de cita al cliente)
+  followUp: "fu",
 } as const;
 
 export type IdKind = keyof typeof prefixes;
