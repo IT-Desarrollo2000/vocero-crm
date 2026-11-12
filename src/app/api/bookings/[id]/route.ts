@@ -12,10 +12,36 @@ import {
   takeBooking,
 } from "@/server/agenda/service";
 import { bookingErrorResponse } from "@/server/agenda/http";
+import { notifyBookingAssigned, notifySafe } from "@/server/notifications/store";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
+
+type BookingRow = NonNullable<Awaited<ReturnType<typeof getVisibleBooking>>>;
+
+/**
+ * 035 B — «Te asignaron la cita de …» al NUEVO vendedor cuando el Propietario
+ * la reasigna (`assign` o `move` con otro vendedor). Una sola vía: aquí, con
+ * la sesión como actor. Nunca a quien la movió, nunca citas de prueba, y un
+ * fallo no tumba la operación. «Tomarla» (uno mismo) no avisa.
+ */
+async function notifyReassigned(
+  organizationId: string,
+  actorUserId: string,
+  before: BookingRow,
+  after: BookingRow
+): Promise<void> {
+  if (before.isTest || after.assignedUserId === before.assignedUserId) return;
+  await notifySafe("cita reasignada", () =>
+    notifyBookingAssigned({
+      organizationId,
+      booking: after,
+      toUserId: after.assignedUserId,
+      actorUserId,
+    })
+  );
+}
 
 const patchSchema = z.discriminatedUnion("action", [
   z.object({
@@ -148,6 +174,7 @@ export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Par
           bookingId: id,
           userId: body.data.userId,
         });
+        await notifyReassigned(session.organizationId, session.userId, visible, row);
         return Response.json({ ok: true, assignedUserId: row.assignedUserId });
       }
       case "move": {
@@ -159,6 +186,7 @@ export const PATCH = agendaFirst(withAuth(async (session, req: Request, ctx: Par
           confirmOverlap: body.data.confirmOverlap ?? false,
           expectedStartUtc: body.data.expectedStartUtc,
         });
+        await notifyReassigned(session.organizationId, session.userId, visible, result.booking);
         return Response.json({
           ok: true,
           label: result.label,

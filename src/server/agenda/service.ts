@@ -37,6 +37,7 @@ import {
 import { ConnectorError } from "@/server/agenda/connectors/types";
 import { moveLeadToStage } from "@/server/leads/stage-history";
 import { publish } from "@/server/events/bus";
+import { notifyBookingAssigned, notifySafe } from "@/server/notifications/store";
 
 /**
  * 015 — Ciclo de vida de la cita y las dos reglas INNEGOCIABLES:
@@ -463,6 +464,19 @@ export async function createSessionBooking(input: {
   ).catch((err) => {
     console.warn(`[agenda] avance de etapa falló: ${err}`);
   });
+
+  // 035 B — Aviso al vendedor de la cita si no la agendó él mismo (el
+  // Propietario se la asignó, o la agendó la IA/bot: sin actor → texto
+  // neutro). Nunca citas de prueba; un fallo no deshace la cita.
+  await notifySafe("cita creada", () =>
+    notifyBookingAssigned({
+      organizationId: input.organizationId,
+      booking: delivered,
+      toUserId: delivered.assignedUserId,
+      actorUserId: input.actorUserId ?? null,
+      contactName,
+    })
+  );
 
   publish(input.organizationId, {
     type: "booking.updated",

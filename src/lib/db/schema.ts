@@ -20,6 +20,7 @@ import {
   FOLLOW_UP_SOURCES,
   FOLLOW_UP_STATUSES,
 } from "../follow-ups";
+import { NOTIFICATION_KINDS, type NotificationPayload } from "../notifications";
 import type { ProductAttribute } from "../catalog";
 import type { AgentActionRecord } from "../agent-action";
 import { FORMALITIES } from "../formality";
@@ -1963,5 +1964,63 @@ export const followUp = pgTable(
       "follow_up_repeat_months_ck",
       sql`${t.repeatMonths} IS NULL OR ${t.repeatMonths} IN (3, 6, 12)`
     ),
+  ]
+);
+
+/**
+ * 035 fase B — Avisos dentro del CRM (campana, aviso emergente, navegador).
+ * Siempre de UNA persona (`user_id`). La clave de dedupe es determinista
+ * (`fu:<id>:<dueAt>`, `daily:<día>`, `chat:…`, `booking:…`) y el UNIQUE es el
+ * candado: un tick repetido, dos réplicas o dos clics no duplican.
+ */
+export const notification = pgTable(
+  "notification",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    /** Destinatario. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: NOTIFICATION_KINDS }).notNull(),
+    followUpId: text("follow_up_id").references(() => followUp.id, {
+      onDelete: "cascade",
+    }),
+    conversationId: text("conversation_id").references(() => conversation.id, {
+      onDelete: "cascade",
+    }),
+    bookingId: text("booking_id").references(() => booking.id, {
+      onDelete: "cascade",
+    }),
+    contactId: text("contact_id").references(() => contact.id, {
+      onDelete: "cascade",
+    }),
+    /** Quien lo provocó (asignaciones); NULL si fue la IA, el bot o el reloj. */
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /** Instantánea para el texto (nombre, motivo, nota, horas…). */
+    payload: jsonb("payload").$type<NotificationPayload>().notNull().default({}),
+    dedupeKey: text("dedupe_key").notNull(),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("notification_org_user_dedupe_uq").on(
+      t.organizationId,
+      t.userId,
+      t.dedupeKey
+    ),
+    // La campana: los últimos de un usuario y su contador de no leídos.
+    index("notification_org_user_read_created_idx").on(
+      t.organizationId,
+      t.userId,
+      t.readAt,
+      t.createdAt.desc()
+    ),
+    // Hecho / posponer marcan leído el aviso de ese recordatorio.
+    index("notification_follow_up_idx").on(t.followUpId),
   ]
 );

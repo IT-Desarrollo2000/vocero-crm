@@ -1202,6 +1202,8 @@ async function main() {
   await ayudaMaterialChecks();
   // 035: AL FINAL — da de alta dos Vendedoras; sus recordatorios no tocan nada previo.
   await pendientesChecks();
+  // 035 B: AL FINAL — da de alta una Vendedora; sus avisos son solo suyos.
+  await avisosChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -4201,6 +4203,83 @@ async function pendientesChecks() {
   ok("035: días fuera del catálogo → 422", pendMal.res.status === 422);
   const vista = await v1("/pipeline?vista=pendientes");
   ok("035: /pipeline?vista=pendientes responde", vista.res.status === 200);
+}
+
+/* ============================================================
+ * 035 B — Avisos (por API; el recorrido con navegador —emergente en vivo,
+ * campana, Posponer/Contactar, «Te asignaron…», navegador, 390 px— es
+ * scripts/e2e-avisos.mjs). Aquí: el reloj (endpoint de pruebas) crea el aviso
+ * del recordatorio vencido a su dueña y no lo duplica; el Propietario no lo
+ * ve; marcar leído; Posponer lo deja leído; el contador `{ overdue, today }`.
+ * Independiente de la hora: vence MAÑANA 07:00 y el tick se fuerza a 07:01.
+ * ============================================================ */
+async function avisosChecks() {
+  console.log("\n== 035 B: Avisos ==");
+  const SUF = String(Date.now()).slice(-7);
+  const email = `vend.aviso.${SUF}@vocero.test`;
+  const password = "password-vend-aviso-123";
+  const alta = await api("/api/settings/team", {
+    method: "POST",
+    body: JSON.stringify({ name: `Vendedora Aviso ${SUF}`, email, password }),
+  });
+  const login = await fetch(`${BASE}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: BASE },
+    body: JSON.stringify({ email, password }),
+  });
+  const c = (login.headers.getSetCookie?.() ?? []).map((x) => x.split(";")[0]).join("; ");
+  ok("035 B (setup) alta e inicio de sesión de la vendedora", alta.res.ok && login.ok && !!c, `${alta.res.status} ${login.status}`);
+  const v = (path, opts = {}) =>
+    fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: { "content-type": "application/json", origin: BASE, cookie: c, ...(opts.headers ?? {}) },
+    }).then(async (res) => ({ res, json: await res.clone().json().catch(() => null) }));
+
+  const TZ = "America/Mexico_City";
+  const dayIn = (n) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+      new Date(Date.now() + n * 86_400_000)
+    );
+  const ct = await v("/api/contacts", { method: "POST", body: JSON.stringify({ name: `Cliente Aviso ${SUF}`, phone: `52157${SUF}3` }) });
+  const contactId = ct.json?.contact?.id;
+  const crear = await v("/api/follow-ups", {
+    method: "POST",
+    body: JSON.stringify({ contactId, day: dayIn(1), time: "07:00", reason: "informacion", note: "Avisarle del comedor" }),
+  });
+  const fu = crear.json?.followUp;
+  ok("035 B (setup) recordatorio para mañana 07:00", crear.res.status === 201 && !!fu?.id, `${crear.res.status}`);
+
+  const vacio = await v("/api/notifications");
+  ok(
+    "035 B: GET /api/notifications → 200 con lista, unread y resumen",
+    vacio.res.ok && Array.isArray(vacio.json?.notifications) && typeof vacio.json?.unread === "number" && typeof vacio.json?.summary?.today === "number",
+    JSON.stringify(vacio.json)?.slice(0, 200)
+  );
+  const cuenta = await v("/api/follow-ups/count");
+  ok("035 B: /api/follow-ups/count → { overdue, today }", typeof cuenta.json?.overdue === "number" && typeof cuenta.json?.today === "number", JSON.stringify(cuenta.json));
+
+  // Mañana 07:01 en la zona (offset fijo de CDMX: UTC-6).
+  const now = new Date(`${dayIn(1)}T13:01:00.000Z`).toISOString();
+  const t1 = await api("/api/dev/notifications/tick", { method: "POST", body: JSON.stringify({ now }) });
+  ok("035 B: el reloj (endpoint de pruebas) corre", t1.res.ok && t1.json?.due >= 1, `${t1.res.status} ${JSON.stringify(t1.json)}`);
+  const lista = await v("/api/notifications");
+  const aviso = (lista.json?.notifications ?? []).find((n) => n.kind === "follow_up_due" && n.followUpId === fu?.id);
+  ok("035 B: la vendedora tiene el aviso del vencido, sin leer", !!aviso && !aviso.readAt && lista.json?.unread >= 1, JSON.stringify(lista.json?.notifications?.map((n) => n.kind)));
+  const t2 = await api("/api/dev/notifications/tick", { method: "POST", body: JSON.stringify({ now }) });
+  ok("035 B: otro tick con la misma hora no duplica", t2.json?.due === 0, JSON.stringify(t2.json));
+  const delDueno = await api("/api/notifications");
+  ok("035 B: el Propietario no ve el aviso de la vendedora", (delDueno.json?.notifications ?? []).every((n) => n.followUpId !== fu?.id));
+  const ajeno = await api("/api/notifications/read", { method: "POST", body: JSON.stringify({ ids: [aviso?.id ?? "ntf_x"] }) });
+  ok("035 B: el Propietario no puede marcarlo leído (0 cambiados)", ajeno.res.ok && ajeno.json?.updated === 0, JSON.stringify(ajeno.json));
+  const pos = await v(`/api/follow-ups/${fu?.id}`, { method: "PATCH", body: JSON.stringify({ action: "postpone", preset: "1h" }) });
+  const tras = await v("/api/notifications");
+  const leido = (tras.json?.notifications ?? []).find((n) => n.id === aviso?.id);
+  ok("035 B: posponer el recordatorio deja su aviso leído", pos.res.ok && !!leido?.readAt, JSON.stringify(leido));
+  const todo = await v("/api/notifications/read", { method: "POST", body: JSON.stringify({ all: true }) });
+  const cero = await v("/api/notifications");
+  ok("035 B: marcar todo como leído → unread 0", todo.res.ok && cero.json?.unread === 0, JSON.stringify(cero.json?.unread));
+  const malo = await api("/api/dev/notifications/tick", { method: "POST", body: JSON.stringify({ now: "no-es-fecha" }) });
+  ok("035 B: tick con fecha ilegible → 422", malo.res.status === 422, String(malo.res.status));
 }
 
 async function bandejaAlcanceChecks() {

@@ -4,8 +4,9 @@ import { useEffect } from "react";
 
 /**
  * 035 — «Cambió un recordatorio» dentro de la pestaña: el número rojo del menú
- * y Pendientes se ponen al día sin esperar a su siguiente vuelta. El tiempo
- * real entre pestañas y usuarios (SSE) es de la fase B.
+ * y Pendientes se ponen al día sin esperar a su siguiente vuelta. Fase B: el
+ * proveedor de avisos reenvía aquí el SSE `follow_ups.changed` (otra pestaña,
+ * o el Propietario tocó uno tuyo), así todos escuchan un solo evento.
  */
 const EVENT = "vocero:follow-ups-changed";
 

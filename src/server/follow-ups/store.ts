@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, lt, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -14,6 +14,8 @@ import {
   type RepeatMonths,
 } from "@/lib/follow-ups";
 import { reportTimezone } from "@/server/reports/timezone";
+import { publish } from "@/server/events/bus";
+import { markFollowUpNoticesRead, notifySafe } from "@/server/notifications/store";
 
 /**
  * 035 — Recordatorios internos del vendedor. La ÚNICA puerta que escribe
@@ -196,6 +198,7 @@ export async function createFollowUp(
     status: "open",
     createdFrom: "manual",
   });
+  await afterChange(organizationId, viewer.userId, id, false);
   return (await getOne(organizationId, id))!;
 }
 
@@ -248,6 +251,7 @@ export async function patchFollowUp(
       });
       return nid;
     });
+    await afterChange(organizationId, current.user.id, id, true);
     return {
       followUp: (await getOne(organizationId, id))!,
       next: nextId ? await getOne(organizationId, nextId) : null,
@@ -267,23 +271,26 @@ export async function patchFollowUp(
   if (moved.length === 0) {
     throw new FollowUpError(409, "already_done", "Ese recordatorio ya está hecho");
   }
+  await afterChange(organizationId, current.user.id, id, true);
   return { followUp: (await getOne(organizationId, id))!, next: null };
 }
 
 /**
- * El número rojo del menú: los recordatorios PROPIOS ya vencidos. Una cuenta
- * sobre `follow_up_org_user_status_due_idx`; nada más.
+ * 035 B — Después del commit: el aviso de vencido de ese recordatorio queda
+ * leído (Hecho / posponer, lo toque quien lo toque) y a su DUEÑO se le
+ * refrescan el número rojo y la línea de la Bandeja por SSE. Un fallo aquí no
+ * deshace la operación.
  */
-export async function countOverdue(
+async function afterChange(
   organizationId: string,
-  userId: string,
-  now: Date = new Date()
-): Promise<number> {
-  const [row] = await getDb()
-    .select({ n: count() })
-    .from(F)
-    .where(
-      scoped(F.organizationId, organizationId, eq(F.userId, userId), eq(F.status, "open"), lt(F.dueAt, now))
+  ownerUserId: string,
+  followUpId: string,
+  settle: boolean
+): Promise<void> {
+  if (settle) {
+    await notifySafe("leer el aviso del recordatorio", () =>
+      markFollowUpNoticesRead(organizationId, followUpId)
     );
-  return row?.n ?? 0;
+  }
+  publish(organizationId, { type: "follow_ups.changed", data: { userIds: [ownerUserId] } });
 }

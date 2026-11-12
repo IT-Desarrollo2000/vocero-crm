@@ -36,6 +36,19 @@ export type EventHandlers = {
    * los contadores (NO fusionar: las filas archivadas deben salir).
    */
   onConversationsBulk?: (data: { reason: "bulk" | "auto" }) => void;
+  /**
+   * 035 B — Cambió MI campana: llegó un aviso (`new`, con el DTO) o se
+   * leyeron (`read`, con `ids` o `all`). Solo llega a su destinatario.
+   */
+  onNotificationChanged?: (data: {
+    userId: string;
+    reason: "new" | "read";
+    notification?: unknown;
+    ids?: string[];
+    all?: boolean;
+  }) => void;
+  /** 035 B — Cambiaron recordatorios míos (aunque los tocara el Propietario). */
+  onFollowUpsChanged?: (data: { userIds: string[] }) => void;
   /** Se llama tras RECONECTAR (no en la conexión inicial): catch-up con refetch. */
   onReconnect?: () => void;
 };

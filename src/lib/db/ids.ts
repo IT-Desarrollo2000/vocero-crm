@@ -55,6 +55,8 @@ const prefixes = {
   trainingAsset: "tra",
   // 035 — recordatorios internos del vendedor (no los de cita al cliente)
   followUp: "fu",
+  // 035 fase B — avisos de la campana
+  notification: "ntf",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

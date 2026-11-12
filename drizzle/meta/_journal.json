@@ -218,6 +218,13 @@
       "when": 1794433020141,
       "tag": "0030_recordatorios_pendientes",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794502319368,
+      "tag": "0031_avisos",
+      "breakpoints": true
     }
   ]
 }

@@ -29,6 +29,7 @@ import { filterNavForRole } from "@/components/nav-items";
 import { useUnreadCount } from "@/components/alerts-provider";
 import { useOverdueCount } from "@/components/follow-ups/use-overdue-count";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
 
 type NavItem = {
@@ -141,7 +142,7 @@ export function AppNav({
       {/* Brand white-label */}
       <div
         className={cn(
-          "mb-4 flex items-center gap-2.5 px-2",
+          "mb-4 flex items-center gap-2 px-2",
           collapsed && "lg:flex-col lg:px-0"
         )}
       >
@@ -160,12 +161,18 @@ export function AppNav({
         >
           {branding.name.charAt(0).toUpperCase()}
         </span>
-        <span className={cn("min-w-0", collapsed && "lg:hidden")}>
+        <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
           <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight">
             {branding.name}
           </span>
-          <span className="block text-[11px] text-text-3">CRM · WhatsApp</span>
+          {/* 035 B — En escritorio la campana ocupa su lugar (diseño aprobado:
+              nombre + campana); en el cajón móvil sigue. */}
+          <span className="block text-[11px] text-text-3 lg:hidden">CRM · WhatsApp</span>
         </span>
+        {/* 035 B — La campana de avisos. En el celular vive en el encabezado
+            (siempre a la vista), no dentro del cajón. Contraído: debajo de la
+            inicial. */}
+        <NotificationBell testId="nav-bell" className="hidden lg:flex" />
         {/* Contraer/expandir: solo en escritorio, en móvil el cajón ya se
             cierra entero. */}
         <button
@@ -175,8 +182,7 @@ export function AppNav({
           title={collapsed ? "Expandir menú" : "Contraer menú"}
           aria-expanded={!collapsed}
           className={cn(
-            "hidden rounded-md p-1.5 text-text-3 hover:bg-accent hover:text-foreground lg:inline-flex",
-            !collapsed && "ml-auto"
+            "hidden rounded-md p-1 text-text-3 hover:bg-accent hover:text-foreground lg:inline-flex"
           )}
         >
           {collapsed ? (

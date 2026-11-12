@@ -51,3 +51,36 @@ describe("summaryItems", () => {
     expect(summaryItems(null, { scope: "mine", teamMode: true })).toEqual([]);
   });
 });
+
+/** 035 B — «N recordatorios para hoy (M vencidos)», tono acento, antes del Buzón. */
+describe("summaryItems — recordatorios", () => {
+  const counts = { human: 3, closing: 0, scopes: scopes(4) };
+  const opts = { scope: "mine" as const, teamMode: true };
+
+  it("con N > 0: la línea de acento, después de lo urgente y antes del Buzón", () => {
+    const items = summaryItems(counts, opts, { today: 5, overdue: 2 });
+    expect(items.map((i) => i.id)).toEqual(["waiting", "reminders", "inbox"]);
+    const r = items.find((i) => i.id === "reminders")!;
+    expect(r).toMatchObject({
+      count: 5,
+      title: "5 recordatorios para hoy (2 vencidos)",
+      hint: "Ábrelos en Seguimiento › Pendientes.",
+      tone: "accent",
+    });
+  });
+
+  it("singular y sin vencidos", () => {
+    expect(summaryItems(counts, opts, { today: 1, overdue: 0 }).find((i) => i.id === "reminders")?.title).toBe(
+      "1 recordatorio para hoy"
+    );
+    expect(summaryItems(counts, opts, { today: 2, overdue: 1 }).find((i) => i.id === "reminders")?.title).toBe(
+      "2 recordatorios para hoy (1 vencido)"
+    );
+  });
+
+  it("con 0 (o sin datos) no aparece", () => {
+    expect(summaryItems(counts, opts, { today: 0, overdue: 0 }).some((i) => i.id === "reminders")).toBe(false);
+    expect(summaryItems(counts, opts, null).some((i) => i.id === "reminders")).toBe(false);
+    expect(summaryItems(counts, opts).some((i) => i.id === "reminders")).toBe(false);
+  });
+});

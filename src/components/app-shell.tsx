@@ -10,6 +10,8 @@ import { AppNav } from "@/components/app-nav";
 import { ViewerProvider } from "@/components/viewer-context";
 import { EventsProvider } from "@/components/events-provider";
 import { AlertsProvider } from "@/components/alerts-provider";
+import { NotificationsProvider } from "@/components/notifications/notifications-provider";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 /**
  * Cascarón de la app en dos modos:
@@ -75,6 +77,8 @@ export function AppShell({
           coordinación de alertas para todas las páginas autenticadas. */}
       <EventsProvider>
         <AlertsProvider>
+         {/* 035 B — Los avisos de quien mira: campanas, emergentes y navegador. */}
+         <NotificationsProvider>
           {/* 021 — Al imprimir (Descargar PDF de Reportes) toda la cadena pierde la
               altura fija y el scroll: un ancestro con scroll imprime solo su
               viewport. Las clases print: no cambian nada en pantalla. */}
@@ -116,14 +120,17 @@ export function AppShell({
                 >
                   {branding.name.charAt(0).toUpperCase()}
                 </span>
-                <span className="truncate text-[15px] font-[650] tracking-tight">
+                <span className="min-w-0 flex-1 truncate text-[15px] font-[650] tracking-tight">
                   {branding.name}
                 </span>
+                {/* 035 B — La campana, junto al nombre del negocio. */}
+                <NotificationBell testId="header-bell" />
               </header>
 
               <main className="min-h-0 min-w-0 flex-1 overflow-hidden print:block print:h-auto print:overflow-visible">{children}</main>
             </div>
           </div>
+         </NotificationsProvider>
         </AlertsProvider>
       </EventsProvider>
     </ViewerProvider>

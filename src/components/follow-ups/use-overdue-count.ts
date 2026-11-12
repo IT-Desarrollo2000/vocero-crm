@@ -2,24 +2,31 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import type { FollowUpCountsDto } from "@/lib/notifications";
 import { useFollowUpsChanged } from "./follow-up-events";
 
-/** Vuelta del número rojo: barata (una cuenta por índice) y sin SSE (fase B). */
+/** Vuelta de respaldo: barata (una cuenta por índice). */
 const POLL_MS = 2 * 60_000;
 
 /**
- * 035 — Recordatorios propios vencidos (`GET /api/follow-ups/count`). Se pide
- * al montar, al navegar, cada 2 min, al volver a la pestaña y cuando algo en
- * esta pestaña cambia un recordatorio. Un fallo deja el número como estaba.
+ * 035 — Recordatorios PROPIOS: vencidos y de hoy (`GET /api/follow-ups/count`
+ * → `{ overdue, today }`). Se pide al montar, al navegar, cada 2 min, al
+ * volver a la pestaña y cuando cambia un recordatorio: en esta pestaña o
+ * (fase B) por SSE `follow_ups.changed` aunque lo haya tocado el
+ * Propietario — el proveedor de avisos lo reenvía como el mismo evento de
+ * ventana, así no hay dos suscripciones. Un fallo deja los números como
+ * estaban; `null` mientras carga.
  */
-export function useOverdueCount(): number {
+export function useFollowUpCounts(): FollowUpCountsDto | null {
   const pathname = usePathname();
-  const [n, setN] = useState(0);
+  const [counts, setCounts] = useState<FollowUpCountsDto | null>(null);
   const refresh = useCallback(async () => {
     const res = await fetch("/api/follow-ups/count").catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json().catch(() => null)) as { overdue?: number } | null;
-    if (typeof data?.overdue === "number") setN(data.overdue);
+    const data = (await res.json().catch(() => null)) as Partial<FollowUpCountsDto> | null;
+    if (typeof data?.overdue === "number") {
+      setCounts({ overdue: data.overdue, today: typeof data.today === "number" ? data.today : data.overdue });
+    }
   }, []);
 
   useEffect(() => {
@@ -43,5 +50,10 @@ export function useOverdueCount(): number {
       void refresh();
     }, [refresh])
   );
-  return n;
+  return counts;
+}
+
+/** El número rojo junto a «Seguimiento». */
+export function useOverdueCount(): number {
+  return useFollowUpCounts()?.overdue ?? 0;
 }

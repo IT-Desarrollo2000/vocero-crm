@@ -235,3 +235,56 @@ describe("createDeliveryQueue — orden y degradación", () => {
     expect(canSee).not.toHaveBeenCalled();
   });
 });
+
+/** 035 B — Avisos personales: solo a su destinatario, ni al Propietario. */
+describe("eventos personales (notification.changed / follow_ups.changed)", () => {
+  const forVera: SseEvent = {
+    type: "notification.changed",
+    data: { userId: "u_vera", reason: "new", notification: { id: "ntf_1" } },
+  };
+  const fuVera: SseEvent = { type: "follow_ups.changed", data: { userIds: ["u_vera"] } };
+
+  it("canReceive: el destinatario sí; otra vendedora no", () => {
+    expect(canReceive(forVera, { role: "member", userId: "u_vera" })).toBe(true);
+    expect(canReceive(forVera, { role: "member", userId: "u_bruno" })).toBe(false);
+    expect(canReceive(fuVera, { role: "member", userId: "u_vera" })).toBe(true);
+    expect(canReceive(fuVera, { role: "member", userId: "u_bruno" })).toBe(false);
+  });
+
+  it("canReceive: el Propietario NO recibe los avisos de su equipo (antes de su pase libre)", () => {
+    expect(canReceive(forVera, { role: "owner", userId: "u_owner" })).toBe(false);
+    expect(canReceive(fuVera, { role: "owner", userId: "u_owner" })).toBe(false);
+    // …pero sí los suyos.
+    const forOwner: SseEvent = {
+      type: "notification.changed",
+      data: { userId: "u_owner", reason: "read", all: true },
+    };
+    expect(canReceive(forOwner, { role: "owner", userId: "u_owner" })).toBe(true);
+  });
+
+  it("canReceive: sin userId en la conexión, nadie (cerrar por defecto)", () => {
+    expect(canReceive(forVera, { role: "owner" })).toBe(false);
+    expect(canReceive(fuVera, { role: "member" })).toBe(false);
+  });
+
+  it("decideDelivery: al Vendedor se le entregan (ya filtró canReceive)", async () => {
+    const deps = { canSee: async () => false };
+    expect(await decideDelivery(forVera, { role: "member" }, deps)).toEqual({ kind: "deliver" });
+    expect(await decideDelivery(fuVera, { role: "member" }, deps)).toEqual({ kind: "deliver" });
+  });
+
+  it("la cola de entrega también filtra: el Propietario no recibe el de Vera", async () => {
+    const sent: SseEvent[] = [];
+    const q = createDeliveryQueue({
+      viewer: { role: "owner", userId: "u_owner" },
+      deps: { canSee: async () => true },
+      send: (e) => sent.push(e),
+    });
+    const own: SseEvent = { type: "notification.changed", data: { userId: "u_owner", reason: "new" } };
+    q.push(forVera);
+    q.push(fuVera);
+    q.push(own);
+    await q.idle();
+    expect(sent).toEqual([own]);
+  });
+});

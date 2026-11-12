@@ -45,6 +45,7 @@ export function InboxSummary({
                     "flex w-full items-center gap-3 rounded-md border px-3.5 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     it.tone === "danger" && "border-danger-soft bg-danger-tint hover:border-danger",
                     it.tone === "warning" && "border-warning-soft bg-warning-tint hover:border-warning",
+                    it.tone === "accent" && "border-brand-soft bg-brand-tint hover:border-brand",
                     it.tone === "neutral" && "hover:bg-subtle"
                   )}
                 >
@@ -54,6 +55,7 @@ export function InboxSummary({
                       "flex h-[30px] min-w-[30px] shrink-0 items-center justify-center rounded-full px-1.5 text-sm font-bold tabular-nums",
                       it.tone === "danger" && "bg-background text-danger-text",
                       it.tone === "warning" && "bg-background text-warning-text",
+                      it.tone === "accent" && "bg-background text-brand-text",
                       it.tone === "neutral" && "bg-secondary text-text-2"
                     )}
                   >
@@ -71,7 +73,9 @@ export function InboxSummary({
                         ? "text-danger-text"
                         : it.tone === "warning"
                           ? "text-warning-text"
-                          : "text-text-3"
+                          : it.tone === "accent"
+                            ? "text-brand"
+                            : "text-text-3"
                     )}
                     strokeWidth={1.8}
                   />

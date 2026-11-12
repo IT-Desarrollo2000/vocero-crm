@@ -126,7 +126,8 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Abre el chat. Donde estaba la caja de texto verás «Para escribirle a …, usa un mensaje aprobado».",
           "En «Elige el mensaje» marca el que mejor quede (por ejemplo, un seguimiento de cotización).",
           "En «Completa los espacios» llena cada espacio; abajo de cada uno ves en qué parte del mensaje va. Si el mensaje empieza con un saludo, el nombre del cliente ya viene puesto: revisa que esté bien.",
-          "Revisa en «Revisa y envía» cómo le va a llegar y haz clic en «Enviar plantilla». Cuando te conteste, ya puedes escribir normal.",
+          "Revisa en «Revisa y envía» cómo le va a llegar y haz clic en «Enviar plantilla».",
+          "En lugar del formulario verás «Plantilla enviada a … · hora» con cómo va: «Enviada», «Entregada» o «Leída». Ya salió: no hace falta enviarla otra vez. Cuando te conteste, ya puedes escribir normal.",
         ],
       },
       {
@@ -134,6 +135,9 @@ export const HELP_TOPICS: HelpTopic[] = [
         tono: "siNo",
         titulo: "¿Y si…?",
         items: [
+          "**Aparece «Ya le enviaste este mensaje a … hace … min.»:** ese mismo mensaje acaba de salir; si lo mandas otra vez, le llegará repetido. Usa «Enviar de todos modos» solo si de verdad quieres repetirlo.",
+          "**Dice «La plantilla de las … no le llegó a …»:** WhatsApp no la aceptó y ahí mismo dice por qué. Revísala abajo y vuelve a enviarla.",
+          "**Quieres mandarle una distinta:** haz clic en «Enviar otra plantilla».",
           "**No aparece ningún mensaje para elegir:** verás «Todavía no puedes retomar este chat». Tu equipo aún no tiene plantillas; pídele al propietario que cree una (WhatsApp tarda desde unos minutos hasta un día en aprobarla).",
           "**No se activa «Enviar plantilla»:** te falta llenar un espacio; abajo del botón dice cuál («Llena el espacio … para poder enviarla.»).",
           "**Los botones de «Pegar texto de plantilla» (con la ventana abierta):** esos solo pegan el texto en tu mensaje para ahorrarte escribir; no son plantillas oficiales.",
@@ -434,6 +438,72 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
     ],
     captura: ["contactos.png"],
+  },
+  {
+    id: "recordatorios",
+    antetitulo: "Recordatorios",
+    titulo: "Quiero acordarme de volver a escribirle",
+    resumen: "«Recordarme», la lista de «Pendientes» y la campana de avisos.",
+    intro:
+      "Cuando un cliente te pide que le escribas después (por ejemplo, cuando lleguen modelos nuevos o para su próximo servicio), deja un **recordatorio**. Solo lo ves tú: el cliente no recibe nada. Todos tus recordatorios quedan en «Seguimiento», en la vista «Pendientes».",
+    bloques: [
+      {
+        tipo: "pasos",
+        titulo: "Dejar un recordatorio",
+        items: [
+          "En el chat, en la tarjeta del cliente en «Seguimiento» o en su fila de «Contactos», haz clic en «Recordarme».",
+          "En «¿Cuándo?» elige «Mañana», «En 3 días», «En 1 semana» o «En 1 mes», o pon tú el día y la hora. La hora es la del negocio.",
+          "En «Motivo» marca de qué se trata: «Volver a contactar», «Servicio», «Información solicitada», «Cita» u «Otro».",
+          "Si es algo que se repite, como un servicio, en «Repetir» elige «Cada 3 meses», «Cada 6 meses» o «Cada 12 meses»: al marcarlo como hecho, el siguiente se agenda solo.",
+          "Si quieres, escribe una nota (qué pidió o qué le vas a decir) y haz clic en «Guardar recordatorio». Abajo ves los que ya tienes de ese cliente.",
+        ],
+      },
+      {
+        tipo: "pasos",
+        titulo: "Tu lista de Pendientes",
+        items: [
+          "En «Seguimiento» del menú, arriba cambia de «Tablero» a «Pendientes». Si junto a «Seguimiento» ves un número rojo, son recordatorios vencidos.",
+          "En «Mis recordatorios» aparecen primero los «Vencidos» y los de «Hoy». «Esta semana» (hasta el domingo) y «Después» vienen plegados: haz clic para abrirlos. Con «Motivo» filtras por tipo.",
+          "«Contactar» abre su chat; si nunca te ha escrito, dice «Escribir primero».",
+          "Cuando ya le escribiste, haz clic en «Hecho». Si quieres, anota en «¿Qué pasó?»: queda en el historial del cliente. Si el recordatorio se repite, te dice para cuándo quedó el siguiente.",
+          "¿Hoy no puedes? «Posponer ▾» lo mueve «1 hora», a «Mañana a la misma hora», «1 semana» u «Otra fecha y hora…».",
+        ],
+      },
+      {
+        tipo: "parrafo",
+        titulo: "Clientes que se te pueden enfriar",
+        texto:
+          "Junto a tus recordatorios se arman solas dos listas. «Sin contacto»: tus clientes sin mensajes desde hace 15, 30, 60 o 90 días, o «Entre fechas»; «Incluir perdidos» suma los que marcaste como «Perdido». «Sin respuesta a tu plantilla»: les mandaste una plantilla y no contestan desde hace 3, 7 o 14 días (dice si ya la leyeron). Desde ahí usa «Contactar», «Dar seguimiento» o «Recordarme»; si un cliente ya tiene recordatorio, su fila lo dice. Cada lista enseña 3 y «Ver los …» abre el resto.",
+      },
+      {
+        tipo: "pasos",
+        titulo: "Los avisos: la campana",
+        items: [
+          "Cuando llega la hora de un recordatorio, abajo a la derecha aparece «Recordatorio: …» con «Contactar» y «Posponer 1 h». Se queda ahí hasta que elijas o lo cierres.",
+          "La campana, junto al nombre del negocio, junta tus avisos: «Recordatorio vencido», «Hoy tienes … recordatorios», «Te asignaron a …» (un chat que te pasaron) y las citas que te tocan. El número rojo son los que no has visto.",
+          "Haz clic en la campana para verlos. Desde un recordatorio vencido puedes «Contactar» o «Posponer ▾»; con «Marcar todo como leído» se apaga el número.",
+          "¿Quieres el aviso aunque estés en otra pestaña? Abajo de la campana haz clic en «Activar avisos del navegador» y acepta el permiso que te pide.",
+        ],
+      },
+      {
+        tipo: "parrafo",
+        titulo: "En la Bandeja",
+        texto:
+          "En «Esto es lo que te toca ahora» también aparece «… recordatorios para hoy (… vencidos)»: haz clic y te lleva a «Pendientes».",
+      },
+      {
+        tipo: "lista",
+        tono: "siNo",
+        titulo: "¿Y si…?",
+        items: [
+          "**Dice «Bloqueaste los avisos en este navegador»:** toca el candado junto a la dirección, busca «Notificaciones» y elige «Permitir». La campana y el aviso dentro del CRM funcionan igual aunque no los actives.",
+          "**No ves el recordatorio de un compañero:** cada quien ve solo los suyos. El propietario ve los de todos y elige de quién con «Vendedor».",
+          "**«Sin contacto» o «Sin respuesta a tu plantilla» están vacías:** ninguno de tus clientes lleva tanto tiempo así; prueba con menos días.",
+          "**¿El cliente se entera?** No. El recordatorio es solo para ti; para escribirle usa «Contactar».",
+        ],
+      },
+    ],
+    captura: ["recordarme.png", "pendientes.png", "avisos.png"],
   },
   {
     id: "ia",

@@ -1,12 +1,15 @@
 import type { ConversationCounts, InboxScope } from "@/lib/types";
 
 export type SummaryItem = {
-  id: "waiting" | "closing" | "inbox";
+  id: "waiting" | "closing" | "reminders" | "inbox";
   count: number;
   title: string;
   hint: string;
-  tone: "danger" | "warning" | "neutral";
+  tone: "danger" | "warning" | "accent" | "neutral";
 };
+
+/** 035 B — Recordatorios propios de hoy (incluye vencidos) y vencidos. */
+export type ReminderCounts = { today: number; overdue: number };
 
 /** «en Mis chats», «en el Buzón», «en Equipo»; vacío sin alcance. */
 function inScope(scope: InboxScope | null): string {
@@ -22,6 +25,9 @@ function inScope(scope: InboxScope | null): string {
  *    respuesta, dentro del alcance activo (`assigned=` va en la base de
  *    `countConversations`).
  *  - `closing`: la ventana cierra en menos de 2 h, mismo alcance.
+ *  - 035 B `reminders`: «N recordatorios para hoy (M vencidos)» con
+ *    `GET /api/follow-ups/count` (los PROPIOS, en la zona del negocio); solo
+ *    si N > 0. Lleva a Seguimiento › Pendientes.
  *  - `scopes.inbox.all`: chats sin responsable (no archivados), solo en modo
  *    equipo y si no estás ya en el Buzón.
  * Puro: lo usa `src/components/inbox/inbox-summary.tsx` y lo cubre
@@ -29,7 +35,8 @@ function inScope(scope: InboxScope | null): string {
  */
 export function summaryItems(
   counts: Pick<ConversationCounts, "human" | "closing" | "scopes"> | null,
-  opts: { scope: InboxScope | null; teamMode: boolean }
+  opts: { scope: InboxScope | null; teamMode: boolean },
+  reminders: ReminderCounts | null = null
 ): SummaryItem[] {
   if (!counts) return [];
   const where = inScope(opts.scope);
@@ -56,6 +63,19 @@ export function summaryItems(
           : `A ${counts.closing} chats${where} se les cierra la ventana en menos de 2 h`,
       hint: "Respóndeles ya; después solo podrás escribirles con una plantilla.",
       tone: "warning",
+    });
+  }
+  if (reminders && reminders.today > 0) {
+    const n = reminders.today;
+    const late = Math.min(reminders.overdue, n);
+    out.push({
+      id: "reminders",
+      count: n,
+      title:
+        (n === 1 ? "1 recordatorio para hoy" : `${n} recordatorios para hoy`) +
+        (late > 0 ? ` (${late} ${late === 1 ? "vencido" : "vencidos"})` : ""),
+      hint: "Ábrelos en Seguimiento › Pendientes.",
+      tone: "accent",
     });
   }
   const inbox = counts.scopes?.inbox.all ?? 0;

@@ -30,6 +30,23 @@
  *                          producto a un cliente:», Lisboa con sus 2 atajos
  *                          y «Copiar», Nogal con 3 fotos y sin ficha, y el
  *                          Comedor Roble «Pausado: no se puede mandar»
+ *   recordarme.png         (035) diálogo «Recordarme de Laura Gómez» con
+ *                          «En 1 semana», «Información solicitada», una nota
+ *                          y «Ya tienes 1 recordatorio de Laura»
+ *   pendientes.png         (035) Seguimiento › Pendientes: «Vencidos», «Hoy»,
+ *                          «Esta semana» abierta, «Sin contacto» y «Sin
+ *                          respuesta a tu plantilla» (más alta que 768 para
+ *                          que quepan completas las dos listas)
+ *   avisos.png             (035 B) campana abierta: recordatorio vencido,
+ *                          resumen del día y «Te asignaron a Valeria Mora»
+ *
+ * 035 — Para esas tres se siembran además Patricia Luna, Héctor Ramos y
+ * Gabriela Soto (sin contacto: 35, 48 y 62 días), Fernando Díaz y Lucía
+ * Herrera (plantilla leída / entregada sin respuesta) y Valeria Mora (chat
+ * que Ricardo le pasa a Daniela), con las fechas envejecidas por SQL. Los
+ * avisos salen de `POST /api/dev/notifications/tick` con la hora forzada
+ * (en el E2E el reloj va apagado, `NOTIFICATIONS_TICK_MS=0`). Va al final
+ * para no cambiar las anteriores.
  *
  * 032 — Para esas dos se siembra además un segundo vendedor («Marco Ríos»,
  * sin iniciar sesión), Mónica Pérez y Raúl Sánchez, los tratos en sus etapas
@@ -130,6 +147,13 @@ const C = {
   // 032 — solo para Seguimiento.
   monica: { name: "Mónica Pérez", phone: "5215500000016" },
   raul: { name: "Raúl Sánchez", phone: "5215500000017" },
+  // 035 — solo para Recordatorios, Pendientes y Avisos (el 18 es Elena).
+  patricia: { name: "Patricia Luna", phone: "5215500000019" },
+  hector: { name: "Héctor Ramos", phone: "5215500000020" },
+  gabriela: { name: "Gabriela Soto", phone: "5215500000021" },
+  fernando: { name: "Fernando Díaz", phone: "5215500000022" },
+  lucia: { name: "Lucía Herrera", phone: "5215500000023" },
+  valeria: { name: "Valeria Mora", phone: "5215500000024" },
 };
 // 032 — Segundo vendedor: solo se da de alta (no inicia sesión).
 const MARCO = { name: "Marco Ríos", email: "marco.rios@vocero.test", password: "password-vend-456" };
@@ -775,6 +799,210 @@ async function catalogCapture() {
   await ctx.close();
 }
 
+// ── 035: Recordatorios, Pendientes y avisos ─────────────────────────────
+
+/** Día (YYYY-MM-DD) y hora (HH:MM) de pared del negocio de un instante. */
+function wallOf(date) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" })
+      .formatToParts(date)
+      .map((x) => [x.type, x.value])
+  );
+  return { day: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}`, hour: Number(p.hour), weekday: p.weekday };
+}
+const DAY_MS = 86_400_000;
+
+/**
+ * Como el diseño (`specs/035-recordatorios/diseno/`): recordatorios de Daniela
+ * vencido (Carlos, hace 2 días), de hoy (Laura) y de esta semana (Sofía);
+ * «Sin contacto» con Patricia Luna, Héctor Ramos y Gabriela Soto (35, 48 y 62
+ * días, envejecidos por SQL como en `e2e-pendientes.mjs`) y «Sin respuesta a
+ * tu plantilla» con Fernando Díaz (leída, hace 5 días) y Lucía Herrera
+ * (entregada, hace 8). Va DESPUÉS de las demás capturas para no cambiarlas.
+ */
+async function seedReminders({ danielaId }) {
+  console.log("\n== 035: siembra de Recordatorios y Pendientes (datos ficticios) ==");
+  const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+  const age = async (c, days) => {
+    await sql`update vocero.message set created_at = created_at - make_interval(days => ${days}),
+                wa_timestamp = coalesce(wa_timestamp, created_at) - make_interval(days => ${days})
+              where conversation_id = ${c.id}`;
+    await sql`update vocero.conversation set
+                last_message_at = (select max(created_at) from vocero.message where conversation_id = ${c.id}),
+                created_at = created_at - make_interval(days => ${days}),
+                last_inbound_at = last_inbound_at - make_interval(days => ${days})
+              where id = ${c.id}`;
+  };
+  try {
+    const tpl = ((await owner.api("/api/templates")).json?.templates ?? []).find((t) => t.name === "seguimiento_cotizacion");
+    const outbox = async () => (await owner.api("/api/dev/wa-mock/outbox")).json?.outbox ?? [];
+    for (const [who, text, days, template] of [
+      [C.patricia, "¿Tienen recámaras matrimoniales en blanco?", 35, null],
+      [C.hector, "¿Cuánto cuesta el librero Roble?", 48, null],
+      [C.gabriela, "Quiero cotizar un comedor para 8.", 62, null],
+      [C.fernando, "¿Me pasas precio de la sala Lisboa?", 5, "read"],
+      [C.lucia, "Me interesa el comedor Nogal.", 8, "delivered"],
+    ]) {
+      const c = await inbound(who, text);
+      await owner.api(`/api/conversations/${c?.id}`, { method: "PATCH", body: body({ aiEnabled: false }) });
+      const as = await owner.api(`/api/conversations/${c?.id}/assign`, { method: "POST", body: body({ userId: danielaId }) });
+      ok(`${who.name} a nombre de Daniela`, as.res.ok, short(as));
+      if (template) {
+        const r = await seller.api(`/api/conversations/${c?.id}/messages/template`, {
+          method: "POST",
+          body: body({ templateId: tpl?.id, variables: [who.name.split(" ")[0], who === C.fernando ? "la sala Lisboa" : "el comedor Nogal"] }),
+        });
+        ok(`plantilla a ${who.name}`, r.res.ok, short(r));
+        const wa = (await outbox()).filter((o) => o.body?.type === "template" && String(o.body?.to ?? "").endsWith(who.phone.slice(-10))).at(-1)?.waMessageId;
+        const st = (status) => owner.api("/api/dev/wa-mock/status", { method: "POST", body: body({ waMessageId: wa, status }) });
+        await st("delivered");
+        if (template === "read") await st("read");
+        await sleep(600);
+      }
+      await age(c, days);
+    }
+    ok("fechas de «Sin contacto» y «Sin respuesta» sembradas", true);
+
+    // Recordatorios de Daniela (la API acepta un día pasado: así queda vencido).
+    const now = new Date();
+    const w = wallOf(now);
+    // «Hoy»: más tarde que la hora actual (cerca de medianoche se acepta el borde).
+    const todayTime = w.hour < 17 ? "17:30" : `${String(Math.min(w.hour + 1, 23)).padStart(2, "0")}:30`;
+    // «Esta semana» acaba el domingo: el sábado o antes, si todavía queda.
+    const toSunday = { Mon: 6, Tue: 5, Wed: 4, Thu: 3, Fri: 2, Sat: 1, Sun: 0 }[w.weekday] ?? 0;
+    const weekOff = toSunday >= 2 ? 2 : toSunday;
+    const mk = async (who, day, time, reason, note) => {
+      const c = await conv(who);
+      const r = await seller.api("/api/follow-ups", {
+        method: "POST",
+        body: body({ contactId: c?.contact?.id, conversationId: c?.id, day, time, reason, note }),
+      });
+      ok(`recordatorio de ${who.name} (${day} ${time})`, r.res.status === 201, short(r));
+    };
+    await mk(C.carlos, wallOf(new Date(now.getTime() - 2 * DAY_MS)).day, "10:00", "volver_a_contactar", "Mandarle la cotización del comedor Nogal.");
+    await mk(C.laura, w.day, todayTime, "informacion", "Confirmarle si la Lisboa en gris llega esta semana.");
+    if (weekOff > 0) {
+      await mk(C.sofia, wallOf(new Date(now.getTime() + weekOff * DAY_MS)).day, "12:00", "cita", "Confirmar si viene a ver las sillas para exterior.");
+    } else {
+      console.log("  (domingo: no hay «Esta semana»)");
+    }
+    // Los avisos de la siembra (cada «a nombre de Daniela») no son el ejemplo:
+    // la campana de Pendientes queda en cero y la de Avisos, solo con lo suyo.
+    await sql`delete from vocero.notification where user_id = ${danielaId}`;
+  } finally {
+    await sql.end();
+  }
+}
+
+async function remindCapture() {
+  console.log("\n== 035: captura de «Recordarme» (claro, 1366×768, como vendedora) ==");
+  const { ctx, page } = await newPage();
+  await openChat(page, C.laura);
+  const dlg = page.getByTestId("remind-dialog");
+  ok("diálogo «Recordarme de Laura Gómez»", await until(async () => {
+    if ((await dlg.count()) === 0) await page.getByTestId("inbox-remind").click();
+    await sleep(500);
+    return await dlg.isVisible();
+  }, 30000));
+  ok("zona del negocio cargada", await until(async () => /hora de/.test(await dlg.getByTestId("remind-preview").innerText()), 30000));
+  await dlg.getByRole("button", { name: "En 1 semana", exact: true }).click();
+  await dlg.locator("label").filter({ hasText: "Información solicitada" }).click();
+  await dlg.locator("textarea").fill("Avisarle cuando llegue la sala Lisboa en color arena.");
+  ok("«Ya tienes 1 recordatorio de Laura»", await until(async () => (await dlg.getByTestId("remind-existing").count()) === 1, 10000));
+  ok("«En 1 semana» elegido", (await dlg.getByRole("button", { name: "En 1 semana", exact: true }).getAttribute("aria-pressed")) === "true");
+  await sleep(500);
+  await save(page, "recordarme.png", await clipOf(page, [dlg], { pad: 8 }));
+  await dlg.getByRole("button", { name: "Guardar recordatorio" }).click();
+  ok("recordatorio guardado", await until(async () => (await dlg.count()) === 0, 15000));
+  await ctx.close();
+}
+
+async function pendientesCapture() {
+  console.log("\n== 035: captura de Pendientes (claro, 1366 de ancho, como vendedora) ==");
+  // Más alta que las demás: así caben «Sin contacto» y «Sin respuesta a tu
+  // plantilla» completas en la columna derecha.
+  const { ctx, page } = await newPage({ viewport: { width: VIEWPORT.width, height: 1100 } });
+  await page.goto(`${BASE}/pipeline?vista=pendientes`, { waitUntil: "load", timeout: 90000 });
+  const mine = page.getByTestId("my-follow-ups");
+  await mine.waitFor({ timeout: 60000 });
+  await until(async () => (await mine.locator('[aria-busy="true"]').count()) === 0, 30000);
+  ok("«Vencidos» con Carlos", await until(async () => ((await page.getByTestId("group-overdue").innerText().catch(() => "")) ?? "").includes("Carlos Ruiz"), 30000));
+  ok("«Hoy» con Laura", ((await page.getByTestId("group-today").innerText().catch(() => "")) ?? "").includes("Laura Gómez"));
+  const week = page.getByTestId("group-toggle-week");
+  if ((await week.count()) === 1) {
+    await week.click();
+    ok("«Esta semana» abierta con Sofía", await until(async () => ((await page.getByTestId("group-week").innerText().catch(() => "")) ?? "").includes("Sofía Castro"), 10000));
+  }
+  ok("«Sin contacto» con 3 filas", await until(async () => (await page.getByTestId("no-contact").getByTestId("pending-row").count()) === 3, 30000));
+  ok("«Sin respuesta a tu plantilla» con 2 filas", await until(async () => (await page.getByTestId("no-reply").getByTestId("pending-row").count()) === 2, 30000));
+  await sleep(1000);
+  const noReply = await page.getByTestId("no-reply").boundingBox();
+  const bottom = Math.ceil((noReply?.y ?? 0) + (noReply?.height ?? 0) + 24);
+  await save(page, "pendientes.png", { x: 0, y: 0, width: VIEWPORT.width, height: Math.min(1100, Math.max(VIEWPORT.height, bottom)) });
+  await ctx.close();
+}
+
+/**
+ * La campana con tres avisos sin leer: «Te asignaron a Valeria Mora» (de
+ * Ricardo, hace unos minutos), el resumen del día y un recordatorio vencido.
+ * El reloj va apagado en el E2E (`NOTIFICATIONS_TICK_MS=0`): el recordatorio
+ * se pone a unos minutos y el tick se fuerza justo después, así su hora se
+ * lee «Hoy, …» y no queda en el pasado lejano.
+ */
+async function avisosCapture({ danielaId }) {
+  console.log("\n== 035 B: captura de la campana «Avisos» (claro, 1366×768, como vendedora) ==");
+  const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from vocero.notification where user_id = ${danielaId}`;
+    const c = await inbound(C.valeria, "Hola, ¿tienen recámaras infantiles?");
+    await owner.api(`/api/conversations/${c?.id}`, { method: "PATCH", body: body({ aiEnabled: false }) });
+    const as = await owner.api(`/api/conversations/${c?.id}/assign`, { method: "POST", body: body({ userId: danielaId }) });
+    ok("Ricardo le pasa a Valeria Mora a Daniela", as.res.ok, short(as));
+    await sql`update vocero.notification set created_at = created_at - interval '6 minutes' where user_id = ${danielaId} and kind = 'chat_assigned'`;
+
+    const due = new Date(Date.now() + 5 * 60000);
+    const w = wallOf(due);
+    const pat = await conv(C.patricia);
+    const r = await seller.api("/api/follow-ups", {
+      method: "POST",
+      body: body({ contactId: pat?.contact?.id, conversationId: pat?.id, day: w.day, time: w.time, reason: "volver_a_contactar", note: "Preguntarle si ya eligió la recámara." }),
+    });
+    ok(`recordatorio de Patricia (${w.day} ${w.time})`, r.res.status === 201, short(r));
+    const t = await owner.api("/api/dev/notifications/tick", { method: "POST", body: body({ now: new Date(due.getTime() + 2 * 60000).toISOString() }) });
+    ok("tick del reloj: recordatorio vencido y resumen del día", t.res.ok && t.json?.due >= 1 && t.json?.daily >= 1, short(t));
+  } finally {
+    await sql.end();
+  }
+
+  const { ctx, page } = await newPage();
+  // Chromium sin ventana informa `Notification.permission = "denied"` y el pie
+  // diría «Bloqueaste los avisos…»: se simula un navegador al que aún no se le
+  // ha pedido (`default`), que es cuando ofrece «Activar avisos del navegador».
+  await ctx.addInitScript(() => {
+    try {
+      Object.defineProperty(window.Notification, "permission", { configurable: true, get: () => "default" });
+    } catch {}
+  });
+  await page.goto(`${BASE}/inbox`, { waitUntil: "load", timeout: 90000 });
+  const bell = page.getByTestId("nav-bell");
+  await bell.waitFor({ timeout: 60000 });
+  ok("la campana marca 3", await until(async () => ((await page.getByTestId("nav-bell-count").innerText().catch(() => "")) ?? "").trim() === "3", 30000));
+  const panel = page.getByTestId("notifications-panel");
+  ok("panel «Avisos» abierto", await until(async () => {
+    if ((await panel.count()) === 0) await bell.click();
+    await sleep(500);
+    return await panel.isVisible();
+  }, 20000));
+  const items = panel.getByTestId("notification-item");
+  ok("3 avisos (vencido, resumen, asignación)", await until(async () => (await items.count()) === 3, 20000), String(await items.count()));
+  const kinds = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-kind")));
+  ok("…de los tres tipos", ["follow_up_due", "daily_summary", "chat_assigned"].every((k) => kinds.includes(k)), JSON.stringify(kinds));
+  ok("pie con «Activar avisos del navegador»", await until(async () => (await panel.getByTestId("browser-alerts-on").count()) === 1, 10000));
+  await sleep(800);
+  await save(page, "avisos.png", await clipOf(page, [bell, panel], { pad: 8 }));
+  await ctx.close();
+}
+
 /** 032 — Revisión a ojo de /pipeline, /bookings, /contacts, /catalog y /reports (no se publica). */
 async function reviewModules() {
   if (!REVIEW) return;
@@ -878,6 +1106,10 @@ async function main() {
     await contactsCapture();
     await seedCatalogShortcuts();
     await catalogCapture();
+    await seedReminders(seeded);
+    await remindCapture();
+    await pendientesCapture();
+    await avisosCapture(seeded);
     await review();
     await reviewModules();
   } finally {

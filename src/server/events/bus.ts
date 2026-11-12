@@ -44,6 +44,28 @@ export type SseEvent =
    * los roles; el cliente recarga la primera página (no fusiona).
    */
   | { type: "conversations.bulk"; data: { reason: "bulk" | "auto" } }
+  /**
+   * 035 B — Cambió la campana de UNA persona: llegó un aviso (`new`, con el
+   * DTO para el aviso emergente) o se leyeron (`read`, con los ids; `all` =
+   * todos). Solo lo recibe `userId` (`canReceive`), ni siquiera el
+   * Propietario.
+   */
+  | {
+      type: "notification.changed";
+      data: {
+        userId: string;
+        reason: "new" | "read";
+        notification?: unknown;
+        ids?: string[];
+        all?: boolean;
+      };
+    }
+  /**
+   * 035 B — Cambiaron recordatorios de estas personas (crear, hecho,
+   * posponer): su número rojo y la línea de la Bandeja se refrescan aunque lo
+   * haya cambiado el Propietario. Solo lo reciben los `userIds`.
+   */
+  | { type: "follow_ups.changed"; data: { userIds: string[] } }
   | {
       type: "lab.run";
       data: {

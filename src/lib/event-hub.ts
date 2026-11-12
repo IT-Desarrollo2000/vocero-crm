@@ -13,6 +13,8 @@ export const SSE_EVENT_TYPES = [
   "lab.run",
   "booking.updated",
   "conversations.bulk",
+  "notification.changed",
+  "follow_ups.changed",
 ] as const;
 
 export type SseEventType = (typeof SSE_EVENT_TYPES)[number];
@@ -26,6 +28,8 @@ export const HANDLER_FOR: Record<SseEventType, string> = {
   "lab.run": "onLabRun",
   "booking.updated": "onBookingUpdated",
   "conversations.bulk": "onConversationsBulk",
+  "notification.changed": "onNotificationChanged",
+  "follow_ups.changed": "onFollowUpsChanged",
 };
 
 type AnyHandlers = { [name: string]: ((data: never) => void) | undefined } & {
