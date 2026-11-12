@@ -162,7 +162,10 @@ export function AppNav({
           {branding.name.charAt(0).toUpperCase()}
         </span>
         <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
-          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight">
+          {/* 035 B — En escritorio, hasta dos renglones: junto a la campana
+              «FUTURA City Cars» no cabe en uno, y cortado deja de ser el
+              nombre del negocio. El cajón móvil sigue en uno. */}
+          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight lg:line-clamp-2 lg:whitespace-normal lg:break-words">
             {branding.name}
           </span>
           {/* 035 B — En escritorio la campana ocupa su lugar (diseño aprobado:
@@ -173,24 +176,6 @@ export function AppNav({
             (siempre a la vista), no dentro del cajón. Contraído: debajo de la
             inicial. */}
         <NotificationBell testId="nav-bell" className="hidden lg:flex" />
-        {/* Contraer/expandir: solo en escritorio, en móvil el cajón ya se
-            cierra entero. */}
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
-          title={collapsed ? "Expandir menú" : "Contraer menú"}
-          aria-expanded={!collapsed}
-          className={cn(
-            "hidden rounded-md p-1 text-text-3 hover:bg-accent hover:text-foreground lg:inline-flex"
-          )}
-        >
-          {collapsed ? (
-            <PanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          ) : (
-            <PanelLeftClose className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          )}
-        </button>
       </div>
 
       <nav className="flex flex-col gap-0.5">
@@ -262,6 +247,27 @@ export function AppNav({
       </nav>
 
       <div className="flex-1" />
+
+      {/* Contraer/expandir: solo en escritorio, en móvil el cajón ya se
+          cierra entero. Va al pie y no junto al nombre: en el encabezado le
+          quitaba el espacio al nombre del negocio (035 B). */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
+        aria-expanded={!collapsed}
+        className={cn(
+          "hidden items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium text-text-2 transition-colors hover:bg-accent lg:flex",
+          collapsed && "lg:justify-center lg:px-0"
+        )}
+      >
+        {collapsed ? (
+          <PanelLeftOpen className="h-[18px] w-[18px] shrink-0 text-text-3" strokeWidth={1.7} />
+        ) : (
+          <PanelLeftClose className="h-[18px] w-[18px] shrink-0 text-text-3" strokeWidth={1.7} />
+        )}
+        <span className={cn(collapsed && "lg:hidden")}>Contraer menú</span>
+      </button>
 
       {/* 031 — La guía es para todos los roles: va con Ajustes, al pie, y no
           como pestaña de Ajustes (esas dependen del rol). */}
