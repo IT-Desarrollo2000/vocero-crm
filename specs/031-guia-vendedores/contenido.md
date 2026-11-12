@@ -36,9 +36,19 @@ una falla: es una regla de WhatsApp.
    qué parte del mensaje va. Si el mensaje empieza con un saludo, el nombre
    del cliente ya viene puesto: revisa que esté bien.
 4. Revisa en «Revisa y envía» cómo le va a llegar y haz clic en «Enviar
-   plantilla». Cuando te conteste, ya puedes escribir normal.
+   plantilla».
+5. *(033)* En lugar del formulario verás «Plantilla enviada a … · hora» con
+   cómo va: «Enviada», «Entregada» o «Leída». Ya salió: no hace falta
+   enviarla otra vez. Cuando te conteste, ya puedes escribir normal.
 
 **¿Y si…?**
+- *(033)* **Aparece «Ya le enviaste este mensaje a … hace … min.»:** ese mismo
+  mensaje acaba de salir; si lo mandas otra vez, le llegará repetido. Usa
+  «Enviar de todos modos» solo si de verdad quieres repetirlo.
+- *(033)* **Dice «La plantilla de las … no le llegó a …»:** WhatsApp no la
+  aceptó y ahí mismo dice por qué. Revísala abajo y vuelve a enviarla.
+- *(033)* **Quieres mandarle una distinta:** haz clic en «Enviar otra
+  plantilla».
 - **No aparece ningún mensaje para elegir:** verás «Todavía no puedes
   retomar este chat». Tu equipo aún no tiene plantillas; pídele al
   propietario que cree una (WhatsApp tarda desde unos minutos hasta un día
@@ -327,6 +337,71 @@ escribe. Si te escribió hace más de 24 horas, aún puedes contestarle hasta 7
 días (la fila dice cuánto queda); después, espera a que te vuelva a escribir.
 
 Captura: `contactos.png`
+
+---
+
+## 5d. `recordatorios` — Recordatorios · «Quiero acordarme de volver a escribirle» *(035)*
+
+Índice: «Recordarme», la lista de «Pendientes» y la campana de avisos.
+
+**Intro:** Cuando un cliente te pide que le escribas después (por ejemplo,
+cuando lleguen modelos nuevos o para su próximo servicio), deja un
+**recordatorio**. Solo lo ves tú: el cliente no recibe nada. Todos tus
+recordatorios quedan en «Seguimiento», en la vista «Pendientes».
+
+**Dejar un recordatorio**
+1. En el chat, en la tarjeta del cliente en «Seguimiento» o en su fila de
+   «Contactos», haz clic en «Recordarme».
+2. En «¿Cuándo?» elige «Mañana», «En 3 días», «En 1 semana» o «En 1 mes», o
+   pon tú el día y la hora. La hora es la del negocio.
+3. En «Motivo» marca de qué se trata: «Volver a contactar», «Servicio»,
+   «Información solicitada», «Cita» u «Otro».
+4. Si es algo que se repite, como un servicio, en «Repetir» elige «Cada 3
+   meses», «Cada 6 meses» o «Cada 12 meses»: al marcarlo como hecho, el
+   siguiente se agenda solo.
+5. Si quieres, escribe una nota y haz clic en «Guardar recordatorio». Abajo
+   ves los que ya tienes de ese cliente.
+
+**Tu lista de Pendientes**
+1. En «Seguimiento» del menú, arriba cambia de «Tablero» a «Pendientes». Si
+   junto a «Seguimiento» ves un número rojo, son recordatorios vencidos.
+2. En «Mis recordatorios» aparecen primero los «Vencidos» y los de «Hoy».
+   «Esta semana» (hasta el domingo) y «Después» vienen plegados. Con
+   «Motivo» filtras por tipo.
+3. «Contactar» abre su chat; si nunca te ha escrito, dice «Escribir primero».
+4. Cuando ya le escribiste, «Hecho» (con «¿Qué pasó?» opcional, que queda en
+   el historial). Si se repite, te dice para cuándo quedó el siguiente.
+5. «Posponer ▾»: «1 hora», «Mañana a la misma hora», «1 semana» u «Otra
+   fecha y hora…».
+
+**Clientes que se te pueden enfriar:** «Sin contacto» (15/30/60/90 días o
+«Entre fechas»; «Incluir perdidos») y «Sin respuesta a tu plantilla» (3/7/14
+días, dice si ya la leyeron), con «Contactar», «Dar seguimiento» o
+«Recordarme». Cada lista enseña 3 y «Ver los …» abre el resto.
+
+**¿Y si…?**
+- **No ves el recordatorio de un compañero:** cada quien ve solo los suyos;
+  el propietario ve los de todos con «Vendedor».
+- **Las listas están vacías:** nadie lleva tanto tiempo así; prueba con menos
+  días.
+- **¿El cliente se entera?** No; para escribirle usa «Contactar».
+
+**Los avisos: la campana** *(035 B)*
+1. Al llegar la hora: abajo a la derecha «Recordatorio: …» con «Contactar»
+   y «Posponer 1 h»; se queda hasta que elijas o lo cierres.
+2. La campana, junto al nombre del negocio: «Recordatorio vencido», «Hoy
+   tienes … recordatorios», «Te asignaron a …» y las citas que te tocan. El
+   número rojo son los no vistos.
+3. Desde un vencido: «Contactar» o «Posponer ▾»; «Marcar todo como leído».
+4. «Activar avisos del navegador» para el aviso fuera de la pestaña.
+
+**En la Bandeja:** «… recordatorios para hoy (… vencidos)» lleva a
+«Pendientes».
+
+**¿Y si…?** «Bloqueaste los avisos en este navegador»: candado junto a la
+dirección › «Notificaciones» › «Permitir». La campana funciona igual.
+
+Captura: `recordarme.png`, `pendientes.png`, `avisos.png`
 
 ---
 

@@ -110,6 +110,12 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "GET /api/follow-ups/count": "any*",
   "GET /api/follow-ups/pending": "any*",
 
+  // ── Avisos de la campana (035 B) ───────────────────────────────────────
+  // Siempre los PROPIOS de quien pide (también el Propietario: no recibe los
+  // de su equipo).
+  "GET /api/notifications": "any*",
+  "POST /api/notifications/read": "any*",
+
   // ── Agenda ─────────────────────────────────────────────────────────────
   // 023: el Vendedor ve sus citas, las que creó y las sin asignar (404 a las
   // ajenas); `assignedUserId` al crear y la acción `assign` son del
@@ -270,6 +276,8 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/dev/media/purge": "dev",
   // 022: una vuelta del auto-archivo (respeta el interruptor), reloj adelantable.
   "POST /api/dev/inbox/auto-archive": "dev",
+  // 035 B: una vuelta del reloj de avisos con reloj simulado.
+  "POST /api/dev/notifications/tick": "dev",
   // 020: ¿se guardó el ctwa_clid? (la API pública solo dice si existe con la bandera).
   "GET /api/dev/attribution": "dev",
   // 10: falla conmutable de los envíos de WhatsApp del mock.

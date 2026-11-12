@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { isOwner } from "@/lib/roles";
 import { publish } from "@/server/events/bus";
+import { notifyChatAssigned, notifySafe } from "@/server/notifications/store";
 import {
   assignConversation,
   getConversation,
@@ -97,6 +98,25 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
 
   const row = await getConversation(session.organizationId, id, session);
   if (!row) return apiError(404, "not_found", "Conversación no encontrada");
+
+  // 035 B — «Te asignaron a …»: solo si de verdad cambió y fue OTRA persona
+  // (el Propietario se la pasa a un vendedor). Tomarla uno mismo o «responder
+  // = tomar» (`claimForSend`, que no pasa por aquí) no avisa. Nunca tumba la
+  // asignación.
+  if (result.changed && to && to !== session.userId && result.assignedAt) {
+    const assignedAt = result.assignedAt;
+    await notifySafe("chat asignado", () =>
+      notifyChatAssigned({
+        organizationId: session.organizationId,
+        conversationId: id,
+        toUserId: to,
+        actorUserId: session.userId,
+        assignedAt,
+        contact: { id: row.contact.id, name: row.contact.name },
+      })
+    );
+  }
+
   return Response.json({
     conversation: serializeConversation(
       row.conversation,

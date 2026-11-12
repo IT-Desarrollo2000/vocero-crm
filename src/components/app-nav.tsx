@@ -29,6 +29,7 @@ import { filterNavForRole } from "@/components/nav-items";
 import { useUnreadCount } from "@/components/alerts-provider";
 import { useOverdueCount } from "@/components/follow-ups/use-overdue-count";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { APP_VERSION, BUILD_COMMIT, versionLabel } from "@/lib/version";
 
 type NavItem = {
@@ -141,7 +142,7 @@ export function AppNav({
       {/* Brand white-label */}
       <div
         className={cn(
-          "mb-4 flex items-center gap-2.5 px-2",
+          "mb-4 flex items-center gap-2 px-2",
           collapsed && "lg:flex-col lg:px-0"
         )}
       >
@@ -160,31 +161,21 @@ export function AppNav({
         >
           {branding.name.charAt(0).toUpperCase()}
         </span>
-        <span className={cn("min-w-0", collapsed && "lg:hidden")}>
-          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight">
+        <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
+          {/* 035 B — En escritorio, hasta dos renglones: junto a la campana
+              «FUTURA City Cars» no cabe en uno, y cortado deja de ser el
+              nombre del negocio. El cajón móvil sigue en uno. */}
+          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight lg:line-clamp-2 lg:whitespace-normal lg:break-words">
             {branding.name}
           </span>
-          <span className="block text-[11px] text-text-3">CRM · WhatsApp</span>
+          {/* 035 B — En escritorio la campana ocupa su lugar (diseño aprobado:
+              nombre + campana); en el cajón móvil sigue. */}
+          <span className="block text-[11px] text-text-3 lg:hidden">CRM · WhatsApp</span>
         </span>
-        {/* Contraer/expandir: solo en escritorio, en móvil el cajón ya se
-            cierra entero. */}
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
-          title={collapsed ? "Expandir menú" : "Contraer menú"}
-          aria-expanded={!collapsed}
-          className={cn(
-            "hidden rounded-md p-1.5 text-text-3 hover:bg-accent hover:text-foreground lg:inline-flex",
-            !collapsed && "ml-auto"
-          )}
-        >
-          {collapsed ? (
-            <PanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          ) : (
-            <PanelLeftClose className="h-[18px] w-[18px]" strokeWidth={1.7} />
-          )}
-        </button>
+        {/* 035 B — La campana de avisos. En el celular vive en el encabezado
+            (siempre a la vista), no dentro del cajón. Contraído: debajo de la
+            inicial. */}
+        <NotificationBell testId="nav-bell" className="hidden lg:flex" />
       </div>
 
       <nav className="flex flex-col gap-0.5">
@@ -256,6 +247,27 @@ export function AppNav({
       </nav>
 
       <div className="flex-1" />
+
+      {/* Contraer/expandir: solo en escritorio, en móvil el cajón ya se
+          cierra entero. Va al pie y no junto al nombre: en el encabezado le
+          quitaba el espacio al nombre del negocio (035 B). */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
+        aria-expanded={!collapsed}
+        className={cn(
+          "hidden items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium text-text-2 transition-colors hover:bg-accent lg:flex",
+          collapsed && "lg:justify-center lg:px-0"
+        )}
+      >
+        {collapsed ? (
+          <PanelLeftOpen className="h-[18px] w-[18px] shrink-0 text-text-3" strokeWidth={1.7} />
+        ) : (
+          <PanelLeftClose className="h-[18px] w-[18px] shrink-0 text-text-3" strokeWidth={1.7} />
+        )}
+        <span className={cn(collapsed && "lg:hidden")}>Contraer menú</span>
+      </button>
 
       {/* 031 — La guía es para todos los roles: va con Ajustes, al pie, y no
           como pestaña de Ajustes (esas dependen del rol). */}

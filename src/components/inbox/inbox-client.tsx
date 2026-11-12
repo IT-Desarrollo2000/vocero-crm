@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlarmClock,
   Archive,
@@ -48,6 +48,7 @@ import { RemindDialog } from "@/components/follow-ups/remind-dialog";
 import { WhoAnswersStrip } from "./who-answers-strip";
 import { InboxSummary } from "./inbox-summary";
 import { summaryItems } from "@/lib/inbox-summary";
+import { useFollowUpCounts } from "@/components/follow-ups/use-overdue-count";
 import { takeOverAssigns, whoAnswers } from "@/lib/who-answers";
 import { displayFirstName } from "@/lib/template-fill";
 import { OVERDUE_DEFAULT_MINUTES } from "@/lib/awaiting";
@@ -162,6 +163,9 @@ export function InboxClient({
   // se refleja (y se reacciona cuando una conversación deja de ser visible).
   const viewer = useViewer();
   const owner = isOwner(viewer);
+  const router = useRouter();
+  // 035 B — «N recordatorios para hoy (M vencidos)» del panel sin chat.
+  const reminderCounts = useFollowUpCounts();
   const ownerRef = useRef(owner);
   ownerRef.current = owner;
   const [team, setTeam] = useState<TeamOption[] | null>(null);
@@ -796,7 +800,8 @@ export function InboxClient({
 
   // 031 — Sin chat abierto: «lo que te toca ahora» con los contadores que
   // ya trae `/counts` (027 US-6: el recordatorio del Buzón es uno de ellos).
-  const summary = summaryItems(list.counts, { scope: activeScope, teamMode });
+  // 035 B: y los recordatorios propios de hoy (Seguimiento › Pendientes).
+  const summary = summaryItems(list.counts, { scope: activeScope, teamMode }, reminderCounts);
 
   const assignmentControl = (className?: string) =>
     selected && teamMode ? (
@@ -1103,6 +1108,7 @@ export function InboxClient({
             onGo={(id) => {
               if (id === "waiting") setFilters({ filter: "human" });
               else if (id === "closing") setFilters({ closing: true });
+              else if (id === "reminders") router.push("/pipeline?vista=pendientes");
               else setFilters({ scope: "inbox" });
             }}
           />

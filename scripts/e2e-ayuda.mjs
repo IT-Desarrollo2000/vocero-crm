@@ -19,7 +19,9 @@
  *      y su «¿Y en Instagram y Messenger?» solo con esos canales. Fase C:
  *      `#catalogo` en las dos pasadas con los rótulos de la Bandeja y de
  *      «Catálogo» («Copiar», «Pausado: no se puede mandar»…), sin rótulos del
- *      Propietario, y ninguna mención de Reportes en la guía
+ *      Propietario, y ninguna mención de Reportes en la guía. 035:
+ *      `#recordatorios` en las dos pasadas, tras `#contactos`, con «Dejar un
+ *      recordatorio», «Tu lista de Pendientes» y «Los avisos: la campana»
  *   f) pantallas (como vendedora): ventana abierta (barra de tiempo, menú
  *      «Adjuntar», `accept` de «Documento»), ventana cerrada sin plantillas y
  *      con una plantilla de 2 espacios (prellenado, motivo, envío con los dos
@@ -259,9 +261,21 @@ async function offPass() {
   const cont = page.locator("#contactos");
   ok("#contactos sigue con la agenda apagada", (await cont.count()) === 1);
   ok("…sin «¿Y en …?» de canales", !((await cont.innerText().catch(() => "")) ?? "").includes("¿Y en "));
+  // 035 — Recordatorios tampoco depende de un módulo.
+  await remindersTopicChecks(page);
   // 032 fase C — Catálogo no depende de ningún módulo.
   await catalogTopicChecks(page);
   await ctx.close();
+}
+
+/** 035 — `#recordatorios` con sus tres apartados. En las dos pasadas. */
+async function remindersTopicChecks(page) {
+  const rec = page.locator("#recordatorios");
+  ok("hay tema de recordatorios (#recordatorios)", (await rec.count()) === 1);
+  const text = (await rec.innerText().catch(() => "")) ?? "";
+  for (const heading of ["Dejar un recordatorio", "Tu lista de Pendientes", "Los avisos: la campana"]) {
+    ok(`#recordatorios trae «${heading}»`, text.includes(heading));
+  }
 }
 
 /**
@@ -412,6 +426,10 @@ async function helpPageChecks() {
     ok(`#contactos cita «${label}»`, contText.includes(label));
   }
   ok("#contactos ya no dice «Ver archivados»", !contText.includes("Ver archivados"));
+  // 035 — Tema Recordatorios, justo después de Contactos.
+  ok("hay tema Recordatorios (#recordatorios en el índice y en la página)", hrefs.includes("#recordatorios") && (await page.locator("#recordatorios").count()) === 1);
+  ok("…justo después de Contactos", hrefs.indexOf("#recordatorios") === hrefs.indexOf("#contactos") + 1, JSON.stringify(hrefs));
+  await remindersTopicChecks(page);
   // 032 fase C — Catálogo al día.
   await catalogTopicChecks(page);
   await ctx.close();

@@ -18,6 +18,7 @@ import {
   parseAlertPrefs,
   saveAlertPrefs,
   shouldNotify,
+  shouldNotifyReminder,
   shouldPlaySound,
   soundAllowed,
   stripTitleCount,
@@ -387,5 +388,21 @@ describe("favicon y soporte", () => {
     expect(
       notificationSupport({ hasNotification: true, isSecureContext: true, permission: "granted" })
     ).toBe("granted");
+  });
+});
+
+/** 035 B — Avisos de la campana en el navegador: solo con la pestaña oculta. */
+describe("shouldNotifyReminder", () => {
+  const on = { ...DEFAULT_ALERT_PREFS, notifications: true };
+  it("por omisión los avisos de la campana van incluidos (al activar el maestro)", () => {
+    expect(DEFAULT_ALERT_PREFS.reminders).toBe(true);
+    expect(parseAlertPrefs(JSON.stringify({ notifications: true })).reminders).toBe(true);
+  });
+  it("maestro + campana + permiso + pestaña oculta", () => {
+    expect(shouldNotifyReminder(on, { permission: "granted", hidden: true })).toBe(true);
+    expect(shouldNotifyReminder(on, { permission: "granted", hidden: false })).toBe(false);
+    expect(shouldNotifyReminder(on, { permission: "denied", hidden: true })).toBe(false);
+    expect(shouldNotifyReminder({ ...on, reminders: false }, { permission: "granted", hidden: true })).toBe(false);
+    expect(shouldNotifyReminder(DEFAULT_ALERT_PREFS, { permission: "granted", hidden: true })).toBe(false);
   });
 });

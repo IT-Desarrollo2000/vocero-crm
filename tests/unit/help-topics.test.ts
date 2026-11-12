@@ -144,6 +144,13 @@ describe("temas", () => {
     expect(HELP_TOPICS.find((t) => t.id === "contactos")?.captura).toEqual(["contactos.png"]);
     // 032 fase C — Catálogo: el panel del chat y la pantalla del menú.
     expect(HELP_TOPICS.find((t) => t.id === "catalogo")?.captura).toEqual(["catalogo.png", "catalogo-atajos.png"]);
+    // 035 — Recordatorios, justo después de Contactos: el diálogo, Pendientes y la campana.
+    expect(order.indexOf("recordatorios")).toBe(order.indexOf("contactos") + 1);
+    expect(HELP_TOPICS.find((t) => t.id === "recordatorios")?.captura).toEqual([
+      "recordarme.png",
+      "pendientes.png",
+      "avisos.png",
+    ]);
   });
 
   it("032 fase C — el tema del catálogo es para vendedores (nada del Propietario ni de Reportes)", () => {

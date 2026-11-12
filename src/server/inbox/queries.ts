@@ -909,8 +909,11 @@ export async function gateSend(
 }
 
 export type AssignResult =
-  /** `changed: false` = ya estaba así (idempotente: sin evento). */
-  | { kind: "ok"; changed: boolean }
+  /**
+   * `changed: false` = ya estaba así (idempotente: sin evento). 035 B:
+   * `assignedAt` del cambio (clave del aviso «Te asignaron a …»).
+   */
+  | { kind: "ok"; changed: boolean; assignedAt?: Date | null }
   | { kind: "not_found" }
   /** Otro la tiene (carrera de "tomar"); `assignee` = responsable actual. */
   | { kind: "conflict"; assignee: Assignee }
@@ -974,8 +977,10 @@ export async function assignConversation(
           : isNotNull(c.assignedUserId)
       )
     )
-    .returning({ id: c.id });
-  if (updated.length > 0) return { kind: "ok", changed: true };
+    .returning({ id: c.id, assignedAt: c.assignedAt });
+  if (updated.length > 0) {
+    return { kind: "ok", changed: true, assignedAt: updated[0]?.assignedAt ?? null };
+  }
 
   // Clasificación del 0 filas (solo lectura; ver arriba).
   const rows = await db

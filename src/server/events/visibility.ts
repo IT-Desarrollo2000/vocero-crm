@@ -10,9 +10,25 @@ import type { SseEvent } from "./bus";
  *
  * El rol se toma al abrir la conexión: un cambio de rol surte efecto al
  * reconectar (≤ un heartbeat), igual que la baja de un miembro.
+ *
+ * 035 B — Los eventos PERSONALES (`notification.changed`,
+ * `follow_ups.changed`) se filtran aquí, ANTES del pase libre del
+ * Propietario en `decideDelivery`: solo los recibe su destinatario (el
+ * Propietario no recibe los avisos de su equipo). Sin `userId` en el viewer,
+ * nadie los recibe (cerrar por defecto).
  */
-export function canReceive(event: SseEvent, viewer: { role: Role }): boolean {
+export function canReceive(
+  event: SseEvent,
+  viewer: { role: Role; userId?: string }
+): boolean {
   if (event.type === "lab.run") return isOwner(viewer);
+  if (event.type === "notification.changed") {
+    return !!viewer.userId && event.data?.userId === viewer.userId;
+  }
+  if (event.type === "follow_ups.changed") {
+    const ids: unknown = event.data?.userIds;
+    return !!viewer.userId && Array.isArray(ids) && ids.includes(viewer.userId);
+  }
   return true;
 }
 
@@ -97,6 +113,10 @@ export async function decideDelivery(
     // 022: sin ids ni datos de conversación: cada quien recarga con su vista.
     case "conversations.bulk":
       return { kind: "deliver" };
+    // 035 B: personales; `canReceive` ya dejó pasar solo al destinatario.
+    case "notification.changed":
+    case "follow_ups.changed":
+      return { kind: "deliver" };
     default:
       // Tipo nuevo sin clasificar: cerrar por defecto hasta decidir su regla.
       return { kind: "drop" };
@@ -114,7 +134,7 @@ export async function decideDelivery(
  * se envía nada más (una conexión muerta deja de consultar la BD).
  */
 export function createDeliveryQueue(opts: {
-  viewer: { role: Role };
+  viewer: { role: Role; userId?: string };
   deps: DeliveryDeps;
   send: (event: SseEvent) => void;
 }): { push: (event: SseEvent) => void; close: () => void; idle: () => Promise<void> } {
@@ -131,6 +151,9 @@ export function createDeliveryQueue(opts: {
   return {
     push(event) {
       if (closed) return;
+      // 035 B: los personales, solo a su destinatario (también aquí, por si
+      // alguien empuja sin pasar por el atajo de la ruta).
+      if (!canReceive(event, opts.viewer)) return;
       tail = tail.then(() => step(event)).catch(() => {
         // Descartado: el stream sigue vivo (cerrar por defecto).
       });

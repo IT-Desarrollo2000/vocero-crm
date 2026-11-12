@@ -26,6 +26,12 @@ export type AlertPrefs = {
   showContent: boolean;
   /** `(N)` en el título y punto en el favicon. */
   tabCounter: boolean;
+  /**
+   * 035 B — Avisar también de los avisos de la campana (recordatorio vencido
+   * y «Te asignaron…») con la pestaña oculta. Lo apaga «Desactivar» del pie
+   * de la campana sin tocar los avisos de mensajes.
+   */
+  reminders: boolean;
 };
 
 /**
@@ -40,7 +46,20 @@ export const DEFAULT_ALERT_PREFS: AlertPrefs = {
   sound: false,
   showContent: true,
   tabCounter: true,
+  reminders: true,
 };
+
+/**
+ * 035 B — ¿Notificación del navegador para un aviso de la campana? Maestro +
+ * avisos de la campana encendidos, permiso concedido y la pestaña OCULTA
+ * (visible, ya está el aviso emergente y la campana).
+ */
+export function shouldNotifyReminder(
+  prefs: Pick<AlertPrefs, "notifications" | "reminders">,
+  ctx: { permission: AlertPermission; hidden: boolean }
+): boolean {
+  return prefs.notifications && prefs.reminders && ctx.permission === "granted" && ctx.hidden;
+}
 
 const PREFS_PREFIX = "vocero.alerts.v1";
 

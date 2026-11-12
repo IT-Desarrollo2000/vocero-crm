@@ -3,6 +3,7 @@ import { getDb, schema } from "@/lib/db";
 import { startReminderTicker } from "@/server/agenda/reminder-ticker";
 import { startMediaPurgeTicker } from "@/server/media/purge-ticker";
 import { startAutoArchiveTicker } from "@/server/inbox/auto-archive-ticker";
+import { startNotificationsTicker } from "@/server/notifications/ticker";
 
 /**
  * Limpieza al arranque (FR-034): corridas del Laboratorio que quedaron
@@ -38,7 +39,9 @@ export async function cleanupOrphanRuns(): Promise<void> {
  * adjuntos, que arranca siempre salvo `MEDIA_PURGE_TICK_MS=0`; y (022) el
  * auto-archivo de la Bandeja, que arranca siempre salvo
  * `INBOX_AUTO_ARCHIVE_TICK_MS=0` (cada vuelta respeta el interruptor de cada
- * organización). Nunca tumba el arranque.
+ * organización); y (035 B) el reloj de avisos (recordatorios vencidos y
+ * resumen del día), que arranca siempre salvo `NOTIFICATIONS_TICK_MS=0`.
+ * Nunca tumba el arranque.
  */
 export function startBackgroundJobs(): void {
   try {
@@ -55,5 +58,10 @@ export function startBackgroundJobs(): void {
     startAutoArchiveTicker();
   } catch (err) {
     console.error("[boot] el reloj de auto-archivo no arrancó:", err);
+  }
+  try {
+    startNotificationsTicker();
+  } catch (err) {
+    console.error("[boot] el reloj de avisos no arrancó:", err);
   }
 }
