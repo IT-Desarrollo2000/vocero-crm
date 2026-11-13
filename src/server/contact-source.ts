@@ -18,6 +18,8 @@ export const SOURCE_VALUES: readonly SourceValue[] = [
   // 011: los pone la entrada de leads externos si nadie capturó otra.
   "web",
   "promotor",
+  // 036: la pone la importación del Excel de un evento.
+  "evento",
   "otro",
 ];
 
@@ -28,6 +30,7 @@ export const SOURCE_LABELS: Record<SourceValue | "desconocida", string> = {
   conocido: "Conocido",
   web: "Sitio web",
   promotor: "Promotor",
+  evento: "Evento",
   otro: "Otro",
   desconocida: "Sin identificar",
 };

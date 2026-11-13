@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ getDb: () => ({}), schema: {} }));
 // archive.ts arma SQL con el schema al cargar; aquí solo importa la constante.
 vi.mock("@/server/inbox/archive", () => ({ UNARCHIVE_SET: {} }));
+// 036: la asignación por vendedor toca la Bandeja (lo puro: seller-match).
+vi.mock("@/server/intake/seller", () => ({ assignToSeller: vi.fn() }));
 
 import { normalizeMx } from "@/lib/meta/client";
 import {
@@ -270,7 +272,7 @@ describe("bandera LEADS_EXTERNOS", () => {
 
 describe("D-11-5 / RF-9 — fuente y ficha", () => {
   it("cada origen tiene su fuente", () => {
-    expect(SOURCE_FOR_ORIGIN).toEqual({ website: "web", fast_app: "promotor" });
+    expect(SOURCE_FOR_ORIGIN).toEqual({ website: "web", fast_app: "promotor", evento: "evento" });
   });
 
   const lead = parse({

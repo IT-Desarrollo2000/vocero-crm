@@ -523,7 +523,9 @@ export type SourceValue =
   | "otro"
   // 011: leads externos (formulario web / promotores de FastApp).
   | "web"
-  | "promotor";
+  | "promotor"
+  // 036: leads del Excel de un evento.
+  | "evento";
 
 export type SourceDto = {
   /** "desconocida" cuando nadie la capturó y no se pudo deducir. */

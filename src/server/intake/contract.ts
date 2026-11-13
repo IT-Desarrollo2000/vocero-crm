@@ -10,7 +10,8 @@ import { LEAD_INTAKE_HEADER } from "@/lib/lead-intake";
  * costar el lead. Los campos desconocidos se ignoran (Zod los quita).
  */
 
-export const INTAKE_ORIGINS = ["website", "fast_app"] as const;
+// 036: `evento` = leads del Excel de un evento (scripts/importar-leads.mjs).
+export const INTAKE_ORIGINS = ["website", "fast_app", "evento"] as const;
 export type IntakeOrigin = (typeof INTAKE_ORIGINS)[number];
 
 /** Tope por campo de texto libre: la tarjeta es un resumen, no un archivo. */
@@ -40,6 +41,25 @@ const optAmount = z
     return Number.isFinite(n) && n > 0 ? n : undefined;
   });
 
+/**
+ * 036 — «¿Aceptó que le escribamos por WhatsApp?» como lo escribe una persona
+ * en un Excel: sí/si/x/1/true/yes → «Sí»; no/0/false → «No»; vacío o
+ * cualquier otra cosa → undefined (no se inventa una respuesta).
+ */
+export function parseConsent(v: unknown): "Sí" | "No" | undefined {
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  if (typeof v !== "string" && typeof v !== "number") return undefined;
+  const s = String(v)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[.!]+$/, "");
+  if (["si", "x", "1", "true", "yes"].includes(s)) return "Sí";
+  if (["no", "0", "false"].includes(s)) return "No";
+  return undefined;
+}
+
 export const intakeLeadSchema = z.object({
   lead_id: z.string().uuid(),
   origin: z.enum(INTAKE_ORIGINS),
@@ -66,6 +86,16 @@ export const intakeLeadSchema = z.object({
       const s = v.trim();
       return s ? s.slice(0, TEXT_MAX) : undefined;
     }),
+  // 036 (origen `evento`): nombre del evento, vendedor que lo atendió (se
+  // intenta asignar la conversación, ver `seller.ts`) y si autorizó que le
+  // escribamos por WhatsApp. El modelo de interés viaja en `vehicle` y los
+  // comentarios en `notes`.
+  event: optText(120),
+  seller: optText(120),
+  whatsapp_consent: z
+    .union([z.boolean(), z.string(), z.number()])
+    .nullish()
+    .transform(parseConsent),
   utm_source: optText(120),
   utm_medium: optText(120),
   utm_campaign: optText(120),
@@ -119,6 +149,9 @@ export function buildLeadCardText(lead: IntakeLead): string {
   const rows: [string, string | undefined][] = [
     ["Nombre", fullName(lead) || NO_NAME],
     ["Correo", lead.email],
+    ["Evento", lead.event],
+    ["Vendedor", lead.seller],
+    ["Autorizó WhatsApp", lead.whatsapp_consent],
     ["Vehículo", lead.vehicle],
     ["Sucursal", lead.branch],
     ["Promotor", lead.promoter],

@@ -73,7 +73,7 @@ const extRow = (
   o: Partial<SummaryExternalOriginDto> = {}
 ): SummaryExternalOriginDto => ({
   origin,
-  label: origin === "website" ? "Sitio web" : "FastApp (promotores)",
+  label: origin === "website" ? "Sitio web" : origin === "evento" ? "Eventos" : "FastApp (promotores)",
   received: 0,
   contacted: 0,
   notContacted: 0,
@@ -151,6 +151,7 @@ function summaryReport(o: Partial<SummaryReportDto> = {}): SummaryReportDto {
         total: 5,
         website: figures({ leads: 2, contacted: 1 }),
         fastApp: figures({ leads: 1 }),
+        evento: figures(),
         unidentified: figures({ leads: 3 }),
         totals: figures({ leads: 12, won: 2, wonAmount: money(150000) }),
       },
@@ -315,7 +316,7 @@ describe("021 — Resumen: cifras", () => {
       intakeEnabled: false,
       byOrigin: {
         ok: true,
-        data: { rows: [], total: 0, website: figures(), fastApp: figures(), unidentified: figures({ leads: 2 }), totals: figures({ leads: 2 }) },
+        data: { rows: [], total: 0, website: figures(), fastApp: figures(), evento: figures(), unidentified: figures({ leads: 2 }), totals: figures({ leads: 2 }) },
       },
       external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app")] } },
     });
@@ -365,6 +366,20 @@ describe("021 — Resumen: cifras", () => {
       summaryReport({ external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app", { received: 1, notContacted: 1 })] } } })
     ).find((x) => x.key === "external");
     expect(unoSolo?.text).toBe("1 lead del formulario y FastApp sigue sin contactar (1 de FastApp).");
+    // 036: los leads de eventos se restan de «por anuncio» y se nombran aparte.
+    const conEvento = summaryHighlights(
+      summaryReport({
+        byOrigin: {
+          ok: true,
+          data: { rows: [], total: 0, website: figures({ leads: 2 }), fastApp: figures({ leads: 1 }), evento: figures({ leads: 3 }), unidentified: figures(), totals: figures({ leads: 10 }) },
+        },
+        external: { ok: true, data: { rows: [extRow("website"), extRow("fast_app"), extRow("evento", { received: 3, notContacted: 2 })] } },
+      })
+    );
+    expect(conEvento.find((x) => x.key === "ads")?.text).toBe(
+      "40 % de los leads del rango llegaron por un anuncio (4 de 10); 2 por el sitio web, 1 por FastApp y 3 de eventos."
+    );
+    expect(conEvento.find((x) => x.key === "external")?.text).toBe("2 leads del formulario y FastApp siguen sin contactar (2 de eventos).");
   });
 
   it("032: tiempos de respuesta en palabras, sin «mediana» ni «p90»", () => {

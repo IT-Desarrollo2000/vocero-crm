@@ -60,7 +60,7 @@ export function provenanceTitle(
     case "bot":
       return `Lo llenó tu bot${cuando}`;
     case "externo":
-      return `Llegó con el lead del sitio web / promotor${cuando}`;
+      return `Llegó con el lead del sitio web, promotor o evento${cuando}`;
     case "humano":
       return `Confirmado por el equipo${cuando}: el agente no lo cambia`;
     case "legado":

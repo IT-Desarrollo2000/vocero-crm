@@ -30,6 +30,7 @@ import {
   type IntakeOrigin,
 } from "./contract";
 import { phoneLast4 } from "./phone";
+import { assignToSeller, type SellerAssignment } from "./seller";
 import { recordIntakeReceived } from "./settings";
 
 /**
@@ -57,6 +58,7 @@ import { recordIntakeReceived } from "./settings";
 export const SOURCE_FOR_ORIGIN: Record<IntakeOrigin, SourceValue> = {
   website: "web",
   fast_app: "promotor",
+  evento: "evento",
 };
 
 export type IngestExternalLeadResult = {
@@ -64,8 +66,10 @@ export type IngestExternalLeadResult = {
   conversationId: string;
   /** ¿El contacto es nuevo? */
   created: boolean;
-  /** Mismo `lead_id` ya entregado: sin efectos. */
+  /** Mismo `lead_id` ya entregado: sin efectos (salvo la asignación, 036). */
   duplicate: boolean;
+  /** 036: solo si vino `seller`. */
+  assignment?: SellerAssignment;
 };
 
 /**
@@ -192,16 +196,6 @@ export async function ingestExternalLead(
       );
     return row;
   });
-  if (!message) {
-    console.info(`${tag}: duplicado, sin efectos`);
-    return {
-      contactId: contact.id,
-      conversationId: conversation.id,
-      created: false,
-      duplicate: true,
-    };
-  }
-
   // Lo que sigue es accesorio a la tarjeta: si algo falla, el lead YA está
   // en la Bandeja y un reintento del ERP sería duplicado — así que se anota
   // y se sigue, en vez de devolver 500. Al log va solo el mensaje del error:
@@ -209,13 +203,43 @@ export async function ingestExternalLead(
   const step = async (name: string, fn: () => Promise<unknown>) => {
     try {
       await fn();
+      return true;
     } catch (err) {
       console.error(
         `${tag}: falló «${name}»:`,
         err instanceof Error ? err.message : "desconocido"
       );
+      return false;
     }
   };
+
+  // 036 — Vendedor del Excel del evento → asignación, solo si la
+  // conversación está libre. Corre TAMBIÉN en el duplicado: corregir los
+  // nombres en el Excel y volver a importar asigna lo que quedó libre (el
+  // cron del ERP reenvía sin `seller` → no hace nada). Al log no va el
+  // nombre: solo el resultado.
+  const assignSeller = async (): Promise<SellerAssignment | undefined> => {
+    const seller = lead.seller;
+    if (!seller) return undefined;
+    let assignment: SellerAssignment = "error";
+    await step("vendedor", async () => {
+      assignment = await assignToSeller(organizationId, conversation.id, seller);
+    });
+    console.info(`${tag}: vendedor → ${assignment}`);
+    return assignment;
+  };
+
+  if (!message) {
+    console.info(`${tag}: duplicado, sin efectos`);
+    const assignment = await assignSeller();
+    return {
+      contactId: contact.id,
+      conversationId: conversation.id,
+      created: false,
+      duplicate: true,
+      ...(assignment ? { assignment } : {}),
+    };
+  }
 
   await step("fuente", async () => {
     if (contact.source) return; // lo capturado manda (D-11-5)
@@ -254,6 +278,8 @@ export async function ingestExternalLead(
     recordIntakeReceived(organizationId, lead.origin, now)
   );
 
+  const assignment = await assignSeller();
+
   // `message.new` entrante → globo y alerta (05) sin plomería nueva.
   publish(organizationId, {
     type: "message.new",
@@ -273,5 +299,6 @@ export async function ingestExternalLead(
     conversationId: conversation.id,
     created: isNew,
     duplicate: false,
+    ...(assignment ? { assignment } : {}),
   };
 }

@@ -361,6 +361,7 @@ export type AdSourceKey =
   | "otro"
   | "web"
   | "promotor"
+  | "evento"
   | "desconocida";
 
 export type AdsSourceRowDto = {
@@ -700,6 +701,8 @@ export type SummaryByOriginDto = {
   website: SummaryOriginFiguresDto;
   /** Primer toque = tarjeta de FastApp (promotores). */
   fastApp: SummaryOriginFiguresDto;
+  /** 036: primer toque = tarjeta de un evento (importación del Excel). */
+  evento: SummaryOriginFiguresDto;
   /** «Sin origen identificado»: orgánico, clientes previos, IG/Messenger sin dato. */
   unidentified: SummaryOriginFiguresDto;
   /** Suma de TODOS los grupos (también los anuncios fuera del tope de filas). */
@@ -712,7 +715,7 @@ export type SummaryByOriginDto = {
  * del rango de ese origen.
  */
 export type SummaryExternalOriginDto = {
-  origin: "website" | "fast_app";
+  origin: "website" | "fast_app" | "evento";
   label: string;
   /** Contactos distintos con tarjeta de este origen en el rango. */
   received: number;
@@ -726,13 +729,17 @@ export type SummaryExternalOriginDto = {
   firstContact: { measured: number; p50Seconds: number | null; p90Seconds: number | null };
 };
 
-/** Siempre las dos filas (Sitio web, FastApp), también en cero. */
+/**
+ * Siempre las dos filas (Sitio web, FastApp), también en cero; 036: «Evento»
+ * solo si recibió alguno en el rango (casi ninguna semana hay evento).
+ */
 export type SummaryExternalLeadsDto = { rows: SummaryExternalOriginDto[] };
 
 /** 021b — Rótulos de los orígenes externos (claves de `LEAD_INTAKE_HEADER`). */
 export const LEAD_ORIGIN_LABEL: Record<SummaryExternalOriginDto["origin"], string> = {
   website: "Sitio web",
   fast_app: "FastApp (promotores)",
+  evento: "Eventos",
 };
 
 /** 021b — Fila de «Por origen» sin anuncio ni tarjeta. */

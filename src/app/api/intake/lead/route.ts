@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
  * 200 `{ duplicate: true }` (lo que permite el cron de conciliación) · 401
  * clave · 404 bandera apagada · 422 cuerpo o teléfono inválido · 429 tasa.
  *
+ * 036: si vino `seller` (Excel de un evento), ambas respuestas (201 y 200
+ * duplicado) traen además `assignment` (ver `server/intake/seller.ts`). Sin
+ * `seller` la respuesta es la de siempre (el ERP no cambia).
+ *
  * Nunca se loguea la clave ni el payload: solo `lead_id`, `origin` y los
  * últimos 4 del teléfono (en `ingestExternalLead`).
  */
@@ -41,6 +45,7 @@ export async function POST(req: Request) {
           duplicate: true,
           contactId: result.contactId,
           conversationId: result.conversationId,
+          ...(result.assignment ? { assignment: result.assignment } : {}),
         },
         { status: 200 }
       );
@@ -50,6 +55,7 @@ export async function POST(req: Request) {
         contactId: result.contactId,
         conversationId: result.conversationId,
         created: result.created,
+        ...(result.assignment ? { assignment: result.assignment } : {}),
       },
       { status: 201 }
     );

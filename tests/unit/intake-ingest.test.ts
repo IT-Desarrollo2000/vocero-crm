@@ -68,12 +68,16 @@ vi.mock("@/server/bot/ficha", () => ({ upsertFicha: vi.fn() }));
 vi.mock("@/server/ficha-fields", () => ({ getFichaFields: vi.fn(async () => []) }));
 vi.mock("@/server/events/bus", () => ({ publish: vi.fn() }));
 vi.mock("@/server/intake/settings", () => ({ recordIntakeReceived: vi.fn() }));
+vi.mock("@/server/intake/seller", () => ({
+  assignToSeller: vi.fn(async () => "asignado"),
+}));
 
 import { publish } from "@/server/events/bus";
 import { isFallbackName } from "@/server/inbox/identity";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
 import { intakeLeadSchema } from "@/server/intake/contract";
 import { ingestExternalLead } from "@/server/intake/ingest";
+import { assignToSeller } from "@/server/intake/seller";
 import { recordIntakeReceived } from "@/server/intake/settings";
 
 const LEAD = intakeLeadSchema.parse({
@@ -161,5 +165,57 @@ describe("011 — ingesta: tarjeta + Bandeja en una transacción", () => {
     expect(all).not.toContain("ana@example.com");
     expect(all).toContain("··5678");
     spy.mockRestore();
+  });
+});
+
+describe("036 — vendedor del Excel del evento", () => {
+  const EVENTO = intakeLeadSchema.parse({
+    lead_id: "8b1c2b9e-3d4a-5e5f-8a7b-1c2d3e4f5a6b",
+    origin: "evento",
+    first_name: "Ana",
+    phone: "5512345678",
+    event: "Expo Autos",
+    seller: "Mariana López",
+  });
+
+  beforeEach(() => {
+    state.inserted = [{ id: "msg_1", conversationId: "cv_1" }];
+    state.updateFails = false;
+    state.calls = [];
+    vi.clearAllMocks();
+  });
+
+  it("sin seller: no intenta asignar y la respuesta no trae `assignment`", async () => {
+    const r = await ingestExternalLead("org_1", LEAD, "525512345678");
+    expect(assignToSeller).not.toHaveBeenCalled();
+    expect(r).not.toHaveProperty("assignment");
+  });
+
+  it("con seller: asigna la conversación y reporta el resultado", async () => {
+    const r = await ingestExternalLead("org_1", EVENTO, "525512345678");
+    expect(assignToSeller).toHaveBeenCalledWith("org_1", "cv_1", "Mariana López");
+    expect(r.assignment).toBe("asignado");
+  });
+
+  it("también en el duplicado (re-importar tras corregir nombres), sin publish de mensaje", async () => {
+    state.inserted = [];
+    vi.mocked(assignToSeller).mockResolvedValueOnce("ya_asignada");
+    const r = await ingestExternalLead("org_1", EVENTO, "525512345678");
+    expect(r).toMatchObject({ duplicate: true, assignment: "ya_asignada" });
+    expect(createLeadForContact).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("si la asignación falla, el lead entra igual con `assignment: error` y sin el nombre en el log", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.mocked(assignToSeller).mockRejectedValueOnce(new Error("bd caída"));
+    const r = await ingestExternalLead("org_1", EVENTO, "525512345678");
+    expect(r).toMatchObject({ duplicate: false, assignment: "error" });
+    expect(publish).toHaveBeenCalledTimes(2);
+    const all = JSON.stringify([...spy.mock.calls, ...info.mock.calls]);
+    expect(all).not.toContain("Mariana");
+    spy.mockRestore();
+    info.mockRestore();
   });
 });

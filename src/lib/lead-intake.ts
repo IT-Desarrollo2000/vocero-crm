@@ -3,8 +3,8 @@
  *
  * Un solo punto de verdad, sin columna nueva: el `text` del mensaje es un
  * resumen legible cuya PRIMERA línea dice el origen («Lead del sitio web» /
- * «Lead de promotor (FastApp)») y cada línea siguiente es un campo
- * («Correo: …»). Así lo leen igual la lista de la Bandeja (vista previa), el
+ * «Lead de promotor (FastApp)» / «Lead de evento») y cada línea siguiente es
+ * un campo («Correo: …»). Así lo leen igual la lista de la Bandeja (vista previa), el
  * hilo (que lo pinta como tarjeta) y el historial del agente (etiquetado,
  * nunca como si el cliente lo hubiera escrito en el chat).
  *
@@ -16,16 +16,25 @@ export const LEAD_INTAKE_TYPE = "lead_intake";
 /** Prefijo del `wa_message_id` de la tarjeta (`intake:<lead_id>`, UNIQUE). */
 export const LEAD_INTAKE_WAMID_PREFIX = "intake:";
 
+/**
+ * Cabecera por origen. CONSTANTES: el Resumen (021b) reconoce el origen en
+ * SQL por igualdad exacta con este texto, así que nada variable (p. ej. el
+ * nombre del evento, 036) va aquí — eso viaja como una línea de campo.
+ */
 export const LEAD_INTAKE_HEADER = {
   website: "Lead del sitio web",
   fast_app: "Lead de promotor (FastApp)",
+  // 036: importación del Excel de un evento (scripts/importar-leads.mjs).
+  evento: "Lead de evento",
 } as const;
+
+export type LeadIntakeOrigin = keyof typeof LEAD_INTAKE_HEADER;
 
 export type LeadCard = {
   /** Primera línea: de dónde vino. */
   header: string;
   /** Origen reconocido por la cabecera; null si el texto no la trae. */
-  origin: keyof typeof LEAD_INTAKE_HEADER | null;
+  origin: LeadIntakeOrigin | null;
   /** Un campo por línea (`Etiqueta: valor`); sin etiqueta → `label: null`. */
   fields: { label: string | null; value: string }[];
 };
@@ -38,11 +47,9 @@ export function parseLeadCard(text: string | null | undefined): LeadCard {
     .filter(Boolean);
   const header = lines[0] ?? "Lead externo";
   const origin =
-    header === LEAD_INTAKE_HEADER.website
-      ? "website"
-      : header === LEAD_INTAKE_HEADER.fast_app
-        ? "fast_app"
-        : null;
+    (Object.keys(LEAD_INTAKE_HEADER) as LeadIntakeOrigin[]).find(
+      (k) => LEAD_INTAKE_HEADER[k] === header
+    ) ?? null;
   const fields = lines.slice(1).map((line) => {
     const i = line.indexOf(": ");
     return i > 0

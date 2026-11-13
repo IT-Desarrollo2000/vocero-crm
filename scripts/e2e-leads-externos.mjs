@@ -37,6 +37,13 @@
  *   n0) muchos fallos desde una IP → 429 para ESA IP; la clave buena desde
  *      otra IP sigue pasando (los fallos no gastan el cupo global)
  *   n) rotar invalida la clave vieja al instante · revocar → 401
+ *   p) (036) leads de evento: tarjeta «Lead de evento» + Evento; vendedor
+ *      por nombre completo / primer nombre → asignado; no encontrado y
+ *      ambiguo → sin asignar; ya asignada a otra persona → intacta; el
+ *      duplicado con vendedor corregido asigna lo libre; fuente `evento`
+ *      solo si no había; y `scripts/importar-leads.mjs` con un .xlsx
+ *      generado (texto, número, HYPERLINK wa.me, inválido, repetido):
+ *      ensayo sin escribir, --enviar, re-importar idempotente, clave mala
  *   o) 429 por el límite global de autenticadas (al final: agota el cupo del
  *      minuto)
  *
@@ -46,13 +53,19 @@
  * Presupuesto del limitador de login: 2 POST (owner sign-up/in, vendedor).
  *
  * Uso (BD aislada, ver memoria e2e-bd-aislada):
- *   CATALOG_STORAGE=local node --env-file=.env.e2e.011 scripts/e2e-leads-externos.mjs
- *   LEADS_EXTERNOS=off CATALOG_STORAGE=local node --env-file=.env.e2e.011 scripts/e2e-leads-externos.mjs
+ *   CATALOG_STORAGE=local LEADS_EXTERNOS=on node --env-file=.env.e2e scripts/e2e-leads-externos.mjs
+ *   LEADS_EXTERNOS=off CATALOG_STORAGE=local node --env-file=.env.e2e scripts/e2e-leads-externos.mjs
+ * (el server con la misma bandera; ver memoria e2e-bd-aislada)
  *
  * Sale con código 1 si algún check falla.
  */
 
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import ExcelJS from "exceljs";
 import { chromium } from "playwright";
 
 const BASE = process.env.APP_BASE_URL ?? "http://localhost:3000";
@@ -261,6 +274,14 @@ async function offChecks() {
     acc.res.status === 200 && html.includes("/settings/whatsapp") && !html.includes("/settings/leads-externos"),
     String(acc.res.status)
   );
+  // 036: el importador se detiene con un mensaje claro (404 = bandera apagada).
+  const dir = mkdtempSync(path.join(tmpdir(), "vocero-036-off-"));
+  const csv = path.join(dir, "leads.csv");
+  writeFileSync(csv, `﻿Nombre;WhatsApp\r\nAna Off;${ten()}\r\n`, "utf8");
+  const imp = runImporter([csv, "--evento", "Expo apagada", "--enviar", "--url", BASE], "cualquier-clave");
+  ok("importador con la bandera apagada → se detiene (404) y sale ≠ 0", imp.code !== 0 && imp.out.includes("LEADS_EXTERNOS"), imp.out.slice(-400));
+  ok("…y su .resultado.csv dice error", readFileSync(path.join(dir, "leads.resultado.csv"), "utf8").includes(",error,"));
+  rmSync(dir, { recursive: true, force: true });
 }
 
 /* ───────────────────────────── bandera encendida ─────────────────────────── */
@@ -542,6 +563,9 @@ async function onChecks() {
   ok("tras revocar → 401", r.res.status === 401, short(r));
   ok("y Ajustes queda sin clave", (await owner.api("/api/settings/intake")).json?.intake === null);
 
+  console.log("\n== p) 036: leads de evento (vendedor, duplicado, importador de Excel) ==");
+  await eventoChecks();
+
   console.log("\n== o) Límite de tasa global (solo autenticadas) ==");
   const KEY3 = (await owner.api("/api/settings/intake", { method: "PUT" })).json?.key;
   ok("clave nueva para medir el cupo global", !!KEY3);
@@ -557,6 +581,156 @@ async function onChecks() {
   ok("exceso de autenticadas → 429 rate_limited", got429?.json?.error?.code === "rate_limited", got429 ? short(got429) : "nunca 429");
   ok("…tras pasar la autenticación (422 hasta el tope)", authed > 0 && authed <= 120, String(authed));
   await owner.api("/api/settings/intake", { method: "DELETE" });
+}
+
+/* ─────────────────────── 036: leads de evento ─────────────────────── */
+
+async function convByPhone(digits) {
+  const list = (await owner.api(`/api/conversations?q=${digits}`)).json?.conversations ?? [];
+  return list.find((c) => c.contact?.phone === `52${digits}`) ?? null;
+}
+
+function runImporter(args, key) {
+  const r = spawnSync(process.execPath, ["scripts/importar-leads.mjs", ...args], {
+    cwd: process.cwd(),
+    env: { ...process.env, INTAKE_API_KEY: key, APP_BASE_URL: BASE, CATALOG_STORAGE: "local" },
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  return { code: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+}
+
+async function eventoChecks() {
+  const KEY = (await owner.api("/api/settings/intake", { method: "PUT" })).json?.key;
+  ok("clave vigente para p", !!KEY);
+  const EVENT = `Expo E2E ${S}`;
+  const SELLER_NAME = `Vendedor Leads ${S}`;
+  const INIGO = `Íñigo${S} Pérez`;
+  const team = [INIGO, `Rocío${S} Uno`, `Rocio${S} Dos`];
+  for (const [i, name] of team.entries()) {
+    const t = await owner.api("/api/settings/team", {
+      method: "POST",
+      body: body({ name, email: `evento${i}.${S}@vocero.test`, password: "password-evento-123" }),
+    });
+    ok(`alta de «${name}» → 201`, t.res.status === 201, short(t));
+  }
+  const ev = (over = {}) => lead({ origin: "evento", event: EVENT, ...over });
+
+  // 1) vendedor por nombre completo (minúsculas y espacios de más).
+  const L1 = ev({ first_name: "Eva Evento", phone: ten(), seller: ` vendedor   leads ${S} `, whatsapp_consent: "x", vehicle: "BYD Seal", notes: "Le gustó el rojo", email: `eva.${S}@example.com` });
+  const r1 = await postLead(KEY, L1);
+  ok("evento con vendedor → 201 assignment «asignado»", r1.res.status === 201 && r1.json?.assignment === "asignado", short(r1));
+  const c1 = await convById(owner, r1.json?.conversationId);
+  ok("asignada al vendedor", c1?.assignedTo?.name === SELLER_NAME, JSON.stringify(c1?.assignedTo));
+  ok("ventana cerrada (lastInboundAt null, modo plantilla)", c1?.lastInboundAt === null && c1?.replyMode === "template", `${c1?.lastInboundAt} ${c1?.replyMode}`);
+  const card1 = (await messagesOf(owner, r1.json?.conversationId)).find((m) => m.type === "lead_intake")?.text ?? "";
+  const lines1 = card1.split("\n");
+  ok("tarjeta «Lead de evento» (cabecera constante, sin el nombre del evento)", lines1[0] === "Lead de evento", JSON.stringify(lines1[0]));
+  ok("…con Evento, Vendedor, Autorizó WhatsApp, Vehículo y Notas", [`Evento: ${EVENT}`, `Vendedor: vendedor leads ${S}`, "Autorizó WhatsApp: Sí", "Vehículo: BYD Seal", "Notas: Le gustó el rojo"].every((l) => lines1.includes(l)), card1);
+  ok("Evento va después de Nombre y Correo", lines1.indexOf(`Evento: ${EVENT}`) === 3 && lines1[1] === "Nombre: Eva Evento", card1);
+  const d1 = (await owner.api(`/api/contacts/${r1.json?.contactId}`)).json;
+  ok("fuente capturada «evento»", d1?.contact?.source?.value === "evento" && d1?.contact?.source?.source === "capturada", JSON.stringify(d1?.contact?.source));
+
+  // 2) primer nombre único, con acentos y mayúsculas.
+  const r2 = await postLead(KEY, ev({ first_name: "Pepe", phone: ten(), seller: `ÍÑIGO${S}` }));
+  const c2 = await convById(owner, r2.json?.conversationId);
+  ok("primer nombre único (con acentos) → asignado", r2.res.status === 201 && r2.json?.assignment === "asignado" && c2?.assignedTo?.name === INIGO, `${short(r2)} ${JSON.stringify(c2?.assignedTo)}`);
+
+  // 3) nadie con ese nombre → sin asignar.
+  const L3 = ev({ first_name: "Nora", phone: ten(), seller: "Nadie Existe" });
+  const r3 = await postLead(KEY, L3);
+  const c3 = await convById(owner, r3.json?.conversationId);
+  ok("vendedor no encontrado → 201, sin asignar", r3.res.status === 201 && r3.json?.assignment === "vendedor_no_encontrado" && c3?.assignedTo === null, `${short(r3)} ${JSON.stringify(c3?.assignedTo)}`);
+
+  // 4) primer nombre de dos personas → ambiguo.
+  const r4 = await postLead(KEY, ev({ first_name: "Olga", phone: ten(), seller: `rocio${S}` }));
+  const c4 = await convById(owner, r4.json?.conversationId);
+  ok("ambiguo → 201, sin asignar", r4.res.status === 201 && r4.json?.assignment === "ambiguo" && c4?.assignedTo === null, `${short(r4)} ${JSON.stringify(c4?.assignedTo)}`);
+
+  // 5) ya asignada a otra persona → no se le quita; la fuente capturada manda.
+  const p5 = ten();
+  const w5 = await postLead(KEY, lead({ first_name: "Wendy", phone: p5 }));
+  ok("lead previo del sitio web (sin vendedor) → sin `assignment`", w5.res.status === 201 && !("assignment" in (w5.json ?? {})), short(w5));
+  const sellerId = c1?.assignedTo?.userId;
+  const as5 = await owner.api(`/api/conversations/${w5.json?.conversationId}/assign`, { method: "POST", body: body({ userId: sellerId }) });
+  ok("el owner la asigna al vendedor", as5.res.ok, short(as5));
+  const r5 = await postLead(KEY, ev({ first_name: "Wendy", phone: p5, seller: INIGO }));
+  const c5 = await convById(owner, r5.json?.conversationId);
+  ok("evento con otro vendedor → «ya_asignada» y NO se le quita", r5.res.status === 201 && r5.json?.assignment === "ya_asignada" && c5?.assignedTo?.name === SELLER_NAME, `${short(r5)} ${JSON.stringify(c5?.assignedTo)}`);
+  const d5 = (await owner.api(`/api/contacts/${r5.json?.contactId}`)).json;
+  ok("la fuente ya capturada («web») no cambia a evento", d5?.contact?.source?.value === "web", JSON.stringify(d5?.contact?.source));
+
+  // 6) re-enviar el mismo lead_id con el vendedor corregido → asigna lo libre.
+  const r6 = await postLead(KEY, { ...L3, seller: `Vendedor Leads ${S}` });
+  const c6 = await convById(owner, r3.json?.conversationId);
+  ok("duplicado con vendedor corregido → 200 duplicate + «asignado»", r6.res.status === 200 && r6.json?.duplicate === true && r6.json?.assignment === "asignado" && c6?.assignedTo?.name === SELLER_NAME, `${short(r6)} ${JSON.stringify(c6?.assignedTo)}`);
+  ok("…sin otra tarjeta", (await messagesOf(owner, r3.json?.conversationId)).filter((m) => m.type === "lead_intake").length === 1);
+  const r6b = await postLead(KEY, { ...L1, seller: INIGO });
+  ok("duplicado con OTRO vendedor sobre una ya asignada → «ya_asignada»", r6b.res.status === 200 && r6b.json?.assignment === "ya_asignada" && (await convById(owner, r1.json?.conversationId))?.assignedTo?.name === SELLER_NAME, short(r6b));
+  const L1noSeller = { ...L1 };
+  delete L1noSeller.seller;
+  const r7 = await postLead(KEY, L1noSeller);
+  ok("duplicado sin vendedor (como el cron del ERP) → 200 sin `assignment`", r7.res.status === 200 && r7.json?.duplicate === true && !("assignment" in (r7.json ?? {})), short(r7));
+
+  // El agente (encendido) no corre con una tarjeta de evento.
+  await sleep(2500);
+  ok("el agente no escribe (sin salientes)", (await messagesOf(owner, r1.json?.conversationId)).every((m) => m.direction === "in"));
+  const g = (await owner.api("/api/settings/intake")).json?.intake;
+  ok("Ajustes: último lead de evento registrado", !!g?.lastReceivedAt?.evento, JSON.stringify(g?.lastReceivedAt));
+
+  // 8) el importador de Excel.
+  const dir = mkdtempSync(path.join(tmpdir(), "vocero-036-"));
+  const file = path.join(dir, "leads evento.xlsx");
+  const pa = ten();
+  const pb = ten();
+  const pc = ten();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Registro");
+  ws.addRow([`Registro ${EVENT}`]);
+  ws.addRow(["Nombre*", "WhatsApp* (10 dígitos)", "Vendedor", "Modelo de interés", "Comentarios", "Correo", "¿Aceptó que le escribamos por WhatsApp?", "Columna rara"]);
+  ws.addRow([`Ana Excel ${S}`, `${pa.slice(0, 2)} ${pa.slice(2, 6)} ${pa.slice(6)}`, `íñigo${S}`, "BYD Dolphin", "Quiere crédito", `ana.x.${S}@example.com`, "Sí", "zzz"]);
+  ws.addRow([`Beto Excel ${S}`, Number(pb), "", "Seal", "", "", "no", ""]);
+  const rc = ws.addRow([`Caro Excel ${S}`, null, "Nadie Existe", "", "", "", "x", ""]);
+  rc.getCell(2).value = { formula: `HYPERLINK("https://wa.me/521${pc}","Enviar WhatsApp")`, result: "Enviar WhatsApp" };
+  ws.addRow([`Malo Excel ${S}`, "12345", "", "", "", "", "", ""]);
+  ws.addRow([`Repetido Excel ${S}`, pa, "", "", "", "", "", ""]);
+  ws.addRow([]);
+  await wb.xlsx.writeFile(file);
+  const resultCsv = path.join(dir, "leads evento.resultado.csv");
+
+  const dry = runImporter([file, "--evento", `Feria Excel ${S}`], KEY);
+  ok("ensayo → sale 0", dry.code === 0, dry.out.slice(-600));
+  ok("ensayo: 3 válidos, 1 inválido, 1 repetido, columna rara reportada", /Válidos: 3/.test(dry.out) && /Inválidos: 1/.test(dry.out) && /Repetidos en el archivo: 1/.test(dry.out) && dry.out.includes("«Columna rara»"), dry.out);
+  ok("ensayo: nunca imprime la clave ni un teléfono completo", !dry.out.includes(KEY) && ![pa, pb, pc].some((p) => dry.out.includes(p)));
+  const dryCsv = existsSync(resultCsv) ? readFileSync(resultCsv, "utf8") : "";
+  ok("ensayo: escribe el .resultado.csv (listo ×3, inválido, repetido)", (dryCsv.match(/,listo,/g) ?? []).length === 3 && dryCsv.includes(",inválido,") && dryCsv.includes(",repetido,"), dryCsv);
+  ok("ensayo: no escribe nada en el CRM", !(await convByPhone(pa)) && !(await convByPhone(pb)) && !(await convByPhone(pc)));
+
+  const send = runImporter([file, "--evento", `Feria Excel ${S}`, "--enviar", "--url", BASE], KEY);
+  ok("--enviar → sale 0 con 3 nuevos", send.code === 0 && /Nuevos: 3/.test(send.out), send.out.slice(-800));
+  ok("--enviar: reporta el vendedor sin coincidencia", send.out.includes("Nadie Existe (nadie con ese nombre): 1"), send.out);
+  ok("--enviar: nunca imprime la clave", !send.out.includes(KEY));
+  const ca = await convByPhone(pa);
+  const cb = await convByPhone(pb);
+  const cc = await convByPhone(pc);
+  ok("los 3 contactos existen (texto, número y fórmula HYPERLINK wa.me/521…)", !!ca && !!cb && !!cc, JSON.stringify([!!ca, !!cb, !!cc]));
+  const cardA = (await messagesOf(owner, ca?.id)).find((m) => m.type === "lead_intake")?.text ?? "";
+  ok("tarjeta del Excel: «Lead de evento» + Evento + Vehículo + Autorizó", cardA.startsWith("Lead de evento\n") && cardA.includes(`Evento: Feria Excel ${S}`) && cardA.includes("Vehículo: BYD Dolphin") && cardA.includes("Autorizó WhatsApp: Sí"), cardA);
+  ok("fila con vendedor → asignada a esa persona", ca?.assignedTo?.name === INIGO, JSON.stringify(ca?.assignedTo));
+  ok("fila sin vendedor / vendedor inexistente → sin asignar", cb?.assignedTo === null && cc?.assignedTo === null, JSON.stringify([cb?.assignedTo, cc?.assignedTo]));
+  const cardB = (await messagesOf(owner, cb?.id)).find((m) => m.type === "lead_intake")?.text ?? "";
+  ok("«no» → Autorizó WhatsApp: No", cardB.includes("Autorizó WhatsApp: No"), cardB);
+  const sentCsv = readFileSync(resultCsv, "utf8");
+  ok("el .resultado.csv dice nuevo ×3 y la asignación", (sentCsv.match(/,nuevo,/g) ?? []).length === 3 && sentCsv.includes(",asignado,") && sentCsv.includes(",vendedor_no_encontrado,"), sentCsv);
+
+  const again = runImporter([file, "--evento", `feria   excel ${S}`.toUpperCase(), "--enviar", "--url", BASE], KEY);
+  ok("re-importar (evento escrito distinto) → 0 nuevos, 3 duplicados", again.code === 0 && /Nuevos: 0/.test(again.out) && /duplicados\): 3/.test(again.out), again.out.slice(-800));
+  ok("…y una sola tarjeta por contacto", (await messagesOf(owner, ca?.id)).filter((m) => m.type === "lead_intake").length === 1);
+
+  const bad = runImporter([file, "--evento", `Feria Excel ${S}`, "--enviar", "--url", BASE], "clave-mala");
+  ok("clave mala → se detiene con 401 y sale ≠ 0", bad.code !== 0 && bad.out.includes("401"), bad.out.slice(-400));
+  ok("…sin imprimir la clave", !bad.out.includes("clave-mala"));
+  rmSync(dir, { recursive: true, force: true });
 }
 
 async function uiChecks(KEY, convId, contactId) {

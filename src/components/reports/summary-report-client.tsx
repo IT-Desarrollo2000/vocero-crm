@@ -107,7 +107,7 @@ export function SummaryReportClient() {
             title="Por origen"
             description={
               external
-                ? "Leads del rango agrupados por cómo llegaron la primera vez: un anuncio, el formulario del sitio web o FastApp."
+                ? "Leads del rango agrupados por cómo llegaron la primera vez: un anuncio, el formulario del sitio web, FastApp o un evento."
                 : "Leads del rango agrupados por el primer anuncio que los trajo."
             }
             block={report?.byOrigin}
@@ -119,7 +119,7 @@ export function SummaryReportClient() {
           {(loading || external) && (
             <ReportSection
               title="Leads del formulario y FastApp"
-              description="Leads que llegaron en el rango desde el sitio web o la app de promotores, y si alguien ya los contactó."
+              description="Leads que llegaron en el rango desde el sitio web, la app de promotores o un evento, y si alguien ya los contactó."
               block={report?.external}
               loading={loading}
               // Dos filas: en papel la sección entera va junta.
@@ -463,7 +463,7 @@ function amountOf(f: SummaryOriginFiguresDto): string {
 
 type OriginLine = {
   key: string;
-  /** `data-origin`: `ad` | `website` | `fast_app` | `unidentified`. */
+  /** `data-origin`: `ad` | `website` | `fast_app` | `evento` | `unidentified`. */
   origin: string;
   /** `data-ad` (solo anuncios): su `source_id`. */
   ad?: string;
@@ -494,6 +494,10 @@ function ByOriginTable({ data, showExternal }: { data: SummaryByOriginDto; showE
       ? [
           { key: "website", origin: "website", title: LEAD_ORIGIN_LABEL.website, subtitle: null, muted: false, f: data.website },
           { key: "fast_app", origin: "fast_app", title: LEAD_ORIGIN_LABEL.fast_app, subtitle: null, muted: false, f: data.fastApp },
+          // 036: «Eventos» solo cuando hubo leads o ventas de un evento.
+          ...(data.evento.leads > 0 || data.evento.won > 0
+            ? [{ key: "evento", origin: "evento", title: LEAD_ORIGIN_LABEL.evento, subtitle: null, muted: false, f: data.evento }]
+            : []),
         ]
       : []),
     { key: "unidentified", origin: "unidentified", title: NO_ORIGIN_LABEL, subtitle: null, muted: true, f: data.unidentified },
@@ -954,13 +958,13 @@ function HowCounted({ tz, external }: { tz: string; external: boolean }) {
     [
       "Leads",
       external
-        ? "contactos que en el rango escribieron o llegaron como lead del formulario o de FastApp. Leads nuevos: los de un contacto que se creó en el rango."
+        ? "contactos que en el rango escribieron o llegaron como lead del formulario, de FastApp o de un evento. Leads nuevos: los de un contacto que se creó en el rango."
         : "contactos que escribieron en el rango. Leads nuevos: los de un contacto que se creó en el rango.",
     ],
     [
       "Por origen",
       external
-        ? "por dónde llegó cada lead la primera vez: su primer anuncio o su primer registro del formulario o de FastApp, lo que haya sido antes. Un cliente que llegó por un anuncio y luego dejó sus datos en el formulario sigue contando en el anuncio. Contactados: recibieron cualquier mensaje (asesor, IA o plantilla) después de su primer mensaje o registro del rango. Las ventas se cuelgan del origen del lead."
+        ? "por dónde llegó cada lead la primera vez: su primer anuncio o su primer registro del formulario, de FastApp o de un evento, lo que haya sido antes. Un cliente que llegó por un anuncio y luego dejó sus datos en el formulario sigue contando en el anuncio. Contactados: recibieron cualquier mensaje (asesor, IA o plantilla) después de su primer mensaje o registro del rango. Las ventas se cuelgan del origen del lead."
         : "por el primer anuncio que trajo a cada lead. Contactados: recibieron cualquier mensaje (asesor, IA o plantilla) después de su primer mensaje del rango. Las ventas se cuelgan del origen del lead.",
     ],
     [

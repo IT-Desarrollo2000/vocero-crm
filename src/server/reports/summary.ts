@@ -175,7 +175,7 @@ function firstCardCte(p: SummaryReportParams): SQL {
 
 /**
  * Origen del primer toque histórico, sobre `fa` y `fc` ya unidos: `'ad'`, la
- * clave de la tarjeta (`'website'` | `'fast_app'`) o NULL. Empate → anuncio.
+ * clave de la tarjeta (`'website'` | `'fast_app'` | `'evento'`) o NULL. Empate → anuncio.
  */
 const ORIGIN_KIND = sql`(case
     when fa.attribution_id is not null
@@ -828,6 +828,7 @@ export function shapeSummaryByOrigin(
   const cards: Record<CardOrigin, SummaryOriginFiguresDto> = {
     website: emptyOriginFigures(currency),
     fast_app: emptyOriginFigures(currency),
+    evento: emptyOriginFigures(currency),
   };
   const totals = emptyOriginFigures(currency);
   const ads = new Map<string, SummaryAdOriginRowDto>();
@@ -889,12 +890,16 @@ export function shapeSummaryByOrigin(
     total: all.length,
     website: sorted(cards.website),
     fastApp: sorted(cards.fast_app),
+    evento: sorted(cards.evento),
     unidentified: sorted(unidentified),
     totals: sorted(totals),
   };
 }
 
-/** 021b — Siempre las dos filas (Sitio web, FastApp), también en cero. */
+/**
+ * 021b — Siempre las dos filas (Sitio web, FastApp), también en cero. 036:
+ * «Eventos» solo si llegó alguno en el rango.
+ */
 export function shapeExternalLeads(rows: Row[]): SummaryExternalLeadsDto {
   return {
     rows: CARD_ORIGINS.map((origin): SummaryExternalOriginDto => {
@@ -914,7 +919,7 @@ export function shapeExternalLeads(rows: Row[]): SummaryExternalLeadsDto {
           p90Seconds: contacted ? numOrNull(r.p90_s) : null,
         },
       };
-    }),
+    }).filter((r) => r.origin !== "evento" || r.received > 0),
   };
 }
 

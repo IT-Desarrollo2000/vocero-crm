@@ -2146,9 +2146,10 @@ async function reporteAnunciosChecks() {
   );
   ok(
     // 011: + «Sitio web» y «Promotor» (leads externos), antes de «Otro».
-    "por fuente: las ocho fuentes en su orden",
+    // 036: + «Evento» (importación del Excel de un evento).
+    "por fuente: las nueve fuentes en su orden",
     JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value)) ===
-      JSON.stringify(["anuncio", "organico", "referido", "conocido", "web", "promotor", "otro", "desconocida"]),
+      JSON.stringify(["anuncio", "organico", "referido", "conocido", "web", "promotor", "evento", "otro", "desconocida"]),
     JSON.stringify(base.json?.bySource?.data?.rows?.map((r) => r.value))
   );
 
@@ -2450,7 +2451,9 @@ async function reporteAnunciosVendedorChecks() {
 /* ============================================================
  * 011 — Leads externos (tests/e2e/us-leads-externos.md). Lo esencial con la
  * bandera en cualquier posición; el recorrido completo (UI, alerta, métricas,
- * agente, rotación, 429) vive en scripts/e2e-leads-externos.mjs.
+ * agente, rotación, 429) vive en scripts/e2e-leads-externos.mjs. 036 (leads
+ * de evento + scripts/importar-leads.mjs, tests/e2e/us-importar-leads.md):
+ * sección p) de ese mismo script.
  * ============================================================ */
 /* ============================================================
  * 021b — Resumen y Ventas con leads externos (011): «Por origen» (anuncio /
