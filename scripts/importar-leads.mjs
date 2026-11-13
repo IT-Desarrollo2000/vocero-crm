@@ -178,7 +178,7 @@ async function main() {
       console.error(
         r.status === 401
           ? "\nLa clave no es válida (401). Revisa INTAKE_API_KEY en Ajustes → Leads externos. Se detuvo el envío."
-          : "\nEl CRM respondió 404: la entrada de leads externos (LEADS_EXTERNOS) está apagada. Se detuvo el envío."
+          : "\nEl CRM respondió 404: la entrada de leads externos (LEADS_EXTERNOS) está apagada, o la URL no es la del CRM. Se detuvo el envío."
       );
       results.push({ ...p, estado: "error", motivo: `HTTP ${r.status}`, asignacion: "" });
       for (const rest of plan.slice(plan.indexOf(p) + 1)) {

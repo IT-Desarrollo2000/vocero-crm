@@ -82,7 +82,7 @@ tarjeta en la misma conversación).
 ## Si algo falla
 
 - **401**: la clave no es la vigente (¿la rotaron?). El script se detiene.
-- **404**: `LEADS_EXTERNOS` está apagada en la instancia.
+- **404**: `LEADS_EXTERNOS` está apagada en la instancia, o `--url` no apunta al CRM.
 - **429**: el script espera y reintenta solo; si persiste, córrelo más tarde.
 - Errores de red/5xx: reintenta hasta 4 veces; las filas que fallen quedan
   como `error` en el CSV. Volver a correr el archivo completo es seguro.
