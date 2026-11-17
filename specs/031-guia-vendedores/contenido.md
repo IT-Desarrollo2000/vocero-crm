@@ -405,6 +405,44 @@ Captura: `recordarme.png`, `pendientes.png`, `avisos.png`
 
 ---
 
+## 5e. `leads-de-evento` — Leads de evento · «Me llegaron chats de un evento» *(036)*
+
+Índice: Las personas que anotaron en una expo o feria: dónde están y cómo
+escribirles.
+
+**Intro:** cuando el negocio sube la lista de un evento (una expo, una
+feria), cada persona anotada llega como un chat con la tarjeta «Lead de
+evento». A esa persona **no se le mandó ningún mensaje**: el primero se lo
+mandas tú.
+
+**Qué trae la tarjeta:** arriba dice «Lead de evento» y debajo lo que
+anotaron: «Nombre», «Evento», «Vendedor», «Autorizó WhatsApp» (Sí o No) y, si
+los escribieron, el modelo que le interesa y los comentarios.
+
+**Dónde están y cómo les escribes:**
+
+1. Si en la lista venías tú como vendedor, el chat ya está a tu nombre en
+   «Mis chats».
+2. Si no traía vendedor o el nombre no coincidió con nadie del equipo, está en
+   el «Buzón»: tómalo con «Tomar».
+3. Como el cliente todavía no te ha escrito, no puedes mandarle un mensaje
+   libre: ábrelo y mándale una **plantilla** (ver «Ya no puedo escribirle al
+   cliente»).
+4. Cuando te conteste, ya le escribes normal.
+
+**¿Y si…?**
+
+- **El chat ya era de otro compañero:** se queda con él; subir la lista no le
+  quita a nadie sus chats.
+- **Te llegó uno que no atendiste tú:** usa «Devolver al buzón» para que lo
+  tome quien corresponde.
+
+Sin captura (la tarjeta es la misma de los leads del formulario). La lista la
+sube el Propietario desde Contactos → «Importar desde Excel»; eso no va en
+esta guía (es para vendedores).
+
+---
+
 ## 6. `ia` — Trabajar con la IA · «¿Cuándo contesta la IA y cuándo yo?»
 
 Índice: Cómo tomar un chat sin que respondan los dos.

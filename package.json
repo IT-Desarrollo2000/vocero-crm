@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "import:leads": "node scripts/importar-leads.mjs",
     "seed:demo": "esbuild scripts/seed/demo.ts --bundle --platform=node --format=esm --outfile=.tmp-seed-demo.mjs --alias:@=./src --packages=external && node .tmp-seed-demo.mjs"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.3",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.469.0",
     "nanoid": "^5.0.9",
     "next": "^15.1.3",

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Importar contactos · Subir la lista</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 1060px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Reportes</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 32px 40px">
+    <div style="max-width: 880px; display: flex; flex-direction: column; gap: 22px">
+      <header style="display: flex; flex-direction: column; gap: 6px">
+        <p style="margin: 0; font-size: 13px; color: #56565e"><a href="#">Contactos</a> › Importar desde Excel</p>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">Importar contactos desde Excel</h1>
+        <p style="margin: 0; color: #3f3f46; max-width: 680px">Para listas que tu equipo llenó a mano, como en un evento. Cada contacto entra a la Bandeja con una tarjeta de lo que anotaron. <strong>No se le manda ningún mensaje</strong>: cada vendedor le escribe después con una plantilla.</p>
+      </header>
+
+      <ol aria-label="Pasos" style="list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px">
+        <li aria-current="step" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: #e8f0ee; color: #2b4a46; font-weight: 600"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 12px">1</span>Subir la lista</li>
+        <li style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #ecedf0; color: #56565e"><span style="width: 20px; height: 20px; border-radius: 50%; border: 1px solid #c9cbd1; display: flex; align-items: center; justify-content: center; font-size: 12px">2</span>Revisar</li>
+        <li style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #ecedf0; color: #56565e"><span style="width: 20px; height: 20px; border-radius: 50%; border: 1px solid #c9cbd1; display: flex; align-items: center; justify-content: center; font-size: 12px">3</span>Listo</li>
+      </ol>
+
+      <section aria-labelledby="plantilla-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2b4a46" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"></path><path d="M14 3v4h4"></path><path d="M9 12h6M9 16h6"></path></svg>
+          <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 2px">
+            <h2 id="plantilla-titulo" style="margin: 0; font-size: 16px; font-weight: 600">La plantilla para tu equipo</h2>
+            <p style="margin: 0; font-size: 13px; color: #56565e">Pásasela a tus vendedores antes del evento. Ya trae las columnas en orden, el WhatsApp en formato de texto y la lista de vendedores de tu equipo.</p>
+          </div>
+          <button type="button" style="font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 9px 14px; min-height: 44px; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"></path><path d="m7 10 5 5 5-5"></path><path d="M5 20h14"></path></svg>Descargar plantilla (.xlsx)</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12.5px">
+          <span style="padding: 4px 10px; border-radius: 6px; background: #f4f4f5; border: 1px solid #e0e1e6"><strong>Nombre</strong> · obligatorio</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #f4f4f5; border: 1px solid #e0e1e6"><strong>WhatsApp</strong> · obligatorio, 10 dígitos</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e0e1e6">Vendedor</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e0e1e6">Modelo de interés</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e0e1e6">Comentarios</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e0e1e6">Correo</span>
+          <span style="padding: 4px 10px; border-radius: 6px; background: #ffffff; border: 1px solid #e0e1e6">¿Aceptó que le escribamos por WhatsApp?</span>
+        </div>
+        <p style="margin: 0; font-size: 12.5px; color: #56565e">¿Tu lista ya existe con otro formato? También se lee: las columnas se reconocen por su nombre (Teléfono, Celular, Asesor, Notas…).</p>
+      </section>
+
+      <section aria-labelledby="subir-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px">
+        <h2 id="subir-titulo" style="margin: 0; font-size: 16px; font-weight: 600">Sube la lista</h2>
+
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; max-width: 460px">Nombre del evento
+          <input type="text" value="Expo Hogar 2026" style="font: inherit; font-size: 14px; font-weight: 400; color: #1a1a1e; border: 1px solid #e0e1e6; border-radius: 8px; padding: 9px 12px; min-height: 44px; box-sizing: border-box">
+          <span style="font-weight: 400; font-size: 12.5px; color: #56565e">Sale en la tarjeta de cada contacto. Escríbelo siempre igual: si subes la lista otra vez con este mismo nombre, no se duplica nada.</span>
+        </label>
+
+        <div style="border: 1.5px dashed #c9cbd1; border-radius: 12px; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: #fbfbfc; text-align: center">
+          <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#56565e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"></path><path d="m7 9 5-5 5 5"></path><path d="M5 20h14"></path></svg>
+          <p style="margin: 0; font-size: 14px">Arrastra el archivo aquí o</p>
+          <button type="button" style="font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 9px 14px; min-height: 44px">Elegir archivo</button>
+          <p style="margin: 0; font-size: 12.5px; color: #56565e">Excel (.xlsx) o .csv · hasta 2,000 renglones · se lee la primera hoja</p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border: 1px solid #d8e8dd; background: #eff7f1; border-radius: 10px; padding: 10px 14px">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3f6b52" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"></path><path d="M14 3v4h4"></path><path d="m9 14 2 2 4-4"></path></svg>
+          <span style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 1px"><strong style="font-size: 13.5px">lista-expo-hogar.xlsx</strong><span style="font-size: 12.5px; color: #3f6b52">124 renglones · columnas: Nombre, WhatsApp, Vendedor, Modelo de interés, Comentarios</span></span>
+          <button type="button" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 8px 12px; min-height: 40px">Cambiar archivo</button>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap">
+          <a href="#" style="font-size: 13.5px; padding: 11px 14px; min-height: 44px; box-sizing: border-box; text-decoration: none; color: #56565e">Cancelar</a>
+          <button type="button" style="font: inherit; font-size: 14px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 10px 18px; min-height: 44px">Revisar la lista</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":1060}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

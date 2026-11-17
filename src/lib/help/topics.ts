@@ -506,6 +506,43 @@ export const HELP_TOPICS: HelpTopic[] = [
     captura: ["recordarme.png", "pendientes.png", "avisos.png"],
   },
   {
+    // 036 — Leads de evento: el Propietario importa la lista (Contactos →
+    // Importar desde Excel); aquí, solo lo que ve y hace el vendedor.
+    id: "leads-de-evento",
+    antetitulo: "Leads de evento",
+    titulo: "Me llegaron chats de un evento",
+    resumen: "Las personas que anotaron en una expo o feria: dónde están y cómo escribirles.",
+    intro:
+      "Cuando el negocio sube la lista de un evento (una expo, una feria), cada persona anotada llega como un chat con la tarjeta «Lead de evento». A esa persona **no se le mandó ningún mensaje**: el primero se lo mandas tú.",
+    bloques: [
+      {
+        tipo: "parrafo",
+        titulo: "Qué trae la tarjeta",
+        texto:
+          "Arriba dice «Lead de evento» y debajo lo que anotaron: «Nombre», «Evento», «Vendedor», «Autorizó WhatsApp» (Sí o No) y, si los escribieron, el modelo que le interesa y los comentarios.",
+      },
+      {
+        tipo: "pasos",
+        titulo: "Dónde están y cómo les escribes",
+        items: [
+          "Si en la lista venías tú como vendedor, el chat ya está a tu nombre en «Mis chats».",
+          "Si no traía vendedor o el nombre no coincidió con nadie del equipo, está en el «Buzón»: tómalo con «Tomar».",
+          "Como el cliente todavía no te ha escrito, no puedes mandarle un mensaje libre: ábrelo y mándale una **plantilla** (ver «Ya no puedo escribirle al cliente»).",
+          "Cuando te conteste, ya le escribes normal.",
+        ],
+      },
+      {
+        tipo: "lista",
+        tono: "siNo",
+        titulo: "¿Y si…?",
+        items: [
+          "**El chat ya era de otro compañero:** se queda con él; subir la lista no le quita a nadie sus chats.",
+          "**Te llegó uno que no atendiste tú:** usa «Devolver al buzón» para que lo tome quien corresponde.",
+        ],
+      },
+    ],
+  },
+  {
     id: "ia",
     antetitulo: "Trabajar con la IA",
     titulo: "¿Cuándo contesta la IA y cuándo yo?",

@@ -25,12 +25,13 @@ import { LEAD_INTAKE_TYPE, parseLeadCard } from "@/lib/lead-intake";
 import { bubbleTime, formatBytes, mediaLabel } from "./helpers";
 
 /**
- * 011 — Tarjeta de un lead externo (formulario web / FastApp). No es un
+ * 011 — Tarjeta de un lead externo (formulario web / FastApp / evento). No es un
  * mensaje del cliente en el chat: se pinta como ficha con su origen arriba.
  */
 function LeadIntakeCard({ text }: { text: string | null }) {
   const card = parseLeadCard(text);
-  const icon = card.origin === "fast_app" ? "🧑‍💼" : "🌐";
+  const icon =
+    card.origin === "fast_app" ? "🧑‍💼" : card.origin === "evento" ? "🎪" : "🌐";
   return (
     <span className="block min-w-[220px]" data-testid="lead-intake-card">
       <span className="mb-1.5 flex items-center gap-1.5 border-b pb-1.5 text-[12.5px] font-semibold text-text-2">

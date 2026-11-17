@@ -17,14 +17,25 @@ import {
 
 type Intake = {
   keyLast4: string;
-  lastReceivedAt: { website?: string; fast_app?: string };
+  /** Por origen; cualquier origen puede faltar (036: `evento`). */
+  lastReceivedAt: Partial<Record<"website" | "fast_app" | "evento", string>>;
   createdAt: string;
   updatedAt: string;
 };
 
-const ORIGINS: { key: keyof Intake["lastReceivedAt"]; label: string }[] = [
+/**
+ * `onlyIfReceived`: 036 — los eventos se importan a mano de vez en cuando;
+ * su fila sale solo cuando ya se importó alguno (si no, «Aún no llega
+ * ninguno» parecería una falla).
+ */
+const ORIGINS: {
+  key: keyof Intake["lastReceivedAt"];
+  label: string;
+  onlyIfReceived?: boolean;
+}[] = [
   { key: "website", label: "Formulario del sitio web" },
   { key: "fast_app", label: "FastApp (promotores)" },
+  { key: "evento", label: "Eventos (importados de Excel)", onlyIfReceived: true },
 ];
 
 function formatWhen(iso: string | undefined): string {
@@ -218,7 +229,9 @@ export function IntakeClient() {
         </CardHeader>
         <CardContent>
           <ul className="space-y-1.5 text-sm">
-            {ORIGINS.map((o) => (
+            {ORIGINS.filter(
+              (o) => !o.onlyIfReceived || intake?.lastReceivedAt[o.key]
+            ).map((o) => (
               <li key={o.key} className="flex justify-between gap-3">
                 <span>{o.label}</span>
                 <span className="text-muted-foreground" data-testid={`intake-last-${o.key}`}>

@@ -341,6 +341,17 @@ describe("forma", () => {
     expect(dto.rows[1]).toMatchObject({ received: 3, contacted: 1, notContacted: 2, firstContact: { measured: 1, p50Seconds: 120.5, p90Seconds: 300 } });
   });
 
+  it("036 eventos: fila «Eventos» solo con recibidos; «Por origen» los separa de los anuncios", () => {
+    const dto = shapeExternalLeads([{ origin: "evento", received: 2, contacted: 1, replied: 0, p50_s: 60, p90_s: 60 }]);
+    expect(dto.rows.map((r) => r.origin)).toEqual(["website", "fast_app", "evento"]);
+    expect(dto.rows[2]).toMatchObject({ label: "Eventos", received: 2, notContacted: 1 });
+    expect(shapeExternalLeads([{ origin: "evento", received: 0 }]).rows.map((r) => r.origin)).toEqual(["website", "fast_app"]);
+    const by = shapeSummaryByOrigin([lead({ origin: "evento", leads: 3, contacted: 1 })], [sale({ origin: "evento" })], "MXN");
+    expect(by.evento).toMatchObject({ leads: 3, contacted: 1, won: 1 });
+    expect(by.unidentified.leads).toBe(0);
+    expect(by.rows).toEqual([]);
+  });
+
   it("por canal: WhatsApp siempre, orden fijo, canales desconocidos fuera", () => {
     expect(shapeSummaryByChannel([]).rows).toEqual([
       { channel: "whatsapp", persons: 0, inbound: 0, answered: 0, attendedByAdvisor: 0 },

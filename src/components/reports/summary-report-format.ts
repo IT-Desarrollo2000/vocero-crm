@@ -51,7 +51,12 @@ export function showExternalOrigins(report: SummaryReportDto): boolean {
   const o = report.byOrigin.ok ? report.byOrigin.data : null;
   const has = (f: SummaryOriginFiguresDto | undefined) => !!f && (f.leads > 0 || f.won > 0);
   const ext = report.external.ok ? report.external.data.rows : [];
-  return has(o?.website) || has(o?.fastApp) || ext.some((r) => r.received > 0);
+  return (
+    has(o?.website) ||
+    has(o?.fastApp) ||
+    has(o?.evento) ||
+    ext.some((r) => r.received > 0)
+  );
 }
 
 /** «8 de 10 · antes 70 %»: una tasa se compara con la tasa, nunca en «+25 %». */
@@ -156,18 +161,25 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
   const att = report.attention.ok ? report.attention.data : null;
 
   if (report.byOrigin.ok && report.byOrigin.data.totals.leads > 0) {
-    // Los anuncios = todo lo que no es sitio web, FastApp ni sin origen (las
+    // Los anuncios = todo lo que no es sitio web, FastApp, evento ni sin origen (las
     // filas de anuncio vienen cortadas en 50; `totals` no).
     const o = report.byOrigin.data;
     const total = o.totals.leads;
-    const fromAds = Math.max(0, total - o.website.leads - o.fastApp.leads - o.unidentified.leads);
+    const fromAds = Math.max(
+      0,
+      total - o.website.leads - o.fastApp.leads - o.evento.leads - o.unidentified.leads
+    );
     const ext = [
       o.website.leads > 0 ? `${formatCount(o.website.leads)} por el sitio web` : null,
       o.fastApp.leads > 0 ? `${formatCount(o.fastApp.leads)} por FastApp` : null,
-    ].filter(Boolean);
+      o.evento.leads > 0 ? `${formatCount(o.evento.leads)} de eventos` : null,
+    ].filter((x): x is string => !!x);
+    // «a y b» · «a, b y c»
+    const extText =
+      ext.length > 1 ? `${ext.slice(0, -1).join(", ")} y ${ext[ext.length - 1]}` : (ext[0] ?? "");
     out.push({
       key: "ads",
-      text: `${formatPercent(ratio(fromAds, total))} de los leads del rango llegaron por un anuncio (${formatCount(fromAds)} de ${formatCount(total)})${ext.length ? `; ${ext.join(" y ")}` : ""}.`,
+      text: `${formatPercent(ratio(fromAds, total))} de los leads del rango llegaron por un anuncio (${formatCount(fromAds)} de ${formatCount(total)})${extText ? `; ${extText}` : ""}.`,
     });
   }
 
@@ -177,7 +189,10 @@ export function summaryHighlights(report: SummaryReportDto): Highlight[] {
     if (pending > 0) {
       const parts = rows
         .filter((r) => r.notContacted > 0)
-        .map((r) => `${formatCount(r.notContacted)} ${r.origin === "website" ? "del sitio web" : "de FastApp"}`);
+        .map(
+          (r) =>
+            `${formatCount(r.notContacted)} ${r.origin === "website" ? "del sitio web" : r.origin === "evento" ? "de eventos" : "de FastApp"}`
+        );
       out.push({
         key: "external",
         text: `${leadsText(pending)} del formulario y FastApp ${pending === 1 ? "sigue" : "siguen"} sin contactar (${parts.join(", ")}).`,

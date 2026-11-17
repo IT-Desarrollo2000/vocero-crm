@@ -46,7 +46,7 @@ Con `LEADS_EXTERNOS` apagada:
 ## US1 — Llega un lead y aparece en la Bandeja
 
 1. Clave incorrecta → 401 sin detalle; cuerpo no JSON / sin `lead_id` / origen
-   fuera de `website|fast_app` → 422; teléfono no mexicano reconocible → 422
+   fuera de `website|fast_app|evento` (036) → 422; teléfono no mexicano reconocible → 422
    `invalid_phone`.
 2. Lead `website` con teléfono `55 1234 5678` → **201** `{ contactId,
    conversationId, created: true }`:

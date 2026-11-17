@@ -204,6 +204,8 @@ export const contact = pgTable(
         // 011: leads externos (formulario web y promotores de FastApp).
         "web",
         "promotor",
+        // 036: leads del Excel de un evento (sin CHECK: no hay migración).
+        "evento",
       ],
     }),
     archivedAt: timestamp("archived_at"),
@@ -1588,7 +1590,7 @@ export const capiSettings = pgTable(
  * (formulario web, FastApp) a `POST /api/intake/lead`. Cifrada en reposo con
  * `lib/crypto`, igual que el token de WhatsApp; la vista solo dice sus
  * últimos 4. `last_received_at`: ISO del último lead aceptado por origen
- * (`{ website?: string, fast_app?: string }`).
+ * (`{ website?: string, fast_app?: string, evento?: string }`).
  */
 export const intakeSettings = pgTable(
   "intake_settings",

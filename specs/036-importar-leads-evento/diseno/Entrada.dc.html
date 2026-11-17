@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Contactos · botón Importar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 320px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Contactos</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 18px 24px 24px; box-sizing: border-box">
+    <header style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+      <h1 style="margin: 0; font-size: 18px; font-weight: 600">Contactos</h1>
+      <button type="button" style="font: inherit; font-weight: 600; font-size: 13px; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 7px 12px; min-height: 36px">Nuevo contacto</button>
+      <a href="#" style="font-weight: 600; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; color: #1a1a1e; border-radius: 8px; padding: 7px 12px; min-height: 36px; box-sizing: border-box; text-decoration: none; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"></path><path d="m7 9 5-5 5 5"></path><path d="M5 20h14"></path></svg>Importar desde Excel</a>
+      <span style="flex: 1 1 auto"></span>
+      <label style="display: flex; align-items: center; gap: 8px; border: 1px solid #e0e1e6; border-radius: 8px; padding: 7px 10px; color: #56565e; font-size: 13px; min-width: 220px">
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <input type="search" aria-label="Buscar contacto" placeholder="Buscar por nombre o teléfono…" style="font: inherit; border: 0; outline: none; flex: 1 1 auto; min-width: 0; background: transparent">
+      </label>
+    </header>
+    <div style="border: 1px solid #ecedf0; border-radius: 10px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr; gap: 12px; padding: 9px 14px; background: #f8f8f9; font-size: 12px; font-weight: 600; color: #56565e"><span>Nombre</span><span>WhatsApp</span><span>Fuente</span><span>Etapa</span></div>
+      <div style="display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr; gap: 12px; padding: 10px 14px; border-top: 1px solid #ecedf0; font-size: 13.5px"><span>Laura Méndez</span><span style="color: #56565e">55 1234 0001</span><span><span style="padding: 2px 8px; border-radius: 999px; background: #f3f7fc; border: 1px solid #d7e3f4; color: #3c5a82; font-size: 12px">Evento</span></span><span style="color: #56565e">Nuevo</span></div>
+      <div style="display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr; gap: 12px; padding: 10px 14px; border-top: 1px solid #ecedf0; font-size: 13.5px"><span>Ricardo Salas</span><span style="color: #56565e">55 1234 0002</span><span><span style="padding: 2px 8px; border-radius: 999px; background: #f4f4f5; border: 1px solid #e0e1e6; color: #56565e; font-size: 12px">Anuncio</span></span><span style="color: #56565e">Interesado</span></div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":320}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>
