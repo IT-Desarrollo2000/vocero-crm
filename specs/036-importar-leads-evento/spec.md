@@ -1,6 +1,7 @@
 # 036 — Importar leads de evento
 
-**Estado**: implementado en la rama `036-importar-leads-evento` (sin publicar).
+**Estado**: fase 1 (script) y fase 2 (pantalla en el CRM) implementadas en la
+rama `036-importar-leads-evento` (sin publicar).
 **Depende de**: 011 (Leads externos: `POST /api/intake/lead`, `X-API-Key`,
 bandera `LEADS_EXTERNOS`).
 
@@ -70,9 +71,8 @@ enlace). También se acepta `.csv` (UTF-8, `,` o `;`).
   (igual que la 011).
 - **`lead_id` determinista**: UUID v5 (SHA-1, namespace fijo del script) de
   `evento normalizado|teléfono`. Re-importar el archivo no duplica tarjetas.
-- **Sin pantalla nueva.** Fase 2 (si se pide): importar desde Ajustes → Leads
-  externos, con lienzo en Claude Design y aprobación del dueño antes de
-  codificar.
+- **Fase 1 sin pantalla.** La pantalla llegó en la fase 2 (abajo), en
+  Contactos y no en Ajustes → Leads externos.
 - **Logs**: solo `lead_id`, origen, últimos 4 del teléfono y el resultado de
   la asignación; nunca el nombre del vendedor ni el payload.
 - **Ritmo**: el endpoint tiene un cupo GLOBAL de 120 peticiones autenticadas
@@ -102,3 +102,86 @@ INTAKE_API_KEY=… node scripts/importar-leads.mjs "Expo.xlsx" --evento "Expo Au
   `tests/unit/summary-report.test.ts` y `reports-ui-021.test.ts` (Eventos).
 - E2E: sección `p)` de `scripts/e2e-leads-externos.mjs` (y el chequeo del
   importador con la bandera apagada). Guion: `tests/e2e/us-importar-leads.md`.
+
+## Fase 2 — Importar desde el CRM
+
+**Diseño aprobado** (Claude Design): https://claude.ai/artifact/J3FJ7zmwDUXkwtUQSzYg77
+· copias en [diseno/](diseno/): `Entrada`, `Main` (Subir la lista),
+`Revisar`, `Resultado` (`.dc.html`). Capturas de la app en
+[capturas/](capturas/).
+
+Contactos → «Importar desde Excel» → `/contacts/importar`: **1 Subir la lista**
+(plantilla + nombre del evento + archivo) → **2 Revisar** (no escribe nada) →
+**3 Listo** (números reales y resultado por renglón).
+
+### Decisiones
+
+- **Solo Propietario.** El botón solo se pinta para el Propietario; la página
+  vive en `(app)/(owner)/contacts/importar` (`requireOwnerPage()`: 404 al
+  Vendedor) y las 4 rutas son `withAuth(…, { role: "owner" })` (prefijo
+  `/api/contacts/import` reservado en `OWNER_ROUTE_PREFIXES`).
+- **Sin bandera.** Es CRM base: no pasa por `requireIntakeKey` (ni la bandera
+  `LEADS_EXTERNOS`, ni la clave del ERP, ni su cupo global). Funciona con la
+  bandera apagada (probado en E2E con las dos).
+- **Mismo camino que el script.** Un solo lector
+  (`src/lib/contact-import/core.mjs` + tipos en `core.d.mts`; `.mjs` para que
+  el script lo use con `node` a secas): encabezados por alias, celdas,
+  HYPERLINK wa.me, CSV, `planImportRows`, `leadPayload` y el `lead_id` v5.
+  El servidor normaliza con `normalizeIntakePhone`; el script conserva su copia
+  (un test las compara). Cada renglón va por `intakeLeadSchema` +
+  `ingestExternalLead` → mismo `lead_id`: lo importado por la pantalla y por
+  el script se reconoce como «ya importado» en los dos sentidos.
+- **Vista previa sin escrituras.** `POST /api/contacts/import/preview`
+  (multipart): 5 MB, 2,000 renglones con datos (los renglones con formato pero
+  vacíos no cuentan: la plantilla trae 2,000), primera hoja con datos, tipo por
+  firma (zip) y no solo por extensión. «Ya estaban»: UNA consulta por
+  `wa_identity` o `phone` en el canal whatsapp (la misma llave que
+  `getOrCreateContactByIdentity`), archivados incluidos.
+- **Vendedores:** una línea por texto distinto (normalizado como al asignar)
+  con `matchSeller`: persona / nadie se llama así / más de una persona; más
+  «Sin vendedor anotado». Solo cuenta renglones listos.
+- **Lotes de 50**, en orden, desde la pantalla (`POST /api/contacts/import`
+  acepta hasta 100). Cada renglón en su try/catch: un fallo es `error` de ese
+  renglón. Si falla un lote entero, «Reintentar lo que falta» (idempotente).
+  Tras cada lote, una consulta dice con quién quedó cada chat que no se asignó
+  a su vendedor: «ya tenía vendedor» o «Buzón».
+- **Plantilla** (`GET /api/contacts/import/template`, exceljs): Leads (7
+  columnas, encabezado congelado, WhatsApp `@` + validación de 10 en 2,000
+  renglones, Vendedor = lista por RANGO a la hoja «Equipo» — la lista en línea
+  topa en 255 caracteres —, Sí/No), Instrucciones, Equipo. Escribir otro
+  vendedor da aviso, no bloqueo (ese chat queda en el Buzón).
+- **Resultado** (`POST /api/contacts/import/result`): lo arma el servidor
+  para que exceljs no viaje al navegador (`serverExternalPackages`); exceljs
+  pasó a `dependencies`.
+- **Ayuda:** tema «Me llegaron chats de un evento» (`leads-de-evento`) para
+  vendedores, sin captura. La guía del Propietario es
+  [docs/importar-leads-evento.md](../../docs/importar-leads-evento.md).
+
+### Diferencias con el diseño aprobado
+
+- «Ver los chats del evento en la Bandeja» → **«Ver en la Bandeja»** (`/inbox`):
+  la Bandeja no filtra por evento y no se agregó ese filtro (aprobado).
+- **Estado de importación** (no estaba en el lienzo): el botón dice
+  «Importando 50 de 117…» deshabilitado; si un lote falla, aviso en rojo
+  «Se detuvo en N de M: … Lo que ya entró no se duplica al reintentar.» y el
+  botón cambia a «Reintentar lo que falta».
+- **Errores de la vista previa** en el mismo renglón del archivo elegido
+  (rojo, «Elegir otro archivo»); mientras lee, «Leyendo la lista…».
+- Tarjetas en 0 de Revisar en gris con su frase («Todos traen nombre y un
+  WhatsApp válido.», «Ningún WhatsApp se repite.»); las píldoras de filtro en
+  0 se ocultan (Todos siempre). Renglones de 50 en 50 con «Mostrar más».
+- Línea «coincide con más de una persona del equipo» para el vendedor ambiguo.
+- «Lo que sigue» solo con las líneas que aplican; además «N ya tenían
+  vendedor: se quedaron con esa persona», «N ya se habían importado con este
+  evento: no se duplicó nada» y los renglones con error.
+- Colores con los tokens de la app (acento de la marca), no los hex del
+  lienzo.
+
+### Pruebas (fase 2)
+
+- Unit: `tests/unit/importar-contactos-036b.test.ts` (lector, vista previa,
+  archivo, plantilla y resultado re-leídos con exceljs, contrato del lote,
+  `importRows` = cuerpo del script) · `role-matrix.test.ts` (rutas y página).
+- E2E: `scripts/e2e-importar-contactos.mjs` (guion US5 de
+  [tests/e2e/us-importar-leads.md](../../tests/e2e/us-importar-leads.md)) y la
+  sección «036 fase 2» de `scripts/e2e-selftest.mjs`.

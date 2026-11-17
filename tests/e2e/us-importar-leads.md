@@ -48,3 +48,35 @@ inválido, una repetida y una columna desconocida:
    nuevos, 3 duplicados, una sola tarjeta por contacto.
 4. Con una clave mala se detiene en la primera fila (401) y sale ≠ 0.
 5. Con la bandera apagada se detiene (404, «LEADS_EXTERNOS») y sale ≠ 0.
+
+## US5 — Importar desde el CRM (036 fase 2)
+
+Automatizado en `scripts/e2e-importar-contactos.mjs` (con la app levantada con
+`LEADS_EXTERNOS` encendida y apagada: la pantalla no depende de la bandera) y,
+por API, en la sección «036 fase 2» de `scripts/e2e-selftest.mjs`. Capturas en
+`specs/036-importar-leads-evento/capturas/`.
+
+1. Propietario: en Contactos, «Importar desde Excel» junto a «Nuevo
+   contacto» → `/contacts/importar` (paso 1 «Subir la lista»).
+2. «Descargar plantilla (.xlsx)»: hojas Leads / Instrucciones / Equipo; los 7
+   encabezados en orden; WhatsApp como texto con validación de 10; la lista de
+   Vendedor apunta a la hoja Equipo con los nombres del equipo de hoy; Sí/No.
+3. Un CSV sin columnas de nombre/WhatsApp → error en línea que dice cuáles
+   necesita; un .txt → «Solo se leen archivos de Excel (.xlsx) o .csv.»;
+   «Revisar la lista» deshabilitado.
+4. Fixture (texto, número, HYPERLINK wa.me/521…, uno con 9 dígitos, uno
+   repetido, vendedor desconocido, vendedor ambiguo, uno que ya es contacto,
+   uno sin vendedor): «9 renglones · columnas: …»; Revisar: 7 listos («1 de
+   ellos ya está en tus contactos»), 1 con problema, 1 repetido; líneas de
+   vendedor (con nombre / nadie se llama así / más de una persona / sin
+   vendedor anotado); filtros Con problema · Repetidos · Todos. **Cero
+   escrituras** (contactos, mensajes, conversaciones, leads contados en la BD).
+5. «Importar 7 contactos» → «Listo: 7 contactos de «…»»: 6 nuevos, 1 ya
+   estaba, 3 asignados, 4 en el Buzón; tarjeta «Lead de evento» con el
+   `lead_id` determinista del script; los asignados son de su vendedor y la
+   vendedora los ve en «Mis chats»; el resultado .xlsx trae los 9 renglones.
+6. La misma lista otra vez, con un lote que falla → «Se detuvo en 0 de 7…» y
+   «Reintentar lo que falta» → Listo con 0 nuevos y «7 ya se habían
+   importado»; ninguna tarjeta nueva.
+7. Vendedora: sin el botón; `/contacts/importar` → 404; las 4 rutas de
+   `/api/contacts/import` → 403; sin sesión → 401.

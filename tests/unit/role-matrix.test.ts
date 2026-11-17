@@ -183,7 +183,8 @@ describe("guardarraíl: matriz de permisos por rol", () => {
  * misma (alternativa del plan).
  */
 const OWNER_PAGES: { base: string; segment: string }[] = [
-  ...["agent", "lab"].map((segment) => ({ base: APP, segment })),
+  // 036 fase 2: /contacts/importar vive en (owner)/contacts/importar.
+  ...["agent", "lab", "contacts/importar"].map((segment) => ({ base: APP, segment })),
   ...["whatsapp", "instagram", "messenger", "branding", "templates", "team", "calendar", "ads"].map(
     (segment) => ({ base: path.join(APP, "settings"), segment })
   ),

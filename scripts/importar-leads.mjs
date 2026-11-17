@@ -37,9 +37,11 @@ import {
   cellText,
   csvLine,
   findHeaderRow,
+  firstSheetWithData,
   parseCsv,
   planRows,
   resultPathFor,
+  worksheetRows,
 } from "./lib/importar-leads-core.mjs";
 
 const PAUSE_MS = 600;
@@ -91,19 +93,12 @@ async function readRows(file, hoja) {
   }
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(file);
-  const ws = hoja ? wb.getWorksheet(hoja) : wb.worksheets.find((w) => w.actualRowCount > 0);
+  const ws = hoja ? wb.getWorksheet(hoja) : firstSheetWithData(wb);
   if (!ws) {
     const names = wb.worksheets.map((w) => w.name).join(", ");
     usage(hoja ? `no existe la hoja «${hoja}» (hay: ${names})` : "el libro no tiene hojas con datos");
   }
-  const rows = [];
-  ws.eachRow({ includeEmpty: true }, (row, n) => {
-    // row.values es 1-based (índice 0 vacío).
-    const vals = Array.isArray(row.values) ? row.values.slice(1) : [];
-    rows[n - 1] = vals;
-  });
-  for (let i = 0; i < rows.length; i++) rows[i] ??= [];
-  return rows;
+  return worksheetRows(ws);
 }
 
 async function postLead(base, key, payload) {

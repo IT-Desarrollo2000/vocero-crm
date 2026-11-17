@@ -1204,6 +1204,8 @@ async function main() {
   await pendientesChecks();
   // 035 B: AL FINAL — da de alta una Vendedora; sus avisos son solo suyos.
   await avisosChecks();
+  // 036 fase 2: AL FINAL — importa una lista chica (contactos y chats nuevos, sin asignar).
+  await importarContactosChecks();
 
   console.log(`\n=====${checks - failures}/${checks} checks OK, ${failures} fallos =====`);
   process.exit(failures > 0 ? 1 : 0);
@@ -4283,6 +4285,70 @@ async function avisosChecks() {
   ok("035 B: marcar todo como leído → unread 0", todo.res.ok && cero.json?.unread === 0, JSON.stringify(cero.json?.unread));
   const malo = await api("/api/dev/notifications/tick", { method: "POST", body: JSON.stringify({ now: "no-es-fecha" }) });
   ok("035 B: tick con fecha ilegible → 422", malo.res.status === 422, String(malo.res.status));
+}
+
+/* ============================================================
+ * 036 fase 2 — Importar contactos desde Excel dentro del CRM (por API; el
+ * recorrido con navegador —las 4 pantallas, plantilla re-leída, cero
+ * escrituras en la vista previa contadas en la BD, reintento de un lote,
+ * Vendedor 403/404— es scripts/e2e-importar-contactos.mjs). Aquí: plantilla,
+ * vista previa con sus números, importar, re-importar sin duplicar. Sin
+ * bandera: corre igual con LEADS_EXTERNOS encendida o apagada.
+ * ============================================================ */
+async function importarContactosChecks() {
+  console.log("\n== 036 fase 2: Importar contactos desde Excel ==");
+  const SUF = String(Date.now()).slice(-6);
+  const EVENT = `Expo selftest ${SUF}`;
+  const tpl = await fetch(`${BASE}/api/contacts/import/template`, { headers: { cookie } });
+  ok(
+    "036b: GET plantilla → .xlsx descargable",
+    tpl.status === 200 &&
+      (tpl.headers.get("content-type") ?? "").includes("spreadsheetml") &&
+      (tpl.headers.get("content-disposition") ?? "").includes("plantilla-importar-contactos.xlsx"),
+    String(tpl.status)
+  );
+  const t = (n) => `58${SUF}${String(n).padStart(2, "0")}`;
+  const csv = ["Nombre,WhatsApp,Vendedor", `Uno ${SUF},${t(1)},`, `Dos ${SUF},${t(2)},Nadie${SUF}`, `Tres ${SUF},55 1234 567,`, `Repe ${SUF},+52 ${t(1)},`].join("\n");
+  const total0 = (await api("/api/contacts?limit=1")).json?.total;
+  const form = new FormData();
+  form.set("file", new Blob([csv]), "lista.csv");
+  const pv = await fetch(`${BASE}/api/contacts/import/preview`, { method: "POST", headers: { cookie, origin: BASE }, body: form });
+  const p = await pv.json().catch(() => null);
+  ok(
+    "036b: vista previa → 2 listos, 1 con problema, 1 repetido; «Nadie» sin coincidencia",
+    pv.status === 200 &&
+      p?.summary?.ready === 2 &&
+      p?.summary?.invalid === 1 &&
+      p?.summary?.repeated === 1 &&
+      p?.sellers?.[0]?.kind === "none" &&
+      p?.noSeller === 1,
+    `${pv.status} ${JSON.stringify(p?.summary)}`
+  );
+  const total1 = (await api("/api/contacts?limit=1")).json?.total;
+  ok("036b: la vista previa no crea contactos", total0 === total1, `${total0} → ${total1}`);
+  const rows = (p?.rows ?? []).filter((r) => r.status === "ready").map((r) => ({ rowNumber: r.rowNumber, name: r.name, phone: r.phone, seller: r.seller }));
+  const imp = await api("/api/contacts/import", { method: "POST", body: JSON.stringify({ event: EVENT, rows }) });
+  const res = imp.json?.results ?? [];
+  ok(
+    "036b: importar → 2 contactos nuevos, en el Buzón",
+    imp.res.status === 200 && res.length === 2 && res.every((r) => r.outcome === "created" && r.assignee === null),
+    JSON.stringify(imp.json)
+  );
+  const again = await api("/api/contacts/import", { method: "POST", body: JSON.stringify({ event: EVENT, rows }) });
+  ok(
+    "036b: la misma lista otra vez → «duplicate», sin nada nuevo",
+    again.res.status === 200 && (again.json?.results ?? []).every((r) => r.outcome === "duplicate"),
+    JSON.stringify(again.json)
+  );
+  const conv = (await api(`/api/conversations?q=${t(1)}`)).json?.conversations?.[0];
+  const msgs = (await api(`/api/conversations/${conv?.id}/messages`)).json?.messages ?? [];
+  ok(
+    "036b: una sola tarjeta «Lead de evento» con el evento",
+    msgs.filter((m) => m.type === "lead_intake").length === 1 && (msgs[0]?.text ?? "").startsWith("Lead de evento\n") && msgs[0].text.includes(`Evento: ${EVENT}`),
+    JSON.stringify(msgs.map((m) => m.text?.slice(0, 40)))
+  );
+  const bad = await api("/api/contacts/import", { method: "POST", body: JSON.stringify({ event: "", rows }) });
+  ok("036b: sin nombre de evento → 422", bad.res.status === 422, String(bad.res.status));
 }
 
 async function bandejaAlcanceChecks() {

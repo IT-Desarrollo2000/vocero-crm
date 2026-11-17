@@ -92,6 +92,12 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
   "POST /api/contacts/[id]/start-conversation": "any*",
   // 04: bitácora de la ficha; hereda la visibilidad del contacto (ambos roles).
   "GET /api/contacts/[id]/ficha/history": "any",
+  // 036 fase 2: importar desde Excel (plantilla, vista previa sin escribir,
+  // lotes y resultado). Solo Propietario (prefijo reservado abajo).
+  "GET /api/contacts/import/template": "owner",
+  "POST /api/contacts/import/preview": "owner",
+  "POST /api/contacts/import": "owner",
+  "POST /api/contacts/import/result": "owner",
 
   // ── Pipeline ───────────────────────────────────────────────────────────
   "GET /api/pipeline/board": "any",
@@ -318,4 +324,5 @@ export const ROUTE_POLICY: Readonly<Record<string, RoutePolicy>> = {
 export const OWNER_ROUTE_PREFIXES: readonly string[] = [
   "/api/reports",
   "/api/metrics",
+  "/api/contacts/import",
 ];

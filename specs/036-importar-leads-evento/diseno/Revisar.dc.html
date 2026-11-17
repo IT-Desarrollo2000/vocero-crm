@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Importar contactos · Revisar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="min-height: 1240px; display: flex; flex-wrap: wrap; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; background: #ffffff; font-size: 14px">
+
+  <nav aria-label="Menú principal" style="flex: 0 0 196px; box-sizing: border-box; background: #f8f8f9; border-right: 1px solid #ecedf0; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px">
+      <div style="width: 28px; height: 28px; border-radius: 7px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">M</div>
+      <span style="font-weight: 600">Mueblería Demo</span>
+    </div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Bandeja</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Seguimiento</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Citas</a>
+    <a href="#" aria-current="page" style="padding: 9px 10px; border-radius: 7px; background: #e8f0ee; color: #2b4a46; text-decoration: none; font-weight: 600">Contactos</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Catálogo</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Reportes</a>
+    <div style="flex: 1 1 auto"></div>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ayuda</a>
+    <a href="#" style="padding: 9px 10px; border-radius: 7px; color: #56565e; text-decoration: none">Ajustes</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 32px 40px">
+    <div style="max-width: 960px; display: flex; flex-direction: column; gap: 20px">
+      <header style="display: flex; flex-direction: column; gap: 6px">
+        <p style="margin: 0; font-size: 13px; color: #56565e"><a href="#">Contactos</a> › Importar desde Excel</p>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">Revisa la lista antes de importar</h1>
+        <p style="margin: 0; color: #3f3f46">lista-expo-hogar.xlsx · evento <strong>Expo Hogar 2026</strong> · 124 renglones. Todavía no se ha guardado nada.</p>
+      </header>
+
+      <ol aria-label="Pasos" style="list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px">
+        <li style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #ecedf0; color: #56565e"><span style="width: 20px; height: 20px; border-radius: 50%; background: #e8f0ee; color: #2b4a46; display: flex; align-items: center; justify-content: center; font-size: 12px">✓</span>Subir la lista</li>
+        <li aria-current="step" style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: #e8f0ee; color: #2b4a46; font-weight: 600"><span style="width: 20px; height: 20px; border-radius: 50%; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 12px">2</span>Revisar</li>
+        <li style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #ecedf0; color: #56565e"><span style="width: 20px; height: 20px; border-radius: 50%; border: 1px solid #c9cbd1; display: flex; align-items: center; justify-content: center; font-size: 12px">3</span>Listo</li>
+      </ol>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px">
+        <div style="border: 1px solid #d8e8dd; background: #eff7f1; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 24px; font-weight: 700; color: #3f6b52">117</span>
+          <span style="font-size: 13px; color: #3f6b52; font-weight: 600">listos para importar</span>
+          <span style="font-size: 12.5px; color: #3f6b52">8 de ellos ya están en tus contactos: se les agrega la tarjeta del evento y su nombre no cambia.</span>
+        </div>
+        <div style="border: 1px solid #ecd4d2; background: #faf1f0; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 24px; font-weight: 700; color: #a2504c">5</span>
+          <span style="font-size: 13px; color: #a2504c; font-weight: 600">con problema</span>
+          <span style="font-size: 12.5px; color: #a2504c">No se importan. Corrígelos en el Excel y vuelve a subirlo.</span>
+        </div>
+        <div style="border: 1px solid #ece2cf; background: #faf7f0; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 24px; font-weight: 700; color: #8a6d3b">2</span>
+          <span style="font-size: 13px; color: #8a6d3b; font-weight: 600">repetidos en la lista</span>
+          <span style="font-size: 12.5px; color: #8a6d3b">Mismo WhatsApp dos veces: se importa solo el primero.</span>
+        </div>
+      </div>
+
+      <section aria-labelledby="vend-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h2 id="vend-titulo" style="margin: 0; font-size: 16px; font-weight: 600">A quién se le asigna cada chat</h2>
+          <p style="margin: 0; font-size: 13px; color: #56565e">Según la columna Vendedor. Un chat que ya tiene vendedor no se le quita.</p>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid #ecedf0; border-radius: 10px">
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid #ecedf0"><span style="flex: 1 1 200px">«Mariana» → <strong>Mariana López</strong></span><span style="font-size: 13px; color: #56565e">41 chats</span></li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid #ecedf0"><span style="flex: 1 1 200px">«Jorge Ruiz» → <strong>Jorge Ruiz</strong></span><span style="font-size: 13px; color: #56565e">38 chats</span></li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid #ecedf0"><span style="flex: 1 1 200px">«ana torres» → <strong>Ana Torres</strong></span><span style="font-size: 13px; color: #56565e">29 chats</span></li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid #ecedf0; background: #faf7f0"><span style="flex: 1 1 200px">«Lupita» → <strong style="color: #8a6d3b">nadie del equipo se llama así</strong></span><span style="font-size: 13px; color: #8a6d3b">6 chats al Buzón, sin asignar</span></li>
+          <li style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 14px"><span style="flex: 1 1 200px; color: #56565e">Sin vendedor anotado</span><span style="font-size: 13px; color: #56565e">3 chats al Buzón, sin asignar</span></li>
+        </ul>
+        <p style="margin: 0; font-size: 12.5px; color: #56565e">Para asignar los de «Lupita», escribe en el Excel su nombre como está en el equipo y vuelve a subirlo: lo que ya entró no se duplica. También puedes asignarlos después desde la Bandeja.</p>
+      </section>
+
+      <section aria-labelledby="filas-titulo" style="border: 1px solid #ecedf0; border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <h2 id="filas-titulo" style="margin: 0; font-size: 16px; font-weight: 600; flex: 1 1 auto">Renglones</h2>
+          <div role="group" aria-label="Mostrar" style="display: flex; gap: 6px; flex-wrap: wrap">
+            <button type="button" aria-pressed="true" style="font: inherit; font-size: 13px; font-weight: 600; border: 1px solid #2b4a46; background: #e8f0ee; color: #2b4a46; border-radius: 999px; padding: 6px 12px; min-height: 36px">Con problema · 5</button>
+            <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px">Repetidos · 2</button>
+            <button type="button" aria-pressed="false" style="font: inherit; font-size: 13px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 999px; padding: 6px 12px; min-height: 36px">Todos · 124</button>
+          </div>
+        </div>
+        <div style="border: 1px solid #ecedf0; border-radius: 10px; overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px">
+            <thead>
+              <tr style="background: #f8f8f9; text-align: left; font-size: 12px; color: #56565e">
+                <th scope="col" style="padding: 9px 14px; font-weight: 600">Renglón</th>
+                <th scope="col" style="padding: 9px 14px; font-weight: 600">Nombre</th>
+                <th scope="col" style="padding: 9px 14px; font-weight: 600">WhatsApp</th>
+                <th scope="col" style="padding: 9px 14px; font-weight: 600">Vendedor</th>
+                <th scope="col" style="padding: 9px 14px; font-weight: 600">Qué pasa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-top: 1px solid #ecedf0"><td style="padding: 9px 14px; color: #56565e">5</td><td style="padding: 9px 14px">Daniela Ortiz</td><td style="padding: 9px 14px; color: #56565e">(vacío)</td><td style="padding: 9px 14px">Mariana</td><td style="padding: 9px 14px; color: #a2504c">Falta el WhatsApp</td></tr>
+              <tr style="border-top: 1px solid #ecedf0"><td style="padding: 9px 14px; color: #56565e">31</td><td style="padding: 9px 14px">Héctor Núñez</td><td style="padding: 9px 14px; color: #56565e">55 1234 567</td><td style="padding: 9px 14px">Jorge Ruiz</td><td style="padding: 9px 14px; color: #a2504c">Le falta un dígito (deben ser 10)</td></tr>
+              <tr style="border-top: 1px solid #ecedf0"><td style="padding: 9px 14px; color: #56565e">58</td><td style="padding: 9px 14px; color: #56565e">(vacío)</td><td style="padding: 9px 14px; color: #56565e">55 1234 0058</td><td style="padding: 9px 14px">ana torres</td><td style="padding: 9px 14px; color: #a2504c">Falta el nombre</td></tr>
+              <tr style="border-top: 1px solid #ecedf0"><td style="padding: 9px 14px; color: #56565e">77</td><td style="padding: 9px 14px">Sofía Cruz</td><td style="padding: 9px 14px; color: #56565e">sofia.cruz@correo</td><td style="padding: 9px 14px">Lupita</td><td style="padding: 9px 14px; color: #a2504c">El WhatsApp no es un número</td></tr>
+              <tr style="border-top: 1px solid #ecedf0"><td style="padding: 9px 14px; color: #56565e">102</td><td style="padding: 9px 14px">Tomás Vega</td><td style="padding: 9px 14px; color: #56565e">1 305 555 0102</td><td style="padding: 9px 14px">Mariana</td><td style="padding: 9px 14px; color: #a2504c">No es un número de México de 10 dígitos</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; border-top: 1px solid #ecedf0; padding-top: 16px">
+        <p style="margin: 0; flex: 1 1 320px; font-size: 13px; color: #56565e">No se le manda ningún mensaje a nadie. Cada vendedor verá sus chats en «Mis chats» y les escribe con una plantilla.</p>
+        <button type="button" style="font: inherit; font-size: 13.5px; border: 1px solid #e0e1e6; background: #ffffff; border-radius: 8px; padding: 10px 14px; min-height: 44px">Subir otro archivo</button>
+        <button type="button" style="font: inherit; font-size: 14px; font-weight: 600; border: 0; background: {{accent}}; color: #ffffff; border-radius: 8px; padding: 10px 18px; min-height: 44px">Importar 117 contactos</button>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":1366,"height":1240}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

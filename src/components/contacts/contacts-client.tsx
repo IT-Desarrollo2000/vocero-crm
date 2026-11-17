@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, UserPlus, X } from "lucide-react";
+import { ArrowUpFromLine, Search, UserPlus, X } from "lucide-react";
 import type { ContactDto, ContactsPageDto } from "@/lib/types";
 import { cn, formatPhone } from "@/lib/utils";
+import { isOwner } from "@/lib/roles";
 import { CHANNEL_LABEL, profileNameCaption } from "@/lib/channels";
 import { contactRowView, type RowAction, type RowTone } from "@/lib/contact-row";
 import { keepClockTogether, type CardViewer } from "@/lib/pipeline-card";
 import { ContactAvatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useViewer } from "@/components/viewer-context";
@@ -287,6 +288,13 @@ export function ContactsClient({
             <UserPlus className="mr-1.5 h-4 w-4" strokeWidth={1.8} />
             Nuevo contacto
           </Button>
+          {/* 036 fase 2: solo el Propietario importa listas (la página y la API también lo exigen). */}
+          {isOwner(me) && (
+            <Link href="/contacts/importar" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              <ArrowUpFromLine className="mr-1.5 h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
+              Importar desde Excel
+            </Link>
+          )}
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
           <div className="relative w-full sm:w-auto">

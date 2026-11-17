@@ -12,7 +12,9 @@ const nextConfig: NextConfig = {
   // symlinks que requieren permisos elevados, así que ahí se omite.
   output: process.platform === "win32" ? undefined : "standalone",
   // El paquete `postgres` usa APIs de Node que no deben empaquetarse en el bundle.
-  serverExternalPackages: ["postgres"],
+  // 036: `exceljs` (importar contactos desde Excel) tampoco: es grande, usa
+  // streams de Node y solo lo cargan las rutas de /api/contacts/import.
+  serverExternalPackages: ["postgres", "exceljs"],
   // Se congelan al construir: el binario lleva dentro de qué código salió, así
   // que no puede mentir en tiempo de ejecución. `SOURCE_COMMIT` lo inyecta
   // Coolify solo; con docker compose se pasa por `--build-arg` y si falta, la
