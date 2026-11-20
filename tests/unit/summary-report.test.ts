@@ -182,6 +182,15 @@ describe("SQL", () => {
     expect(query.params).toContain(SUMMARY_PENDING_MAX_ROWS);
   });
 
+  it("037: pendientes respetan «Marcar como atendida» (awaiting_since abierto), con tenant", () => {
+    const s = q("pendingSql").sql;
+    const pend = s.slice(s.indexOf("pend as ("), s.indexOf("\nselect pend.conversation_id"));
+    expect(pend).toMatch(/join "conversation" "pc" on "pc"\."id" = persons\.conversation_id/);
+    expect(pend).toMatch(/"pc"\."organization_id" = \$\d+ and "pc"\."awaiting_since" is not null/);
+    // Se AÑADE a la regla de siempre, no la reemplaza.
+    expect(pend).toContain("rr.created_at > li.last_in_at");
+  });
+
   // 011: la tarjeta de un lead externo es un entrante que no escribió el
   // cliente (mismo criterio que agent-report-sql).
   const NOT_INTAKE = `"m"."type" <> 'lead_intake'`;

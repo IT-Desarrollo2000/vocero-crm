@@ -159,7 +159,7 @@ export function SummaryReportClient() {
 
           <ReportSection
             title="Pendientes de respuesta"
-            description="Personas cuyo último mensaje es suyo y nadie le ha respondido, al momento de generar el reporte."
+            description="Personas cuyo último mensaje es suyo y nadie le ha respondido, al momento de generar el reporte. No cuenta las marcadas como atendidas en la Bandeja."
             block={report?.pending}
             loading={loading}
           >
