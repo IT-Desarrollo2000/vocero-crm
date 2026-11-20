@@ -100,7 +100,10 @@ Unidad = **persona** = conversación real con ≥1 mensaje entrante en el rango.
 - **Por canal**: personas, mensajes, contestadas, atendidas.
 - **Por hora** = entrantes por hora local (0–23), sumando los días del rango.
 - **Pendientes de respuesta** = personas del rango cuyo **último mensaje es
-  entrante** y no tienen saliente posterior (al momento de generar).
+  entrante** y no tienen saliente posterior (al momento de generar). 037:
+  además la conversación debe seguir esperando (`awaiting_since` abierto), así
+  que no cuenta las marcadas como atendidas en la Bandeja («Marcar como
+  atendida» / «Devolver a la IA») hasta su próximo entrante.
   Máximo 20 filas: hora de llegada, canal, anuncio, nombre del contacto y
   enlace a la conversación (en pantalla; en el PDF sin enlace). Total aparte.
 - **Ventas**: resumen de 3.1 (ganadas, monto, tasa, ticket) con periodo

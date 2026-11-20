@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Login · contraseña visible</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2b4a46}a:hover{color:#1a1a1e}
+</style>
+</helmet>
+<div style="width: 480px; height: 620px; box-sizing: border-box; background: #fbfbfc; font-family: Geist, -apple-system, sans-serif; color: #1a1a1e; font-size: 14px; display: flex; align-items: center; justify-content: center; padding: 16px">
+  <div style="width: 384px; display: flex; flex-direction: column; gap: 32px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center">
+      <span style="width: 40px; height: 40px; border-radius: 6px; background: {{accent}}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px">M</span>
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em">Mueblería Demo</h1>
+        <p style="margin: 2px 0 0; font-size: 14px; color: #6b6b74">CRM de WhatsApp con agente de IA</p>
+      </div>
+    </div>
+    <div style="background: #ffffff; border: 1px solid #ecedf0; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.04)">
+      <div style="padding: 20px 20px 6px"><h2 style="margin: 0; font-size: 16px; font-weight: 600">Iniciar sesión</h2></div>
+      <form style="padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="v-email" style="font-size: 14px; font-weight: 500">Correo</label>
+          <input id="v-email" type="email" value="ana@muebleria-demo.mx" style="font: inherit; height: 36px; box-sizing: border-box; border: 1px solid #e0e1e6; border-radius: 6px; padding: 4px 12px; color: #1a1a1e; background: transparent">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="v-pass" style="font-size: 14px; font-weight: 500">Contraseña</label>
+          <div style="position: relative">
+            <input id="v-pass" type="text" value="Sala2026sur" style="font: inherit; width: 100%; height: 36px; box-sizing: border-box; border: 1px solid {{accent}}; box-shadow: 0 0 0 1px {{accent}}; border-radius: 6px; padding: 4px 44px 4px 12px; color: #1a1a1e; background: transparent">
+            <button type="button" aria-label="Ocultar contraseña" aria-pressed="true" style="position: absolute; top: 0; right: 0; width: 40px; height: 36px; border: 0; background: transparent; color: #1a1a1e; border-radius: 0 6px 6px 0; display: flex; align-items: center; justify-content: center; padding: 0">
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"></path><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"></path><path d="M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"></path><path d="m2 2 20 20"></path></svg>
+            </button>
+          </div>
+        </div>
+        <button type="button" style="font: inherit; font-weight: 500; height: 36px; border: 0; border-radius: 6px; background: {{accent}}; color: #ffffff">Entrar</button>
+      </form>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3f6b66","options":["#3f6b66","#3f5972","#25D366"]},"$preview":{"width":480,"height":620}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#3f6b66' };
+}
+}
+</script>
+</body>
+</html>

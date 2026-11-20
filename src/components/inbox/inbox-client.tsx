@@ -705,8 +705,23 @@ export function InboxClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => null);
-      if (res?.status === 404) closeLost(conversationId, false);
       refreshOne(conversationId);
+      // 037 — Avisar si no se guardó (como `setAi`); el 404 ya cierra el chat.
+      if (!res) {
+        setNotice("Sin conexión con el servidor.");
+      } else if (res.status === 404) {
+        closeLost(conversationId, false);
+      } else if (!res.ok) {
+        setNotice(
+          patch.attended
+            ? "No se pudo marcar como atendida. Vuelve a intentarlo."
+            : patch.reactivate
+              ? "No se pudo reactivar la IA."
+              : patch.aiEnabled
+                ? "No se pudo devolver el chat a la IA."
+                : "No se pudo pausar la IA."
+        );
+      }
     },
     [refreshOne, closeLost]
   );

@@ -177,7 +177,7 @@ async function browserLogin(page, email, password) {
   await page.getByLabel("Correo").waitFor();
   await waitHydrated(page, "form");
   await page.getByLabel("Correo").fill(email);
-  await page.getByLabel("Contraseña").fill(password);
+  await page.getByLabel("Contraseña", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar" }).click();
 }
 

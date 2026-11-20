@@ -542,7 +542,7 @@ function HowCounted({ tz, agenda }: { tz: string; agenda: boolean }) {
     ],
     [
       "Pendientes",
-      "personas de su cartera cuyo último mensaje es suyo y nadie le ha respondido, al momento de generar el reporte (la misma regla que el Resumen). La suma de todas las filas, con «Sin asignar», da los totales del Resumen.",
+      "personas de su cartera cuyo último mensaje es suyo y nadie le ha respondido, al momento de generar el reporte, sin las marcadas como atendidas en la Bandeja (la misma regla que el Resumen). La suma de todas las filas, con «Sin asignar», da los totales del Resumen.",
     ],
     [
       "Ventas",

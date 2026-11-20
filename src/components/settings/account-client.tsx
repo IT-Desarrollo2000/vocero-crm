@@ -7,6 +7,7 @@ import { roleLabel } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { useViewer } from "@/components/viewer-context";
 import { AlertsCard } from "@/components/alerts-menu";
@@ -181,9 +182,8 @@ function PasswordCard() {
         >
           <div className="space-y-1.5">
             <Label htmlFor="account-current">Contraseña actual</Label>
-            <Input
+            <PasswordInput
               id="account-current"
-              type="password"
               autoComplete="current-password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
@@ -192,9 +192,8 @@ function PasswordCard() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="account-new">Nueva contraseña</Label>
-              <Input
+              <PasswordInput
                 id="account-new"
-                type="password"
                 autoComplete="new-password"
                 placeholder="mínimo 8 caracteres"
                 value={next}
@@ -203,9 +202,8 @@ function PasswordCard() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="account-confirm">Repite la nueva</Label>
-              <Input
+              <PasswordInput
                 id="account-confirm"
-                type="password"
                 autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}

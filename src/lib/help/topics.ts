@@ -324,7 +324,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         tipo: "parrafo",
         titulo: "Quién está esperando",
         texto:
-          "En la vista «Por atender» ves a los clientes que esperan tu respuesta. El aviso «Esperando · …» se pone **rojo** cuando ya se atrasó. Cuando resuelvas, abre «Mostrar detalles» y haz clic en «Marcar como atendida»; te preguntará si sigues tú o se lo devuelves a la IA.",
+          "En la vista «Por atender» ves a los clientes que esperan tu respuesta. El aviso «Esperando · …» se pone **rojo** cuando ya se atrasó. Cuando resuelvas, abre «Mostrar detalles» y haz clic en «Marcar como atendida»; te preguntará si sigues tú o se lo devuelves a la IA. Si sale el aviso «No se pudo marcar como atendida», vuelve a intentarlo: el cliente sigue esperando hasta que se guarde.",
       },
       {
         tipo: "parrafo",

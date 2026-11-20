@@ -5737,6 +5737,46 @@ async function reportesVentasResumenChecks() {
     await browser?.close();
   }
 
+  /* ---------- 037: «Marcar como atendida» saca de pendientes ---------- */
+  // Al final del bloque (con la IA aún apagada): los conteos de arriba ya se
+  // comprobaron y el 024 toma sus propias fotos.
+  const q1Conv = leadDe("q1")?.conversationId;
+  const pendDe = (json) => json?.pending?.data;
+  // Las filas traen solo las 20 que más esperan: con menos, son todas.
+  const enFilas = (data, id) => (data?.rows ?? []).some((r) => r.conversationId === id);
+  const completas = (data) => (data?.rows?.length ?? 0) < 20;
+  const p0 = pendDe((await reporte021("summary")).json);
+  ok(
+    "037 (setup) q1 sigue pendiente antes de marcarla",
+    !!q1Conv && typeof p0?.total === "number" && (!completas(p0) || enFilas(p0, q1Conv)),
+    JSON.stringify({ q1Conv, total: p0?.total })
+  );
+  const atendida = await api(`/api/conversations/${q1Conv}`, {
+    method: "PATCH",
+    body: JSON.stringify({ attended: true }),
+  });
+  ok("037: «Marcar como atendida» a q1 → 200", atendida.res.ok, `${atendida.res.status} ${JSON.stringify(atendida.json)}`);
+  const p1 = pendDe((await reporte021("summary")).json);
+  ok(
+    "037: el Resumen deja de contarla (pendientes −1) y ya no está en las filas",
+    p1?.total === p0?.total - 1 && !enFilas(p1, q1Conv),
+    JSON.stringify({ antes: p0?.total, despues: p1?.total, enFilas: enFilas(p1, q1Conv) })
+  );
+  // Un entrante nuevo de q1 la vuelve a poner esperando.
+  await inbound({
+    from: tel(String(leads.findIndex((l) => l.k === "q1") + 1)),
+    name: nombre("q1"),
+    text: "¿me pueden ayudar?",
+    waMessageId: `wamid.e2e.037.${SUF}.q1b`,
+  });
+  await sleep(1200);
+  const p2 = pendDe((await reporte021("summary")).json);
+  ok(
+    "037: un entrante nuevo la devuelve a pendientes (+1)",
+    p2?.total === p0?.total && (!completas(p2) || enFilas(p2, q1Conv)),
+    JSON.stringify({ antes: p0?.total, ahora: p2?.total, enFilas: enFilas(p2, q1Conv) })
+  );
+
   await api("/api/agent/profile", { method: "PUT", body: JSON.stringify({ enabled: iaAntes }) });
 }
 

@@ -223,7 +223,9 @@ en el Buzón sin tomar». Haz clic en uno y te lleva a esos chats.
 **Quién está esperando:** en la vista «Por atender» ves a los clientes que
 esperan tu respuesta. El aviso «Esperando · …» se pone **rojo** cuando ya se
 atrasó. Cuando resuelvas, abre «Mostrar detalles» y haz clic en «Marcar como
-atendida»; te preguntará si sigues tú o se lo devuelves a la IA.
+atendida»; te preguntará si sigues tú o se lo devuelves a la IA. Si sale el
+aviso «No se pudo marcar como atendida», vuelve a intentarlo: el cliente sigue
+esperando hasta que se guarde.
 
 **Devolver y archivar:** si ya no puedes atender un chat tuyo, usa «Devolver
 al buzón». Con «Archivar» lo quitas de la lista; si el cliente vuelve a

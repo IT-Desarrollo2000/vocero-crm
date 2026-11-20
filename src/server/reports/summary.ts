@@ -515,8 +515,10 @@ group by 1`;
 
 /**
  * Pendientes de respuesta: personas del rango sin saliente no fallido
- * posterior a su ÚLTIMO entrante. La que más lleva esperando primero; `total`
- * = todas (la ventana se calcula antes del LIMIT).
+ * posterior a su ÚLTIMO entrante y que la Bandeja sigue viendo esperando
+ * (`awaiting_since` abierto): respeta «Marcar como atendida» y «Devolver a la
+ * IA». La que más lleva esperando primero; `total` = todas (la ventana se
+ * calcula antes del LIMIT).
  */
 export function pendingSql(p: SummaryReportParams): SQL {
   // Con las tarjetas: un lead externo sin atender SÍ está pendiente.
@@ -535,9 +537,15 @@ order by pend.last_in_at asc, pend.conversation_id asc
 limit ${SUMMARY_PENDING_MAX_ROWS}`;
 }
 
+const pc = alias(schema.conversation, "pc");
+const PC = sql`${schema.conversation} ${sql.identifier("pc")}`;
+
 /**
  * `pend` = personas (CTE `persons`, construido CON tarjetas) sin saliente no
- * fallido posterior a su ÚLTIMO entrante. `persons` = nombre de ese CTE.
+ * fallido posterior a su ÚLTIMO entrante Y con la conversación todavía
+ * esperando (`awaiting_since is not null`, el reloj de la Bandeja): la que se
+ * marcó como atendida («Marcar como atendida» / «Devolver a la IA») sale de
+ * pendientes hasta su próximo entrante. `persons` = nombre de ese CTE.
  */
 export function pendCte(p: SummaryReportParams, persons = "persons"): SQL {
   const col = (name: string) => sql.raw(`${persons}.${name}`);
@@ -545,6 +553,8 @@ export function pendCte(p: SummaryReportParams, persons = "persons"): SQL {
   select ${col("conversation_id")}, ${col("contact_id")}, ${col("channel")},
     li.last_in_at
   from ${sql.raw(persons)}
+  join ${PC} on ${pc.id} = ${col("conversation_id")}
+    and ${scoped(pc.organizationId, p.organizationId, sql`${pc.awaitingSince} is not null`)}
   join lateral (
     select max(li1.created_at) as last_in_at from ${MSG} li1
     where li1.organization_id = ${p.organizationId}
